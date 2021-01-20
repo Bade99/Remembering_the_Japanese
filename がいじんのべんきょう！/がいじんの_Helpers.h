@@ -18,6 +18,8 @@
 //"runtime" here means we guarantee this assertion will be executed in any build configuration with assertions enabled or not, since it's needed during runtime for the end user too
 #define runtime_assert(assertion,msg) if (!(assertion))MessageBoxW(0,msg,L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
 
+#define sqlite3_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+
 //----------------------STRING-----------------------:
 
 #define to_str(v) std::to_wstring(v)

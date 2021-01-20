@@ -57,18 +57,39 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found") + lf.lfFaceName).c_str());
 
-
+    //TODO(fran): global var work_folder that is set up on startup and stores, in this case, the path to appdata\our folder
 
     LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance(); lang_mgr.SetHInstance(hInstance);
-    constexpr cstr serialization_folder[] = L"\\がいじんのべんきょう！";
+
+    cstr* work_folder; defer{ free(work_folder); };
     {
-        const str to_deserialize = load_file_serialized(serialization_folder);
+        constexpr cstr app_folder[] = L"\\がいじんのべんきょう！";
+        PWSTR general_folder;
+        SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &general_folder);
+        size_t general_folder_sz = cstr_len(general_folder) * sizeof(*general_folder);
+        work_folder = (cstr*)malloc(general_folder_sz + sizeof(app_folder));
+        memcpy(work_folder, general_folder, general_folder_sz);
+        memcpy((void*)(((u8*)work_folder)[general_folder_sz]), app_folder, sizeof(app_folder));
+        CoTaskMemFree(general_folder);
+    }
+
+
+    {
+        const str to_deserialize = load_file_serialized(work_folder);
         _BeginDeserialize();
         _deserialize_struct(lang_mgr, to_deserialize);
         _deserialize_struct(unCap_colors, to_deserialize);
         default_colors_if_not_set(&unCap_colors);
         defer{ for (HBRUSH& b : unCap_colors.brushes) if (b) { DeleteObject(b); b = NULL; } };
     }
+
+    sqlite3* db;
+    constexpr cstr db_name[] = L"\\db";
+    str db_path = str(work_folder) + db_name; 
+
+    //TODO(fran): im king of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
+    int open_db_res = sqlite3_open16(db_path.c_str(), &db); defer{ sqlite3_close(db); };
+    sqlite3_runtime_assert(open_db_res,db);
 
     MSG msg;
     BOOL bRet;
@@ -87,7 +108,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         serialized += _serialize_struct(lang_mgr);
         serialized += _serialize_struct(unCap_colors);
 
-        save_to_file_serialized(serialized, serialization_folder);
+        save_to_file_serialized(serialized, work_folder);
     }
     return (int)msg.wParam;
 }
@@ -111,10 +132,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 //Bailing out and going with an already established db application, for the moment... : (it must be as "low friction" and simple/small as possible)
 
-//SQLite: very simple to add to a project and to use, it's 4 files and I think we only need 2, pretty close to 1
+//-SQLite: very simple to add to a project and to use, it's 4 files and I think we only need 2, pretty close to 1
 
-//Redis with a hash table may be another option, but it has one too many dependencies and many many many files
+//-Redis with a hash table may be another option, but it has one too many dependencies and many many many files
 
-//SQL compact doesnt look very c programmer friendly, more c# oriented
+//-SQL compact doesnt look very c programmer friendly, more c# oriented
+
+//Any of this solutions are going to be potentially slower than one I make for at least one reason, no concurrency, I only got one user editing their db at one time, so no mutex-like behaviour is needed, also I dont know whether I can make them work with utf16 instead of utf8, which incurs a translation cost, and a couple other reasons
 
 //NOTE: when the user requests us to make them remember that word we should do the same as if the word had just been created, show it after 1 day, after 3 days, etc
