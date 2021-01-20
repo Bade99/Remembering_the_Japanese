@@ -165,9 +165,11 @@
   <ItemGroup>
     <ClCompile Include="LANGUAGE_MANAGER.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="sqlite3.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="LANGUAGE_MANAGER.h" />
+    <ClInclude Include="sqlite3.h" />
     <ClInclude Include="unCap_button.h" />
     <ClInclude Include="unCap_Global.h" />
     <ClInclude Include="unCap_Math.h" />

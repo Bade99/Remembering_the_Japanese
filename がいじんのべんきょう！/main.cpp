@@ -19,6 +19,8 @@
 #include "unCap_Global.h"
 #include "LANGUAGE_MANAGER.h"
 
+#include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
+
 //----------------------Linker-----------------------:
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
 
@@ -93,7 +95,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 //What my database needs:
 //- "Selects" will be the heart of the program, there will be 2 main searches:
 //      -by the text string (mainly in japanese but could maybe be in the translated lang as well) 
-//      -by date (we want to pick the least recently shown words for the user to recall, and also the newest, I remember hearing that for words to stick the method is showing it at growing intervals: after 1 day then 3, 7, ... though I should read more on that)
+//      -by date (aka unix time) (we want to pick the least recently shown words for the user to recall, and also the newest, I remember hearing that for words to stick the method is to show them at growing intervals: 1 day after creation, then 3, 7, ... though I should read more on that)
 //      -Also we want to be able to hear from the user, say they search a word and ask us to remember it for them, in that case we have two options, add them to a list of priority or update some of it's date parameters to make it show up, not sure I love the second option since we'd have to forge values, also the priority list looks better for storing words that the user didnt get right when practicing
 //- "Updates" will be common since the date values will be changing often
 //- Third in commonality will be "inserts" of new words
@@ -107,4 +109,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 //I'd guess I'd prefer the db to exist entirely on ram (since even a huge db wont be much more than 100MB) and have a secondary thread that takes care of sending it back to disk when some condition is met. That would make it much easier to manage, no partitioning needed
 
-//Also Im looking at SQLite which looks to use simply a file that you open and that's it
+//Bailing out and going with an already established db application, for the moment... : (it must be as "low friction" and simple/small as possible)
+
+//SQLite: very simple to add to a project and to use, it's 4 files and I think we only need 2, pretty close to 1
+
+//Redis with a hash table may be another option, but it has one too many dependencies and many many many files
+
+//SQL compact doesnt look very c programmer friendly, more c# oriented
+
+//NOTE: when the user requests us to make them remember that word we should do the same as if the word had just been created, show it after 1 day, after 3 days, etc
