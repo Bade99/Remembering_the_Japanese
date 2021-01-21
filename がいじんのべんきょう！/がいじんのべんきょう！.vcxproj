@@ -168,6 +168,7 @@
     <ClCompile Include="sqlite3.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="lang.h" />
     <ClInclude Include="LANGUAGE_MANAGER.h" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="unCap_button.h" />
@@ -182,6 +183,7 @@
     <ClInclude Include="windows_sdk.h" />
     <ClInclude Include="がいじんの_Helpers.h" />
     <ClInclude Include="がいじんの_Platform.h" />
+    <ClInclude Include="がいじんの_べんきょう.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

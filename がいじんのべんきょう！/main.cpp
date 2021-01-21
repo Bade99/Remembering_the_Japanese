@@ -1,7 +1,7 @@
 ﻿//-------------------General TODOs-------------------:
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
-//TODO(fran): it may be a good idea to simply stop #including windows.h and instead just include specifically the files I want
 //TODO(fran): languages shouldnt be in the resource file, we should store them in separate files on the user's disc, check on startup for the langs available and load/unload the one the user wants
+//TODO(fran): get rid of languages from the resource file, we should create files for the langs we have, and then have the lang_mgr read the folder and retrieve all the files in it, that way we also get rid of the language enums, and extra langs can be easily added after the fact, we simply retrieve the name of the language either from the filename or the first line inside the file. On each language change we have lang_mgr load the needed file into memory and parse it, we can have a very simple format: each line contains a number that will be the key, then a tab or some other separator, and then the string, additionally to support things like line breaks we parse the string to find \n, \t, ... and convert it to the single character it wants to represent
 
 //-----------------Macro Definitions-----------------:
 #ifdef _DEBUG
@@ -17,9 +17,12 @@
 #include "がいじんの_Helpers.h"
 #include "unCap_Renderer.h"
 #include "unCap_Global.h"
+#include "lang.h"
 #include "LANGUAGE_MANAGER.h"
 
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
+
+#include "がいじんの_べんきょう.h"
 
 //----------------------Linker-----------------------:
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
@@ -58,6 +61,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found") + lf.lfFaceName).c_str());
 
     //TODO(fran): global var work_folder that is set up on startup and stores, in this case, the path to appdata\our folder
+    lang def_langs[] = {
+        { lang_english , lang_english_entries},
+        { lang_español , lang_español_entries},
+    };
 
     LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance(); lang_mgr.SetHInstance(hInstance);
 
@@ -83,13 +90,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         defer{ for (HBRUSH& b : unCap_colors.brushes) if (b) { DeleteObject(b); b = NULL; } };
     }
 
+    //NOTE: at least for now we'll only have one user, when the time comes and we feel that's needed we'll simply add an intermediate folder for each user into which a separate db will be stored
     sqlite3* db;
     constexpr cstr db_name[] = L"\\db";
     str db_path = str(work_folder) + db_name; 
 
-    //TODO(fran): im king of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
+    //TODO(fran): im kind of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
     int open_db_res = sqlite3_open16(db_path.c_str(), &db); defer{ sqlite3_close(db); };
-    sqlite3_runtime_assert(open_db_res,db);
+    sqliteok_runtime_assert(open_db_res,db);
 
     MSG msg;
     BOOL bRet;
@@ -140,4 +148,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 //Any of this solutions are going to be potentially slower than one I make for at least one reason, no concurrency, I only got one user editing their db at one time, so no mutex-like behaviour is needed, also I dont know whether I can make them work with utf16 instead of utf8, which incurs a translation cost, and a couple other reasons
 
-//NOTE: when the user requests us to make them remember that word we should do the same as if the word had just been created, show it after 1 day, after 3 days, etc
+//NOTE: when the user requests us to make them remember that word we should do the same as if the word had just been created, show it after 1 day, after 3 days, etc. Also this feature should discriminate between each possible translation, say one jp word has a noun and an adjective registered, then both should work as separate entities, aka the user can ask for one specific translation to be put on the priority queue, we got a "one to many" situation
+
+
+//NOTE: as an aside this application also servers as a test so see whether any part on the compilation/execution/version control pipeline fails due to the unusual japanese characters

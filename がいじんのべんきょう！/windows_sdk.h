@@ -17,7 +17,7 @@
 #define NOSERVICE
 #define NOSOUND
 #define NOWH
-#define NOWINOFFSETS
+//#define NOWINOFFSETS //Excludes SetWindowLongPtr,...
 #define NOHELP
 #define NOPROFILER
 #define NOMCX

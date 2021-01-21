@@ -54,6 +54,16 @@ void init_wndclass_unCap_button(HINSTANCE instance) {
 	Assert(class_atom);
 }
 
+struct pre_post_main_Button {
+	pre_post_main_Button(){
+		init_wndclass_unCap_button(GetModuleHandleW(NULL));
+	}
+	~pre_post_main_Button() { //INFO: you can also use the atexit function
+		//Classes are de-registered automatically by the os
+	}
+};
+static const pre_post_main_Button PREMAIN_POSTMAIN_BUTTON;
+
 ButtonProcState* UNCAPBTN_get_state(HWND hwnd) {
 	ButtonProcState* state = (ButtonProcState*)GetWindowLongPtr(hwnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	return state;

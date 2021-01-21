@@ -18,7 +18,11 @@
 //"runtime" here means we guarantee this assertion will be executed in any build configuration with assertions enabled or not, since it's needed during runtime for the end user too
 #define runtime_assert(assertion,msg) if (!(assertion))MessageBoxW(0,msg,L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
 
-#define sqlite3_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+//TODO(fran): this specific asserts are pretty stupid, when I understand sqlite better I should get rid of them
+//NOTE: Neither the caller nor us should bother freeing anything since the program is going to stop execution
+#define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1))).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+
+#define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
 
 //----------------------STRING-----------------------:
 
@@ -62,6 +66,39 @@ static size_t find_till_no_match(str s, size_t offset, str match) {
 		}
 	}
 	return p;
+}
+
+//INFO: For the string to be null-terminated sz must include the null terminator
+static utf16* convert_ascii_to_utf16(char* s, int sz) {
+	utf16* res=0;
+	int sz_char = MultiByteToWideChar(CP_ACP, 0, (LPCCH)s, sz, 0, 0);
+	if (sz_char) {
+		void* mem = VirtualAlloc(0, sz_char * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		if (mem) {
+			MultiByteToWideChar(CP_ACP, 0, (LPCCH)s, sz, (LPWSTR)mem, sz_char);
+			res = (decltype(res))mem;
+		}
+	}
+	return res;
+}
+
+//INFO: For the string to be null-terminated sz must include the null terminator
+static utf16* convert_utf8_to_utf16(utf8* s, int sz) {
+	utf16* res=0;
+	int sz_char = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s, sz, 0, 0);//NOTE: pre windows vista this may need a change
+	if (sz_char) {
+		void* mem = VirtualAlloc(0, sz_char * sizeof(*res), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		if (mem) {
+			MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s, sz, (LPWSTR)mem, sz_char);
+			res = (decltype(res))mem;
+			VirtualFree(mem, 0, MEM_RELEASE);
+		}
+	}
+	return res;
+}
+
+static void free_convert(void* converted_string) {
+	VirtualFree(converted_string, 0, MEM_RELEASE);
 }
 
 //----------------------DEFER-----------------------: (essential feature missing from the base language)
