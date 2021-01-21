@@ -60,12 +60,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found") + lf.lfFaceName).c_str());
 
-    //TODO(fran): global var work_folder that is set up on startup and stores, in this case, the path to appdata\our folder
-    lang def_langs[] = {
-        { lang_english , lang_english_entries},
-        { lang_español , lang_español_entries},
-    };
-
     LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance(); lang_mgr.SetHInstance(hInstance);
 
     cstr* work_folder; defer{ free(work_folder); };
@@ -80,6 +74,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         CoTaskMemFree(general_folder);
     }
 
+    str lang_folder = str(work_folder) + L"\\lang";
+
+    lang def_langs[] = {
+        { lang_english , lang_english_entries, sizeof(lang_english_entries)},
+        { lang_español , lang_español_entries, sizeof(lang_español_entries)},
+    };
+    save_to_file_langs(def_langs, ARRAYSIZE(def_langs), (utf16*)lang_folder.c_str());
 
     {
         const str to_deserialize = load_file_serialized(work_folder);

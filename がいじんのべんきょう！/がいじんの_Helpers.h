@@ -20,7 +20,7 @@
 
 //TODO(fran): this specific asserts are pretty stupid, when I understand sqlite better I should get rid of them
 //NOTE: Neither the caller nor us should bother freeing anything since the program is going to stop execution
-#define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1))).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+#define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).mem).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
 
 #define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
 
@@ -68,35 +68,62 @@ static size_t find_till_no_match(str s, size_t offset, str match) {
 	return p;
 }
 
+struct convert_res {
+	void* mem;
+	size_t sz;
+};
+
+
 //INFO: For the string to be null-terminated sz must include the null terminator
-static utf16* convert_ascii_to_utf16(char* s, int sz) {
-	utf16* res=0;
+static convert_res convert_ascii_to_utf16(const char* s, int sz /*bytes*/) {
+	using type = utf16;
+	convert_res res{0};
 	int sz_char = MultiByteToWideChar(CP_ACP, 0, (LPCCH)s, sz, 0, 0);
 	if (sz_char) {
-		void* mem = VirtualAlloc(0, sz_char * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		//TODO(fran): using parametric sizeof and decltype may not be the best idea, now we depend on the struct to not change say to void* if we wanted to have it be generic
+		void* mem = VirtualAlloc(0, sz_char * sizeof(type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 		if (mem) {
 			MultiByteToWideChar(CP_ACP, 0, (LPCCH)s, sz, (LPWSTR)mem, sz_char);
-			res = (decltype(res))mem;
+			res.mem = mem;
+			res.sz = sz_char * sizeof(type);
 		}
 	}
 	return res;
 }
 
 //INFO: For the string to be null-terminated sz must include the null terminator
-static utf16* convert_utf8_to_utf16(utf8* s, int sz) {
-	utf16* res=0;
+static convert_res convert_utf8_to_utf16(const utf8* s, int sz /*bytes*/) {
+	using type = utf16;
+	convert_res res{ 0 };
 	int sz_char = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s, sz, 0, 0);//NOTE: pre windows vista this may need a change
 	if (sz_char) {
-		void* mem = VirtualAlloc(0, sz_char * sizeof(*res), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		void* mem = VirtualAlloc(0, sz_char * sizeof(type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 		if (mem) {
 			MultiByteToWideChar(CP_UTF8, 0, (LPCCH)s, sz, (LPWSTR)mem, sz_char);
-			res = (decltype(res))mem;
-			VirtualFree(mem, 0, MEM_RELEASE);
+			res.mem = mem;
+			res.sz = sz_char * sizeof(type);
 		}
 	}
 	return res;
 }
 
+//INFO: For the string to be null-terminated sz must include the null terminator
+static convert_res convert_utf16_to_utf8(const utf16* s, int sz /*bytes*/) {
+	using type = utf8;
+	convert_res res{0};
+	int sz_char = WideCharToMultiByte(CP_UTF8, 0, s, sz / sizeof(*s), 0, 0, 0, 0);//NOTE: pre windows vista this may need a change
+	if (sz_char) {
+		void* mem = VirtualAlloc(0, sz_char * sizeof(type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		if (mem) {
+			WideCharToMultiByte(CP_UTF8, 0, s, sz / sizeof(*s), (LPSTR)mem, sz_char, 0, 0);
+			res.mem = mem;
+			res.sz = sz_char * sizeof(type);
+		}
+	}
+	return res;
+}
+
+//for the result from convert_utf8_to_utf16 and similar
 static void free_convert(void* converted_string) {
 	VirtualFree(converted_string, 0, MEM_RELEASE);
 }

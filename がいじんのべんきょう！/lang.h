@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include "がいじんの_Platform.h"
+#include "がいじんの_Helpers.h"
+#include <string>
 
 //Up to now we've been using the resource files (.rc) to store languages, this is annoying for a couple of reasons, that's why this file will define a new way to manage languages:
 //there will be a couple of default languages that are stored with the .exe similar to how .rc does it, we'll manually set up some map/array whatever to write the strings we need and their mapping, and on startup those will be sent to disc on some specified folder, once that's done the language manager will read those files, and any other in the same folder, from disk, it'll either load only the current language and go to disk each time it needs to swap, or it'll load everything and just switch in code
@@ -16,18 +18,22 @@
 struct lang { //Identifies a language that will be stored to disk by the application
 	const utf16* name;
 	const utf16* entries;
+	const int entries_sz;//bytes
 };
 
-void save_to_file_lang(lang langs, utf16* folder) {
-
+void save_to_file_lang(lang lang, utf16* folder) {
+	str filename = str(folder) + lang.name;
+	auto res = convert_utf16_to_utf8(lang.entries, lang.entries_sz); defer{ free_convert(res.mem); };
+	write_entire_file(filename.c_str(), res.mem, (u32)res.sz);
 }
 
 void save_to_file_langs(lang* langs, int cnt, utf16* folder) {
+	CreateDirectoryW(folder, 0); //Create the folder if it doesnt already exist, TODO(fran): recursive folder creation
 	for (int i = 0; i < cnt; i++)
 		save_to_file_lang(langs[i],folder);
 }
 
-#define lang_key_value_separator L"  "
+#define lang_key_value_separator L" "
 #define lang_newline L"\n"
 
 #define lang_make_utf16(quote) L##quote
