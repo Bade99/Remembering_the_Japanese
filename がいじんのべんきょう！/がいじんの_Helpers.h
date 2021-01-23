@@ -15,14 +15,16 @@
 #define Assert(assertion) 
 #endif
 
+//TODO(fran): for runtime asserts we could give the option to try to continue running anyway, if that were the case we must change the && for || and check against the return value of MessageBox
+
 //"runtime" here means we guarantee this assertion will be executed in any build configuration with assertions enabled or not, since it's needed during runtime for the end user too
-#define runtime_assert(assertion,msg) if (!(assertion))MessageBoxW(0,msg,L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+#define runtime_assert(assertion,msg) if (!(assertion))MessageBoxW(0,msg,L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
 //TODO(fran): this specific asserts are pretty stupid, when I understand sqlite better I should get rid of them
 //NOTE: Neither the caller nor us should bother freeing anything since the program is going to stop execution
-#define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).mem).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+#define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).mem).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
-#define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) || (*(int*)NULL = 0)==0
+#define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
 //----------------------STRING-----------------------:
 

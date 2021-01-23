@@ -26,15 +26,19 @@ _add_struct_to_serialization_namespace(べんきょうSettings)
 
 //This window will comprise of 4 main separate ones, as if they were in a tab control, in the sense only one will be shown at any single time, and there wont be any relationships between them
 
+//TODO(fran): should I use the hiragana column as primary key?
+
 constexpr char べんきょう_table_words[] = "words";
 constexpr char べんきょう_table_words_structure[] = 
 	"hiragana			TEXT UNIQUE NOT NULL COLLATE NOCASE," //hiragana or katakana
 	"kanji				TEXT COLLATE NOCASE,"
-	"translation		TEXT NOT NULL COLLATE NOCASE" //TODO(fran): this should actually be a list, so we need a separate table
+	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
 	"type				TEXT NOT NULL COLLATE NOCASE," //noun,verb,... TODO(fran): could use an enum and reference to another table
-	"creation_date		TEXT" //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
+	"creation_date		TEXT," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
 	"last_shown_date	INTEGER" //Unix Time, we dont care to show this value, it's simply for sorting
-	;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
+;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
+//INFO: the last line cant have a "," REMEMBER to put it or take it off
+
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -125,7 +129,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	void startup(ProcState* state) {
 		using namespace std::string_literals;
-		std::string create_work_table = "CREATE TABLE IF NOT EXISTS"s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ");"s; //INFO: the param that requests this expects utf8
+		std::string create_work_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ");"s; //INFO: the param that requests this expects utf8
 		char* create_errmsg;
 		sqlite3_exec(state->settings->db, create_work_table.c_str(), 0, 0, &create_errmsg);
 		sqlite_exec_runtime_assert(create_errmsg);
@@ -143,13 +147,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 		AWT(state->controls.landingpage.list.button_new, 5);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
-		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 		state->controls.landingpage.list.button_search = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 		AWT(state->controls.landingpage.list.button_new, 6);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
-		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+
+		for (auto ctl : state->controls.landingpage.all)
+			SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 
 		//TODO(fran): create the other "tabs"
 
@@ -182,12 +189,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int button_new_w = wnd_h;
 			int button_new_h = wnd_h;
 
-			int button_practice_x = button_new_x + button_new_w + w_pad;
+			int button_practice_x = button_new_x;
 			int button_practice_y = button_new_y + button_new_h + h_pad;
 			int button_practice_w= wnd_h;
 			int button_practice_h= wnd_h;
 
-			int button_search_x = button_practice_x + button_practice_w + w_pad;
+			int button_search_x = button_new_x;
 			int button_search_y = button_practice_y + button_practice_h + h_pad;
 			int button_search_w= wnd_h;
 			int button_search_h= wnd_h;
@@ -298,6 +305,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
+		case WM_GETTEXT:
+		{
+			return 0;
+		} break;
+		case WM_GETTEXTLENGTH:
+		{
+			return 0;
+		} break;
 		case WM_WINDOWPOSCHANGING:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -350,13 +365,9 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
-		case WM_GETTEXT:
+		case WM_PARENTNOTIFY:
 		{
-			return 0;
-		} break;
-		case WM_GETTEXTLENGTH:
-		{
-			return 0;
+			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		default:
 #ifdef _DEBUG

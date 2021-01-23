@@ -1,6 +1,7 @@
 ﻿//-------------------General TODOs-------------------:
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
 //TODO(fran): batch file for compiling that way too
+//TODO(fran): store a version number on the db in order to be able to update the tables in case of changes with different versions
 
 //-------------------Stuff I learnt-------------------:
 //If you have no .rc file and try to load something from it (eg LoadStringW) then the antivirus, in my case kaspersky, detects the exe as VHO:Exploit.Win32.Convagent.gen and sometimes it even says it's a Trojan
@@ -136,12 +137,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     //----------------Window Setup-----------------:
     RECT べんきょう_nc_rc = UNCAPNC_calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
+    べんきょう_cl.db = db;
 
     unCapNcLpParam べんきょう_nclpparam;
     べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
     べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
 
-    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, app_name, WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
     Assert(べんきょう_nc);
 
