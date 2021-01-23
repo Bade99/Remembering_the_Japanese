@@ -32,6 +32,9 @@
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
 #pragma comment(lib,"comctl32.lib") //loadiconmetric (commctrl.h)
 
+//INFO: this is actually necessary, if you simply link to comctl32.lib you'll get runtime errors of "ordinals not found", in my case ordinal 380, TODO(fran): what we could do is lower the version to allow from more systems to run the sw, other thing would be making my own loadiconmetric, that's the only function that complained that I had to link
+#pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"") //for multiline edit control
+
 //----------------------Globals----------------------:
 i32 n_tabs = 0;//Needed for serialization
 
