@@ -458,7 +458,6 @@ static void SetText_txt_app(HWND wnd, const cstr* new_txt, const cstr* new_appna
 
 //----------------------FONT-----------------------:
 #include <vector>		//TODO(fran): get rid of
-//#include <algorithm>	//TODO(fran): get rid of
 static str GetApp_FontFaceName() {
 	//Font guidelines: https://docs.microsoft.com/en-us/windows/win32/uxguide/vis-fonts
 	//Stock fonts: https://docs.microsoft.com/en-us/windows/win32/gdi/using-a-stock-font-to-draw-text

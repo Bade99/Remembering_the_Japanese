@@ -11,6 +11,7 @@
 #include "unCap_Serialization.h"
 #include "unCap_Reflection.h"
 #include "windows_msg_mapper.h"
+//#include "resource.h" //TODO(fran): we shouldnt need this
 
 // ------------------------ USAGE NOTES ------------------------ //
 // - If you need menus to resize, for example when you change languages
@@ -34,8 +35,6 @@
 #define UNCAPNC_TIMER_MENUDELAY 0xf1 //A little delay before allowing the user to select a new menu, this prevents problems, eg the user trying to close the menu by selecting it again in the menu bar
 
 //TODO(fran): look at SetWindowLong(hWnd, GWL_STYLE, currStyles | WS_MAXIMIZE); maybe that helps with maximizing correctly?
-
-constexpr cstr unCap_wndclass_uncap_nc[] = L"unCap_wndclass_uncap_nc"; //Non client uncap
 
 struct unCapNcLpParam {//NOTE: pass a pointer to unCapNcLpParam to set up the client area, if client_class_name is null no client is created
 	const cstr* client_class_name;
@@ -192,18 +191,18 @@ void UNCAPNC_show_rclickmenu(unCapNcProcState* state, POINT mouse) {
 	AppendMenuW(m, MF_POPUP | MF_OWNERDRAW, (UINT_PTR)subm, (LPCWSTR)m);
 
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_RESTORE, (LPCWSTR)subm);
-	SetMenuItemString(subm, UNCAPNC_RESTORE, FALSE, RCS(LANG_NC_RESTORE));
+	SetMenuItemString(subm, UNCAPNC_RESTORE, FALSE, RCS(0));
 
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_MINIMIZE, (LPCWSTR)subm);
-	SetMenuItemString(subm, UNCAPNC_MINIMIZE, FALSE, RCS(LANG_NC_MINIMIZE));
+	SetMenuItemString(subm, UNCAPNC_MINIMIZE, FALSE, RCS(1));
 
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_MAXIMIZE, (LPCWSTR)subm);
-	SetMenuItemString(subm, UNCAPNC_MAXIMIZE, FALSE, RCS(LANG_NC_MAXIMIZE));
+	SetMenuItemString(subm, UNCAPNC_MAXIMIZE, FALSE, RCS(2));
 
 	AppendMenuW(subm, MF_SEPARATOR | MF_OWNERDRAW, 0, (LPCWSTR)subm);
 
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_CLOSE, (LPCWSTR)subm);
-	SetMenuItemString(subm, UNCAPNC_CLOSE, FALSE, RCS(LANG_NC_CLOSE));
+	SetMenuItemString(subm, UNCAPNC_CLOSE, FALSE, RCS(3));
 
 	MENUINFO mi{ sizeof(mi) };
 	mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
@@ -447,9 +446,9 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		state->btn_close = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP, btn_close_rc.left, btn_close_rc.top, RECTWIDTH(btn_close_rc), RECTHEIGHT(btn_close_rc), state->wnd, (HMENU)UNCAPNC_CLOSE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_close, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		HBITMAP bCross = LoadBitmap(GetModuleHandle(NULL), MAKEINTRESOURCE(UNCAP_BMP_CLOSE));//TODO(fran): let the user set this guys, store them in state
-		HBITMAP bMax = LoadBitmap(GetModuleHandle(NULL), MAKEINTRESOURCE(UNCAP_BMP_MAX));
-		HBITMAP bMin = LoadBitmap(GetModuleHandle(NULL), MAKEINTRESOURCE(UNCAP_BMP_MIN));
+		HBITMAP bCross = unCap_bmps.close;//TODO(fran): let the user set this guys, store them in state
+		HBITMAP bMax = unCap_bmps.maximize;
+		HBITMAP bMin = unCap_bmps.minimize;
 		SendMessage(state->btn_close, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bCross);
 		SendMessage(state->btn_max, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMax);
 		SendMessage(state->btn_min, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMin);
@@ -896,8 +895,8 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 					}
 
 					if (menu_type.hSubMenu) { //Draw the submenu arrow
-						HBITMAP mask = LoadBitmap(GetModuleHandle(NULL), MAKEINTRESOURCE(UNCAP_BMP_RIGHTARROW)); //TODO(fran): parametric
-						defer{ DeleteBitmap(mask); };
+						HBITMAP mask = unCap_bmps.arrow_right; //TODO(fran): parametric
+						//defer{ DeleteBitmap(mask); };
 						BITMAP bmpnfo; GetObject(mask, sizeof(bmpnfo), &bmpnfo); Assert(bmpnfo.bmBitsPixel == 1);
 						int img_max_x = GetSystemMetrics(SM_CXMENUCHECK);
 						int img_max_y = RECTHEIGHT(item->rcItem);
@@ -1345,23 +1344,41 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	return 0;
 }
 
-ATOM init_wndclass_unCap_uncapnc(HINSTANCE inst) {
-	WNDCLASSEXW wcex;
 
-	wcex.cbSize = sizeof(WNDCLASSEX);
-	wcex.style = CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc = UncapNcProc;
-	wcex.cbClsExtra = 0;
-	wcex.cbWndExtra = sizeof(unCapNcProcState*);
-	wcex.hInstance = inst;
-	wcex.hIcon = LoadIcon(inst, MAKEINTRESOURCE(ICO_APP_LOGO)); //TODO(fran): LoadImage to choose the best size
-	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-	wcex.hbrBackground = NULL;
-	wcex.lpszMenuName = 0;
-	wcex.lpszClassName = unCap_wndclass_uncap_nc;
-	wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(ICO_APP_LOGO)); //TODO(fran): LoadImage to choose the best size
+namespace nc{
+	constexpr cstr wndclass[] = L"unCap_wndclass_uncap_nc"; //Non client window
 
-	ATOM class_atom = RegisterClassExW(&wcex);
-	Assert(class_atom);
-	return class_atom;
+
+	void init_wndclass(HINSTANCE inst) {
+		WNDCLASSEXW wcex;
+		HICON ico{0};// LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_LARGE, &ico); //TODO(fran): this two need freeing via  DestroyIcon, possibly on post_main
+		HICON ico_sm{0};// LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_SMALL, &ico_sm);
+
+		wcex.cbSize = sizeof(WNDCLASSEX);
+		wcex.style = CS_HREDRAW | CS_VREDRAW;
+		wcex.lpfnWndProc = UncapNcProc;
+		wcex.cbClsExtra = 0;
+		wcex.cbWndExtra = sizeof(unCapNcProcState*);
+		wcex.hInstance = inst;
+		wcex.hIcon = ico; //TODO(fran): LoadImage to choose the best size
+		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+		wcex.hbrBackground = NULL;
+		wcex.lpszMenuName = 0;
+		wcex.lpszClassName = wndclass;
+		wcex.hIconSm = ico_sm; //TODO(fran): LoadImage to choose the best size
+
+		ATOM class_atom = RegisterClassExW(&wcex);
+		Assert(class_atom);
+	}
+
+
+	struct pre_post_main {
+		pre_post_main() {
+			init_wndclass(GetModuleHandleW(NULL));
+		}
+		~pre_post_main() { //INFO: you can also use the atexit function
+			//Classes are de-registered automatically by the os
+		}
+	};
+	static const pre_post_main PREMAIN_POSTMAIN;
 }

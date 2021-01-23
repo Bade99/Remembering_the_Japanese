@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 #include "windows_sdk.h"
 #include "unCap_Reflection.h"
 #include "unCap_Serialization.h"
 
-constexpr cstr app_name[] = L"MyPass";
+constexpr cstr app_name[] = L"がいじんのべんきょう！";
 
 union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 	struct {
@@ -36,7 +36,7 @@ union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 		foreach_color(_generate_member_no_default_init);
 
 	};
-	HBRUSH brushes[0 + foreach_color(_generate_count)];
+	HBRUSH all[0 + foreach_color(_generate_count)];
 
 	_generate_default_struct_serialize(foreach_color);
 
@@ -56,7 +56,29 @@ union UNCAP_FONTS {
 		HFONT General;
 		HFONT Menu;
 	};
-	HFONT fonts[2];//REMEMBER to update
+	HFONT all[2];//REMEMBER to update
+
+	//NOTE: this checks for the lower bound, if all is bigger than the elements the assert wont trigger, I havent yet found a way to do the correct check, which would be against the struct, without having to put a name to it and thus destroying the whole point of it
+private: void _(){ static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
 };
 
 extern UNCAP_FONTS unCap_fonts;
+
+//TODO(fran): now we could do the same we do with langs and colors with the bitmaps, though we really need some sort of version checking, say the user wants to change the bitmaps, they wont be able to if we write them to disk each time
+//	one solution can be to write the version say on the first 16 characters, eg 0000000000000001, with that we can check, and also we could add a no_update flag, eg 00000dont_update so the user can forget about getting their imgs overridden
+union UNCAP_BMPS { //1bpp 16x16 bitmaps
+	struct {
+		HBITMAP close;
+		HBITMAP maximize;
+		HBITMAP minimize;
+		HBITMAP arrow_right;
+		HBITMAP tick;
+		HBITMAP dropdown;
+		HBITMAP circle;
+	};
+	HBITMAP all[7];//REMEMBER to update
+
+private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
+};
+
+extern UNCAP_BMPS unCap_bmps;

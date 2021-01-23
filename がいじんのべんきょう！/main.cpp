@@ -1,14 +1,16 @@
 ﻿//-------------------General TODOs-------------------:
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
-//TODO(fran): languages shouldnt be in the resource file, we should store them in separate files on the user's disc, check on startup for the langs available and load/unload the one the user wants
-//TODO(fran): get rid of languages from the resource file, we should create files for the langs we have, and then have the lang_mgr read the folder and retrieve all the files in it, that way we also get rid of the language enums, and extra langs can be easily added after the fact, we simply retrieve the name of the language either from the filename or the first line inside the file. On each language change we have lang_mgr load the needed file into memory and parse it, we can have a very simple format: each line contains a number that will be the key, then a tab or some other separator, and then the string, additionally to support things like line breaks we parse the string to find \n, \t, ... and convert it to the single character it wants to represent
+//TODO(fran): batch file for compiling that way too
+
+//-------------------Stuff I learnt-------------------:
+//If you have no .rc file and try to load something from it (eg LoadStringW) then the antivirus, in my case kaspersky, detects the exe as VHO:Exploit.Win32.Convagent.gen and sometimes it even says it's a Trojan
+//IMPORTANT: Unsurprisingly enough the biggest problem I had by using japanese on my paths and files was with the Resource editor, it seems to always default to ascii and write paths in ascii also, which means you cant get to your files!!! If I ever get someone else working on this I must change the way I handle it right now, which is basically writing the .rc file myself, also I cant ever add something to that rc or what I wrote to fix it will be overriden. One idea I got was setting the lang for the resource, say I add an icon, then if I say that icon belongs to the japanese lang it might then use the correct codepage and get the correct filepath. As an extra im now very confused about the .rc files, people say you should version control them but they clearly have my filepath hardcoded in there, so other people will have theirs, that's a recipe for disaster in my book. I should probably try with the resx format, maybe you have more control over that one
 
 //-----------------Macro Definitions-----------------:
 #ifdef _DEBUG
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
 #endif
-
 
 //---------------------Includes----------------------:
 #include "windows_sdk.h"
@@ -18,10 +20,12 @@
 #include "unCap_Renderer.h"
 #include "unCap_Global.h"
 #include "lang.h"
+#include "img.h"
 #include "LANGUAGE_MANAGER.h"
 
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
 
+#include "unCap_nonclient.h"
 #include "がいじんの_べんきょう.h"
 
 //----------------------Linker-----------------------:
@@ -31,14 +35,13 @@
 i32 n_tabs = 0;//Needed for serialization
 
 UNCAP_COLORS unCap_colors{ 0 };
-UNCAP_FONTS unCap_fonts{ 0 }; //TODO(fran): font info should be saved and end user editable
+UNCAP_FONTS unCap_fonts{ 0 }; //TODO(fran): font info should be saved and be end user editable
+UNCAP_BMPS unCap_bmps{ 0 };
 
 //-------------Application Entry Point---------------:
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
 
-    urender::init(); defer{ urender::uninit(); }; //TODO(fran): this shouldnt be needed
-
-
+    //-------------Debug Output Console-------------:
 #ifdef _SHOWCONSOLE
     AllocConsole();
     FILE* ___s; defer{ fclose(___s); };
@@ -47,21 +50,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     freopen_s(&___s, "CONOUT$", "w", stderr);
 #endif
 
-
+    //-----------------Font Setup------------------:
     LOGFONTW lf{ 0 };
     lf.lfQuality = CLEARTYPE_QUALITY;
     lf.lfHeight = -15;//TODO(fran): parametric
     //INFO: by default if faceName is not set then "Modern" is used, looks good but lacks some charsets
     StrCpyNW(lf.lfFaceName, GetApp_FontFaceName().c_str(), ARRAYSIZE(lf.lfFaceName));
 
-    unCap_fonts.General = CreateFontIndirect(&lf); runtime_assert(unCap_fonts.General, (str(L"Font not found")+ lf.lfFaceName).c_str()); //TODO(fran): add a runtime_msg that does exactly the same as runtime_assert except for crashing
+    unCap_fonts.General = CreateFontIndirect(&lf); runtime_assert(unCap_fonts.General, (str(L"Font not found: ")+ lf.lfFaceName).c_str()); //TODO(fran): add a runtime_msg that does exactly the same as runtime_assert except for crashing
 
     lf.lfHeight = (LONG)((float)GetSystemMetrics(SM_CYMENU) * .85f); //TODO(fran): why isnt this negative?
 
-    unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found") + lf.lfFaceName).c_str());
+    unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
 
-    LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance(); lang_mgr.SetHInstance(hInstance);
+    defer{ for (auto& f : unCap_fonts.all) if (f) { DeleteObject(f); f = NULL; } };
 
+    //----------------Bitmap Setup-----------------:
+    //INFO: use CreateBitmap for monochrome ones, and CreateCompatibleBitmap for color
+#define create_unCap_bmps(bmp) unCap_bmps.bmp = CreateBitmap(bmp.w, bmp.h,1,bmp.bpp,bmp.mem); runtime_assert(unCap_bmps.bmp,(str(L"Failed to create bitmap: ") + L#bmp).c_str()) /*TODO(fran): very ugly, but I need to assert on the result of CreateBmp*/
+
+    create_unCap_bmps(close);
+    create_unCap_bmps(maximize);
+    create_unCap_bmps(minimize);
+    create_unCap_bmps(tick);
+    create_unCap_bmps(arrow_right);
+    create_unCap_bmps(dropdown);
+    create_unCap_bmps(circle);
+
+    defer{ for (auto& bmp : unCap_bmps.all) if(bmp){ DeleteObject(bmp); bmp = NULL; } };
+
+    //----------------Work Folder Setup-----------------:
     cstr* work_folder; defer{ free(work_folder); };
     {
         constexpr cstr app_folder[] = L"\\がいじんのべんきょう！";
@@ -70,27 +88,39 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         size_t general_folder_sz = cstr_len(general_folder) * sizeof(*general_folder);
         work_folder = (cstr*)malloc(general_folder_sz + sizeof(app_folder));
         memcpy(work_folder, general_folder, general_folder_sz);
-        memcpy((void*)(((u8*)work_folder)[general_folder_sz]), app_folder, sizeof(app_folder));
+        memcpy((void*)(((u8*)work_folder)+general_folder_sz), app_folder, sizeof(app_folder));
         CoTaskMemFree(general_folder);
     }
+    CreateDirectoryW(work_folder, 0);
 
-    str lang_folder = str(work_folder) + L"\\lang";
+    //-----------------Language Setup------------------:
+    LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance();
+    {
+        str lang_folder = str(work_folder) + L"\\lang";
 
-    lang def_langs[] = {
-        { lang_english , lang_english_entries, sizeof(lang_english_entries)},
-        { lang_español , lang_español_entries, sizeof(lang_español_entries)},
-    };
-    save_to_file_langs(def_langs, ARRAYSIZE(def_langs), (utf16*)lang_folder.c_str());
+        def_lang def_langs[] = {
+            { lang_english , lang_english_entries, sizeof(lang_english_entries)},
+            { lang_español , lang_español_entries, sizeof(lang_español_entries)},
+        };
+        save_to_file_langs(def_langs, ARRAYSIZE(def_langs), (utf16*)lang_folder.c_str());//TODO(fran): having to write to disk every time is kind of annoying and slow
 
+        lang_mgr.SetLanguageFolder(std::move(lang_folder));
+    }
+
+    //-----------------Deserialization------------------:
+    べんきょうSettings べんきょう_cl;
     {
         const str to_deserialize = load_file_serialized(work_folder);
         _BeginDeserialize();
         _deserialize_struct(lang_mgr, to_deserialize);
+        _deserialize_struct(べんきょう_cl, to_deserialize);
         _deserialize_struct(unCap_colors, to_deserialize);
         default_colors_if_not_set(&unCap_colors);
-        defer{ for (HBRUSH& b : unCap_colors.brushes) if (b) { DeleteObject(b); b = NULL; } };
     }
+    defer{ for (auto& br : unCap_colors.all) if (br) { DeleteObject(br); br = NULL; } };
 
+
+    //------------------Database Setup-------------------:
     //NOTE: at least for now we'll only have one user, when the time comes and we feel that's needed we'll simply add an intermediate folder for each user into which a separate db will be stored
     sqlite3* db;
     constexpr cstr db_name[] = L"\\db";
@@ -100,6 +130,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     int open_db_res = sqlite3_open16(db_path.c_str(), &db); defer{ sqlite3_close(db); };
     sqliteok_runtime_assert(open_db_res,db);
 
+    //----------------Window Setup-----------------:
+    RECT べんきょう_nc_rc = UNCAPNC_calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
+
+    unCapNcLpParam べんきょう_nclpparam;
+    べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
+    べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
+
+    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, app_name, WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
+    Assert(べんきょう_nc);
+
+    UpdateWindow(べんきょう_nc);
+
+    //------------------Main Loop-------------------:
     MSG msg;
     BOOL bRet;
 
@@ -111,6 +155,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         DispatchMessage(&msg);
     }
 
+    //----------------Serialization-----------------:
     {
         str serialized;
         _BeginSerialize();
@@ -119,6 +164,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
         save_to_file_serialized(serialized, work_folder);
     }
+
     return (int)msg.wParam;
 }
 
