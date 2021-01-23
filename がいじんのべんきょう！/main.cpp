@@ -143,9 +143,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
     べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
 
+    //TODO(fran): change the non client font, the default looks awful for japanese
+
     HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
     Assert(べんきょう_nc);
+
+    べんきょう::set_brushes(UNCAPNC_get_state(べんきょう_nc)->client, TRUE, unCap_colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
 
     UpdateWindow(べんきょう_nc);
 

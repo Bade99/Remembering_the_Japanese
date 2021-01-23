@@ -8,6 +8,8 @@
 #include "unCap_button.h"
 #include "LANGUAGE_MANAGER.h"
 
+//TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
+
 struct べんきょうSettings {
 
 #define foreach_べんきょうSettings_member(op) \
@@ -44,6 +46,10 @@ struct べんきょうProcState {
 	HWND wnd;
 	HWND nc_parent;
 	べんきょうSettings* settings;
+
+	struct {
+		HBRUSH bk;
+	} brushes;
 
 	enum page { //This wnd will be managed in pages instead of launching separate windows for different tasks, like a browser
 		landing,
@@ -127,6 +133,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);
 	}
 
+	//NOTE: any NULL HBRUSH remains unchanged
+	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (bk) state->brushes.bk = bk;
+			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
 	void startup(ProcState* state) {
 		using namespace std::string_literals;
 		std::string create_work_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ");"s; //INFO: the param that requests this expects utf8
@@ -145,13 +160,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 		state->controls.landingpage.list.button_practice = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		AWT(state->controls.landingpage.list.button_new, 5);
+		AWT(state->controls.landingpage.list.button_practice, 5);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 		state->controls.landingpage.list.button_search = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		AWT(state->controls.landingpage.list.button_new, 6);
+		AWT(state->controls.landingpage.list.button_search, 6);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
@@ -183,19 +198,22 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int max_h = h - pad_cnt * h_pad;
 			int max_w = w - 2 * w_pad;
 			int wnd_h = clamp(0, max_h / wnd_cnt, max_w);
+			int wnd_w = wnd_h;
+			int wnd_x = (w - wnd_w) / 2;
+			int h_step = (h - (wnd_h*wnd_cnt)) / pad_cnt;
 
-			int button_new_x = w_pad;
-			int button_new_y = h_pad;
+			int button_new_x = wnd_x;
+			int button_new_y = h_step;
 			int button_new_w = wnd_h;
 			int button_new_h = wnd_h;
 
-			int button_practice_x = button_new_x;
-			int button_practice_y = button_new_y + button_new_h + h_pad;
+			int button_practice_x = wnd_x;
+			int button_practice_y = button_new_y + button_new_h + h_step;
 			int button_practice_w= wnd_h;
 			int button_practice_h= wnd_h;
 
-			int button_search_x = button_new_x;
-			int button_search_y = button_practice_y + button_practice_h + h_pad;
+			int button_search_x = wnd_x;
+			int button_search_y = button_practice_y + button_practice_h + h_step;
 			int button_search_w= wnd_h;
 			int button_search_h= wnd_h;
 
@@ -327,7 +345,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		} break;
 		case WM_ERASEBKGND:
 		{
-			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): or return 1, idk
+			LRESULT res;
+			if (state->brushes.bk) {
+				//TODO(fran): idk if WS_CLIPCHILDREN | WS_CLIPSIBLINGS automatically clip that regions when I draw or I have to do it manually to avoid flicker
+				HDC dc = (HDC)wparam;
+				RECT r; GetClientRect(state->wnd, &r);
+				FillRect(dc, &r, state->brushes.bk);
+				res = 1;//We erased the bk
+			}
+			else res = DefWindowProc(hwnd, msg, wparam, lparam);
+			return res;
 		} break;
 		case WM_PAINT:
 		{
@@ -379,7 +406,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return 0;
 	}
 
-	void init_wndclass(HINSTANCE inst) {
+	void init_wndclass(HINSTANCE inst) { //INFO: now that we use pre_post_main we cant depend on anything that isnt calculated at compile time
 		WNDCLASSEXW wcex;
 
 		wcex.cbSize = sizeof(wcex);
@@ -390,7 +417,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		wcex.hInstance = inst;
 		wcex.hIcon = 0;
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		wcex.hbrBackground = unCap_colors.ControlBk;
+		wcex.hbrBackground = 0; //TODO(fran): unCap_colors.ControlBk hasnt been deserialized by the point pre_post_main gets executed!
 		wcex.lpszMenuName = 0;
 		wcex.lpszClassName = wndclass;
 		wcex.hIconSm = 0;
