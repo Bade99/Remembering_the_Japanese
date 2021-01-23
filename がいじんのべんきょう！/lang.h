@@ -40,8 +40,6 @@ struct lang_mapper { //Identifies a usable language string mapping table
 
 //TODO(fran): lang_日本語
 
-//INFO: ways of embedding additional files at compile time http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p1040r6.html
-
 constexpr static utf16 lang_english[] = L"English";
 constexpr static utf16 lang_español[] = L"Español";
 

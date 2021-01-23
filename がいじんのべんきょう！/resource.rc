@@ -1,6 +1,5 @@
 // Microsoft Visual C++ generated resource script.
 //
-#pragma code_page(65001) // UTF-8 //As always Raymond to the rescue https://devblogs.microsoft.com/oldnewthing/20190607-00/?p=102569
 #include "resource.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
@@ -14,10 +13,31 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
+// Neutral resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_NEU)
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+#pragma code_page(1252)
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+ICO_LOGO                ICON                    "C:\\Users\\Brenda-Vero-Frank\\source\\repos\\Remembering_the_Japanese\\assets\\logo.ico"
+
+#endif    // Neutral resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////////////////////////
 // Spanish (Spain, International Sort) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ESN)
 LANGUAGE LANG_SPANISH, SUBLANG_SPANISH_MODERN
+#pragma code_page(1252)
 
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
@@ -27,43 +47,24 @@ LANGUAGE LANG_SPANISH, SUBLANG_SPANISH_MODERN
 
 1 TEXTINCLUDE 
 BEGIN
-    L"resource.h\0"
+    "resource.h\0"
 END
 
 2 TEXTINCLUDE 
 BEGIN
-    L"#include ""winres.h""\r\n"
-    L"\0"
+    "#include ""winres.h""\r\n"
+    "\0"
 END
 
 3 TEXTINCLUDE 
 BEGIN
-    L"\r\n"
-    L"\0"
+    "\r\n"
+    "\0"
 END
 
 #endif    // APSTUDIO_INVOKED
 
 #endif    // Spanish (Spain, International Sort) resources
-/////////////////////////////////////////////////////////////////////////////
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Spanish (Argentina) resources
-
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ESS)
-LANGUAGE LANG_SPANISH, SUBLANG_SPANISH_ARGENTINA
-
-/////////////////////////////////////////////////////////////////////////////
-//
-// Icon
-//
-
-// Icon with lowest ID value placed first to ensure application icon
-// remains consistent on all systems.
-IDI_ICON1               ICON                    L"C:\\Users\\Brenda-Vero-Frank\\source\\repos\\がいじんのべんきょう！\\assets\\logo.ico"
-
-#endif    // Spanish (Argentina) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

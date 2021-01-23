@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "がいじんの_Platform.h"
 
+//INFO: ways of embedding additional files at compile time http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p1040r6.html
+
 //INFO: interesting visual effect, scrolling the text while watching the "image" makes it easier to see it
 //TODO(fran): auto exporter, .exe that checks every file in its current folder and tries, if it knows how, to convert it and generates .h files, 
 //	eg maximize.bmp -> maximize.h and inside has a constexpr short maximize[16] = {...}; (if the bmp is 1bpp 16x16), another option is that it simply contains the content: 0b1111'1111'1111'1111 ... and you can then constexpr short maximize[16] = { #include"gen/maximize.h" };

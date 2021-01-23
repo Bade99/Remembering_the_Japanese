@@ -7,7 +7,7 @@
 #include "unCap_Global.h"
 #include "unCap_Renderer.h"
 #include "unCap_button.h"
-//#include "resource.h" //TODO(fran): everything that we take from the resources must be parameterized
+#include "resource.h" //TODO(fran): everything that we take from the resources must be parameterized
 #include "unCap_Serialization.h"
 #include "unCap_Reflection.h"
 #include "windows_msg_mapper.h"
@@ -1351,8 +1351,8 @@ namespace nc{
 
 	void init_wndclass(HINSTANCE inst) {
 		WNDCLASSEXW wcex;
-		HICON ico{0};// LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_LARGE, &ico); //TODO(fran): this two need freeing via  DestroyIcon, possibly on post_main
-		HICON ico_sm{0};// LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_SMALL, &ico_sm);
+		HICON ico; LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_LARGE, &ico); //TODO(fran): this two need freeing via  DestroyIcon, possibly on post_main
+		HICON ico_sm; LoadIconMetric(inst, MAKEINTRESOURCE(ICO_LOGO), LIM_SMALL, &ico_sm);
 
 		wcex.cbSize = sizeof(WNDCLASSEX);
 		wcex.style = CS_HREDRAW | CS_VREDRAW;

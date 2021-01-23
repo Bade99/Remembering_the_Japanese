@@ -4,7 +4,7 @@
 
 //-------------------Stuff I learnt-------------------:
 //If you have no .rc file and try to load something from it (eg LoadStringW) then the antivirus, in my case kaspersky, detects the exe as VHO:Exploit.Win32.Convagent.gen and sometimes it even says it's a Trojan
-//IMPORTANT: Unsurprisingly enough the biggest problem I had by using japanese on my paths and files was with the Resource editor, it seems to always default to ascii and write paths in ascii also, which means you cant get to your files!!! If I ever get someone else working on this I must change the way I handle it right now, which is basically writing the .rc file myself, also I cant ever add something to that rc or what I wrote to fix it will be overriden. One idea I got was setting the lang for the resource, say I add an icon, then if I say that icon belongs to the japanese lang it might then use the correct codepage and get the correct filepath. As an extra im now very confused about the .rc files, people say you should version control them but they clearly have my filepath hardcoded in there, so other people will have theirs, that's a recipe for disaster in my book. I should probably try with the resx format, maybe you have more control over that one (Extra extra note, thanks to putting the assets folder outside new devs can get their .rc file to work without problem, the path will only contain ascii, look at the github page if you dont understand why)
+//IMPORTANT: Unsurprisingly enough the biggest problem I had by using japanese on my paths and files was with the Resource editor, it seems to always default to ascii and write paths in ascii also, which means you cant get to your files!!! If I ever get someone else working on this I must change the way I handle it right now, which is basically writing the .rc file myself, also I cant ever add something to that rc or what I wrote to fix it will be overriden. One idea I got was setting the lang for the resource, say I add an icon, then if I say that icon belongs to the japanese lang it might then use the correct codepage and get the correct filepath. As an extra im now very confused about the .rc files, people say you should version control them but they clearly have my filepath hardcoded in there, so other people will have theirs, that's a recipe for disaster in my book. I should probably try with the resx format, maybe you have more control over that one (Extra extra note, thanks to putting the assets folder outside new devs can get their .rc file to work without problem, the path will only contain ascii, look at the github page if you dont understand why). Raymond's solution works https://devblogs.microsoft.com/oldnewthing/20190607-00/?p=102569 if I dont update the file. I had to give up and change to name of the folder Im working on from がいじんのべんきょう！ to Remembering_the_Japanese, this is pathetic visual studio, I cant comprehend how they have encoding problems in 2020, this should've been fixed 10 years ago!!!!
 
 //-----------------Macro Definitions-----------------:
 #ifdef _DEBUG
@@ -30,6 +30,7 @@
 
 //----------------------Linker-----------------------:
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
+#pragma comment(lib,"comctl32.lib") //loadiconmetric (commctrl.h)
 
 //----------------------Globals----------------------:
 i32 n_tabs = 0;//Needed for serialization
