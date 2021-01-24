@@ -171,7 +171,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="LANGUAGE_MANAGER.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="sqlite3.c" />
   </ItemGroup>
@@ -187,6 +186,8 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="unCap_button.h" />
+    <ClInclude Include="unCap_combobox.h" />
+    <ClInclude Include="unCap_edit_oneline.h" />
     <ClInclude Include="unCap_Global.h" />
     <ClInclude Include="unCap_Math.h" />
     <ClInclude Include="unCap_nonclient.h" />

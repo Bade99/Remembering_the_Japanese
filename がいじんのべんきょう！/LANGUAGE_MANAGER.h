@@ -20,41 +20,11 @@
 //Add combobox string in specific ID (Nth element of the list)
 #define ACT(hwnd,ID,stringID) LANGUAGE_MANAGER::Instance().AddComboboxText(hwnd, ID, stringID);
 
+//Add combobox cuebanner string (default text when there's no selection)
+#define ACC(hwnd,stringID) LANGUAGE_MANAGER::Instance().AddComboboxCuebanner(hwnd, stringID);
+
 //Add menu string
 #define AMT(hmenu,ID,stringID) LANGUAGE_MANAGER::Instance().AddMenuText(hmenu,ID,stringID);
-
-//enum LANGUAGE
-//{
-//#define _foreach_language(op) \
-//				op(English,=1)  \
-//				op(Español,)  \
-//
-//	_foreach_language(_generate_enum_member)
-//};
-
-
-//namespace userial {
-//	static str serialize(LANGUAGE v) {
-//		switch (v) {
-//			_foreach_language(_string_enum_case);
-//		default: return L"";
-//		}
-//	}
-//	static bool deserialize(LANGUAGE& var, str name, const str& content) {
-//		str start = name + _keyvaluesepartor;
-//		size_t s = find_identifier(content, 0, start);
-//		if (str_found(s)) {
-//			s += start.size();
-//			str substr = content.substr(s);//TODO(fran):we dont really need a substr and neither till the end of content
-//			bool found = false;
-//#define _compare_enum_string_found(member,value) if(!substr.compare(0,str(_t(#member)).size(),_t(#member))){var = member; found=true;} else
-//			_foreach_language(_compare_enum_string_found) {/*you can do something on the final else case*/ };
-//
-//			return found;
-//		}
-//		return false;
-//	}
-//}
 
 class LANGUAGE_MANAGER
 {
@@ -62,9 +32,6 @@ public:
 
 
 private:
-
-//#define _foreach_LANGUAGE_MANAGER_member(op) \
-//		op(LANGUAGE,CurrentLanguage,LANGUAGE::English) \
 
 #define _foreach_LANGUAGE_MANAGER_member(op) \
 		op(str,CurrentLanguage,lang_english) \
@@ -76,22 +43,6 @@ private:
 	lang_mapper Mapper; //mapper from id to string
 
 public:
-
-//	static int GetLanguageStringIndex(LANGUAGE lang) {
-//		int idx = 0;
-//#define _language_add_or_return(member,value) if(lang==member)return idx;else ++idx;
-//		_foreach_language(_language_add_or_return);
-//#undef _language_add_or_return
-//		return 0;
-//	}
-
-	//static bool IsValidLanguage(LANGUAGE lang) {
-
-	//	switch (lang) {
-	//		_foreach_language(_isvalid_enum_case)
-	//	default: return false;
-	//	}
-	//}
 
 	static LANGUAGE_MANAGER& Instance()
 	{
@@ -108,30 +59,107 @@ public:
 	//·Many hwnds can use the same stringID
 	//·Next time there is a language change the window will be automatically updated
 	//·Returns FALSE if invalid hwnd or stringID //TODO(fran): do the stringID check
-	BOOL AddWindowText(HWND hwnd, u32 stringID);
+	BOOL AddWindowText(HWND hwnd, u32 stringID)
+	{
+		BOOL res = UpdateHwnd(hwnd, stringID);
+		if (res) this->Hwnds[hwnd] = stringID;
+		return res;
+	}
 
 	//·Updates all managed objects to the new language, all the ones added after this call will also use the new language
-	bool ChangeLanguage(str newLang);
+	bool ChangeLanguage(str newLang)
+	{
+		bool res = this->IsValidLanguage(newLang);
+		if (res) {
+			this->CurrentLanguage = newLang;
+
+			this->Mapper = load_file_lang((utf16*)this->LangFolder.c_str(), (utf16*)this->CurrentLanguage.c_str());
+
+			for (auto const& hwnd_sid : this->Hwnds)
+				this->UpdateHwnd(hwnd_sid.first, hwnd_sid.second);
+
+			for (auto const& hwnd_id_sid : this->Comboboxes)
+				this->UpdateCombo(hwnd_id_sid.first.first, hwnd_id_sid.first.second, hwnd_id_sid.second);
+
+			for (auto const& hwnd_sid : this->ComboboxesCuebanner)
+				this->UpdateComboCuebanner(hwnd_sid.first, hwnd_sid.second);
+
+			for (auto const& hwnd_msg : this->DynamicHwnds) {
+				this->UpdateDynamicHwnd(hwnd_msg.first, hwnd_msg.second);
+			}
+
+			for (auto const& hmenu_id_sid : this->Menus) {
+				this->UpdateMenu(hmenu_id_sid.first.first, hmenu_id_sid.first.second, hmenu_id_sid.second);
+			}
+			for (auto const& menudrawer : this->MenuDrawers) {
+				DrawMenuBar(menudrawer);
+				UpdateWindow(menudrawer);
+			}
+		}
+
+		return res;
+	}
 
 	//·Returns the requested string in the current language
 	//·If stringID is invalid returns L"" //TODO(fran): check this is true
 	//INFO: uses temporary string that lives till the end of the full expression it appears in
-	std::wstring RequestString(u32 stringID);
+	str RequestString(u32 stringID)
+	{
+		str res;
+		try {
+			res = this->Mapper.map.at(stringID);
+		}
+		catch (...) { res = str(L"INVALID ID ") + to_str(stringID); }
+		return res;
+	}
 
 	//·Adds the hwnd to the list of managed comboboxes and sets its text for the specified ID(element in the list) corresponding to stringID and the current language
 	//·Next time there is a language change the window will be automatically updated
-	BOOL AddComboboxText(HWND hwnd, UINT ID, u32 stringID);
+	BOOL AddComboboxText(HWND hwnd, UINT ID, u32 stringID)
+	{
+		BOOL res = UpdateCombo(hwnd, ID, stringID);
+		if (res) this->Comboboxes[std::make_pair(hwnd, ID)] = stringID;
+		return res;
+	}
+
+	//·Adds the hwnd to the list of managed comboboxes and sets its default text corresponding to stringID and the current language
+	//·Next time there is a language change the window will be automatically updated
+	BOOL AddComboboxCuebanner(HWND hwnd, u32 stringID)
+	{
+		BOOL res = UpdateComboCuebanner(hwnd, stringID);
+		if (res) this->ComboboxesCuebanner[hwnd] = stringID;
+		return res;
+	}
 
 	//Add a control that manages other windows' text where the string changes
 	//Each time there is a language change we will send a message with the specified code so the window can update its control's text
 	//One hwnd can only be linked to one messageID
-	BOOL AddDynamicText(HWND hwnd, UINT messageID);
+	BOOL AddDynamicText(HWND hwnd, UINT messageID)
+	{
+		if (!hwnd) return FALSE;
+		this->DynamicHwnds[hwnd] = messageID;
+		this->UpdateDynamicHwnd(hwnd, messageID);
+		return TRUE;
+	}
 
 	//Menus are not draw by themselves, instead their owner window draws them, so if you want a menu to be redrawn you need to use this function
 	//to indicate which window to call for its menus to be redrawn
-	BOOL AddMenuDrawingHwnd(HWND MenuDrawer);
+	BOOL AddMenuDrawingHwnd(HWND MenuDrawer)
+	{
+		//TODO(fran): check HWND is valid
+		if (MenuDrawer) {
+			this->MenuDrawers.push_back(MenuDrawer);
+			return TRUE;
+		}
+		return FALSE;
+	}
 
-	BOOL AddMenuText(HMENU hmenu, UINT_PTR ID, u32 stringID);
+	BOOL AddMenuText(HMENU hmenu, UINT_PTR ID, u32 stringID)
+	{
+		BOOL res = UpdateMenu(hmenu, ID, stringID);
+		if (res) this->Menus[std::make_pair(hmenu, ID)] = stringID;
+		return res;
+	}
 
 	str GetCurrentLanguage() { return CurrentLanguage; };
 
@@ -142,7 +170,20 @@ public:
 
 	_generate_default_struct_serialize(_foreach_LANGUAGE_MANAGER_member);
 
-	bool deserialize(str name, const str& content);
+	bool deserialize(str name, const str& content) {
+		bool res = false;
+		str start = name + _keyvaluesepartor + _structbegin + _newline;
+		size_t s = find_identifier(content, 0, start);
+		size_t e = find_closing_str(content, s + start.size(), _structbegin, _structend);
+		if (str_found(s) && str_found(e)) {
+			s += start.size();
+			str substr = content.substr(s, e - s);
+			_foreach_LANGUAGE_MANAGER_member(_deserialize_member);
+			res = true;
+		}
+		this->ChangeLanguage(this->CurrentLanguage);//whatever happens we need to set some language
+		return res;
+	}
 
 private:
 	LANGUAGE_MANAGER() {}
@@ -151,6 +192,7 @@ private:
 	std::map<HWND, UINT> Hwnds;
 	std::map<HWND, UINT> DynamicHwnds;
 	std::map<std::pair<HWND, UINT>, UINT> Comboboxes;
+	std::map<HWND, UINT> ComboboxesCuebanner;
 
 	std::vector<HWND> MenuDrawers;
 	std::map<std::pair<HMENU, UINT_PTR>, UINT> Menus;
@@ -180,6 +222,16 @@ private:
 		return res != CB_ERR && res != CB_ERRSPACE;//TODO(fran): can I check for >=0 with lresult?
 	}
 
+	BOOL UpdateComboCuebanner(HWND hwnd, u32 stringID)
+	{
+		LRESULT _res = SendMessage(hwnd, CB_SETCUEBANNER, 0, (LPARAM)this->RequestString(stringID).c_str());
+		bool res = _res==1;
+		if (res) {
+			InvalidateRect(hwnd, NULL, TRUE);//Just in case
+		}
+		return res;
+	}
+
 	BOOL UpdateMenu(HMENU hmenu, UINT_PTR ID, u32 stringID)
 	{
 		MENUITEMINFOW menu_setter;
@@ -197,34 +249,10 @@ private:
 		return res;
 	}
 
-	//LCID GetLCID(LANGUAGE lang)
-	//{
-	//	switch (lang) {
-	//	case LANGUAGE::English:
-	//		return MAKELCID(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US), SORT_DEFAULT); //TODO(fran):this is deprecated and not great for macros, unless we set each enum to this values
-	//	case LANGUAGE::Español:
-	//		return MAKELCID(MAKELANGID(LANG_SPANISH, SUBLANG_SPANISH), SORT_DEFAULT);
-	//	default:
-	//		return NULL;
-	//	}
-	//}
-
-	//LANGID GetLANGID(LANGUAGE lang)
-	//{
-	//	//INFO: https://docs.microsoft.com/en-us/windows/win32/intl/language-identifier-constants-and-strings
-	//	switch (lang) {
-	//	case LANGUAGE::English:
-	//		return MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);//TODO(fran): same as GetLCID
-	//	case LANGUAGE::Español:
-	//		return MAKELANGID(LANG_SPANISH, SUBLANG_SPANISH);
-	//	default:
-	//		return NULL;
-	//	}
-	//}
 };
 
 namespace userial {
-	static str serialize(LANGUAGE_MANAGER& var) {//NOTE: we gotta add this manually cause when need a reference since the lang mgr is a singleton and doesnt allow for instancing
+	static str serialize(LANGUAGE_MANAGER& var) {//NOTE: we add this manually because we need a reference since the lang mgr is a singleton and doesnt allow for instancing
 		return var.serialize();
 	}
 	static bool deserialize(LANGUAGE_MANAGER& var, str name, const str& content) {

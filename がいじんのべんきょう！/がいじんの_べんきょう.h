@@ -7,6 +7,8 @@
 #include "がいじんの_Helpers.h"
 #include "unCap_button.h"
 #include "LANGUAGE_MANAGER.h"
+#include "unCap_edit_oneline.h"
+#include "unCap_combobox.h"
 
 //TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
 
@@ -35,12 +37,48 @@ constexpr char べんきょう_table_words_structure[] =
 	"hiragana			TEXT UNIQUE NOT NULL COLLATE NOCASE," //hiragana or katakana
 	"kanji				TEXT COLLATE NOCASE,"
 	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
-	"type				TEXT NOT NULL COLLATE NOCASE," //noun,verb,... TODO(fran): could use an enum and reference to another table
+	"lexical_category	INTEGER," //noun,verb,... TODO(fran): could use an enum and reference to another table
 	"creation_date		TEXT," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
 	"last_shown_date	INTEGER" //Unix Time, we dont care to show this value, it's simply for sorting
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
 
+enum lexical_category { //The value of this enums is what will be stored on the db, we'll map them to their correct language string
+	dont_care = 0, //I tend to annotate the different adjectives, but not much else
+	noun,
+	verb,
+	adj_い,
+	adj_な,
+	adverb,
+	conjunction, //and, or, but, ...
+	pronoun,
+	counter,
+};
+
+str lexical_category_to_str(lexical_category cat) {
+	return RS(200 + cat - 1); //NOTE: dont_care should never be shown
+}
+u32 lexical_category_str_id(lexical_category cat) {
+	return 200 + cat - 1; //NOTE: dont_care should never be shown
+}
+void lexical_category_setup_combobox(HWND cb) {
+	//IMPORTANT INFO: the first element to add to a combobox _must_ be at index 0, it does not support adding any index, amazingly enough, conclusion: the windows' combobox is terrible
+	//So thanks to the huge limitation of comboboxes we have to subtract one from everything, and at the time of consulting the cb we'll need to add one, this is simply stupid //TODO(fran): find a fix
+	ACT(cb, lexical_category::noun-1, lexical_category_str_id(lexical_category::noun));
+	ACT(cb, lexical_category::verb-1, lexical_category_str_id(lexical_category::verb));
+	ACT(cb, lexical_category::adj_い-1, lexical_category_str_id(lexical_category::adj_い));
+	ACT(cb, lexical_category::adj_な-1, lexical_category_str_id(lexical_category::adj_な));
+	ACT(cb, lexical_category::adverb-1, lexical_category_str_id(lexical_category::adverb));
+	ACT(cb, lexical_category::conjunction-1, lexical_category_str_id(lexical_category::conjunction));
+	ACT(cb, lexical_category::pronoun-1, lexical_category_str_id(lexical_category::pronoun));
+	ACT(cb, lexical_category::counter-1, lexical_category_str_id(lexical_category::counter));
+}
+lexical_category retrieve_lexical_category_from_combobox(HWND cb) {
+	lexical_category res;
+	int sel = (int)SendMessage(cb, CB_GETCURSEL, 0, 0);
+	res = (lexical_category)(sel + 1);//NOTE: thanks to the fact that when there's no selection sel=-1 we can map everything perfectly from dont_care onwards
+	return res;
+}
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -78,7 +116,7 @@ struct べんきょうProcState {
 				type edit_kanji;
 				type edit_hiragana;//or katakana
 				type edit_translation;
-				type combo_type;//verb,noun,...
+				type combo_lexical_category;//verb,noun,...
 				//TODO(fran): here you should be able to add more than one translation
 				type button_save;
 			}list;
@@ -154,24 +192,55 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//---------------------Landing page----------------------:
 		state->controls.landingpage.list.button_new = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		AWT(state->controls.landingpage.list.button_new, 4);
+		AWT(state->controls.landingpage.list.button_new, 100);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 		state->controls.landingpage.list.button_practice = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		AWT(state->controls.landingpage.list.button_practice, 5);
+		AWT(state->controls.landingpage.list.button_practice, 101);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 		state->controls.landingpage.list.button_search = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		AWT(state->controls.landingpage.list.button_search, 6);
+		AWT(state->controls.landingpage.list.button_search, 102);
 		//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 		UNCAPBTN_set_brushes(state->controls.landingpage.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		for (auto ctl : state->controls.landingpage.all)
-			SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+		for (auto ctl : state->controls.landingpage.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+
+		//---------------------New word----------------------:
+		state->controls.new_word.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		EDITONELINE_set_brushes(state->controls.new_word.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+		SendMessage(state->controls.new_word.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));
+
+		state->controls.new_word.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		EDITONELINE_set_brushes(state->controls.new_word.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+		SendMessage(state->controls.new_word.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
+
+		state->controls.new_word.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		EDITONELINE_set_brushes(state->controls.new_word.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+		SendMessage(state->controls.new_word.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
+
+		state->controls.new_word.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+
+		lexical_category_setup_combobox(state->controls.new_word.list.combo_lexical_category);
+		//SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
+		SetWindowSubclass(state->controls.new_word.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+		SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+		ACC(state->controls.new_word.list.combo_lexical_category, 123);
+
+		state->controls.new_word.list.button_save = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		AWT(state->controls.new_word.list.button_save, 124);
+		UNCAPBTN_set_brushes(state->controls.new_word.list.button_save, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+
+		for (auto ctl : state->controls.new_word.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 
 		//TODO(fran): create the other "tabs"
 
@@ -185,7 +254,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		int w_pad = (int)((float)w * .05f);
 		int h_pad = (int)((float)h * .05f);
 		
-#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, FALSE);
+#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint);
 
 		switch (state->current_page) {
 		case ProcState::page::landing: 
@@ -223,7 +292,46 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		} break;
 		case ProcState::page::new_word:
 		{
-			state->controls.new_word.all;
+			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
+
+			int wnd_cnt = ARRAYSIZE(state->controls.landingpage.all);
+			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
+			int start_y = (h - pad_cnt * h_pad - wnd_cnt * wnd_h) / 2;
+
+			int edit_hiragana_x = w_pad;
+			int edit_hiragana_y = start_y;
+			int edit_hiragana_h = wnd_h;
+			int edit_hiragana_w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+
+			int cb_lex_categ_w = max_w / 3;
+			int cb_lex_categ_x = w - w_pad - cb_lex_categ_w;
+			int cb_lex_categ_y = edit_hiragana_y + edit_hiragana_h + h_pad/2;
+			int cb_lex_categ_h = edit_hiragana_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
+			
+
+			int edit_kanji_x = edit_hiragana_x;
+			int edit_kanji_y = cb_lex_categ_y + cb_lex_categ_h + h_pad/2;
+			int edit_kanji_w = max_w;
+			int edit_kanji_h = wnd_h;
+
+			int edit_translation_x = edit_hiragana_x;
+			int edit_translation_y = edit_kanji_y + edit_kanji_h + h_pad;
+			int edit_translation_w = max_w;
+			int edit_translation_h = wnd_h;
+
+			int btn_save_w = 70;
+			int btn_save_h = wnd_h;
+			int btn_save_y = edit_translation_y + edit_translation_h + h_pad;
+			int btn_save_x = (w - btn_save_w) / 2;
+
+			_MyMoveWindow(state->controls.new_word.list.edit_hiragana, edit_hiragana, FALSE);
+			_MyMoveWindow(state->controls.new_word.list.combo_lexical_category, cb_lex_categ, FALSE);
+			_MyMoveWindow(state->controls.new_word.list.edit_kanji, edit_kanji, FALSE);
+			_MyMoveWindow(state->controls.new_word.list.edit_translation, edit_translation, FALSE);
+			_MyMoveWindow(state->controls.new_word.list.button_save, btn_save, FALSE);
+
 		} break;
 		case ProcState::page::practice: 
 		{
@@ -311,6 +419,49 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
+		case WM_COMMAND:
+		{
+			HWND child = (HWND)lparam;
+			if (child) {//Notifs from our childs
+				switch (state->current_page) {
+				case ProcState::page::landing:
+				{
+					if (child == state->controls.landingpage.list.button_new) {
+						set_current_page(state, ProcState::page::new_word);
+					}
+					else if (child == state->controls.landingpage.list.button_practice) {
+						set_current_page(state, ProcState::page::practice);
+					}
+					else if (child == state->controls.landingpage.list.button_search) {
+						set_current_page(state, ProcState::page::search);
+					}
+				} break;
+				case ProcState::page::new_word:
+				{
+
+				} break;
+				case ProcState::page::practice:
+				{
+
+				} break;
+				case ProcState::page::search:
+				{
+
+				} break;
+				case ProcState::page::show_word:
+				{
+
+				} break;
+
+				}
+			}
+			else {
+				switch (LOWORD(wparam)) {//Menu notifications
+
+				}
+			}
+			return 0;
+		} break;
 		case WM_NCCALCSIZE:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -355,6 +506,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			}
 			else res = DefWindowProc(hwnd, msg, wparam, lparam);
 			return res;
+		} break;
+		case WM_CTLCOLORLISTBOX: //TODO(fran): this has to go
+		{
+			HDC listboxDC = (HDC)wparam;
+			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
+			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));
+
+			return (INT_PTR)unCap_colors.ControlBk;
 		} break;
 		case WM_PAINT:
 		{

@@ -119,10 +119,7 @@ static size_t find_identifier(str s, size_t offset, str compare) {
 }
 
 static str load_file_serialized(std::wstring folder, std::wstring filename = L"\\serialized.txt") {
-	PWSTR general_folder;
-	SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &general_folder);//NOTE: I dont think this has an ansi version that isnt deprecated
-	std::wstring file = general_folder + folder + filename;
-	CoTaskMemFree(general_folder);
+	std::wstring file = folder + filename;
 
 	str res;
 	HANDLE hFile = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -146,11 +143,8 @@ static str load_file_serialized(std::wstring folder, std::wstring filename = L"\
 }
 
 static void save_to_file_serialized(str content, std::wstring folder, std::wstring filename = L"\\serialized.txt") {
-	PWSTR general_folder;
-	SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &general_folder);
-	std::wstring dir = general_folder + folder;
-	std::wstring path = general_folder + folder + filename;
-	CoTaskMemFree(general_folder);
+	std::wstring dir = folder;
+	std::wstring path = dir + filename;
 
 	//SUPERTODO(fran): gotta create the folder first, if the folder isnt there the function fails
 	CreateDirectoryW(dir.c_str(), 0);//Create the folder where info will be stored, since windows wont do it

@@ -16,7 +16,7 @@
 //#define NOMETAFILE //Excludes things Needed for gdi+
 #define NOSERVICE
 #define NOSOUND
-#define NOWH
+//#define NOWH //Excludes TOOLINFO, TTM_UPDATETIPTEXT, ...
 //#define NOWINOFFSETS //Excludes SetWindowLongPtr,...
 #define NOHELP
 #define NOPROFILER

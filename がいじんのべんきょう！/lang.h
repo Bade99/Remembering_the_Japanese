@@ -48,9 +48,27 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(1,"Minimize")
 	lang_entry(2,"Maximize")
 	lang_entry(3,"Close")
-	lang_entry(4,"New")
-	lang_entry(5,"Practice")
-	lang_entry(6,"Search")
+
+	lang_entry(10,"Invalid character, do not use:")
+
+	lang_entry(100,"New")
+	lang_entry(101,"Practice")
+	lang_entry(102,"Search")
+
+	lang_entry(120,"Hiragana/Katakana")
+	lang_entry(121,"Kanji")
+	lang_entry(122,"Translation")
+	lang_entry(123,"Type")
+	lang_entry(124,"Add")
+
+	lang_entry(200,"Noun")
+	lang_entry(201,"Verb")
+	lang_entry(202,"い-Adjective")
+	lang_entry(203,"な-Adjective")
+	lang_entry(204,"Adverb")
+	lang_entry(205,"Conjunction")
+	lang_entry(206,"Pronoun")
+	lang_entry(207,"Counter")
 ;
 
 constexpr static utf16 lang_español_entries[] =
@@ -58,9 +76,10 @@ constexpr static utf16 lang_español_entries[] =
 	lang_entry(1,"Minimizar")
 	lang_entry(2,"Maximizar")
 	lang_entry(3,"Cerrar")
-	lang_entry(4, "Nuevo")
-	lang_entry(5, "Practicar")
-	lang_entry(6, "Buscar")
+	lang_entry(10,"Caracter inválido, no usar:")
+	lang_entry(100, "Nuevo")
+	lang_entry(101, "Practicar")
+	lang_entry(102, "Buscar")
 ;
 
 

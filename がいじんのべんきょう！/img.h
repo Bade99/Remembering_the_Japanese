@@ -9,7 +9,7 @@
 
 //INFO: for 1bpp bmps in windows 0 = foreground , 1 = background, so the part you want to be visible has to have a 0
 
-#define bswap16(x) ((x>>8) | (x<<8))
+#define bswap16(x) ((short)((x>>8) | (x<<8)))
 
 struct def_img {
 	int bpp;
