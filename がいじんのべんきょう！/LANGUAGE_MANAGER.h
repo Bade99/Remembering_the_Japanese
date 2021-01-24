@@ -28,9 +28,6 @@
 
 class LANGUAGE_MANAGER
 {
-public:
-
-
 private:
 
 #define _foreach_LANGUAGE_MANAGER_member(op) \

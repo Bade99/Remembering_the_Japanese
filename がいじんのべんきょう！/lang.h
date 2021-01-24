@@ -50,6 +50,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(3,"Close")
 
 	lang_entry(10,"Invalid character, do not use:")
+	lang_entry(11,"This information cannot be omitted")
 
 	lang_entry(100,"New")
 	lang_entry(101,"Practice")
@@ -60,6 +61,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(122,"Translation")
 	lang_entry(123,"Type")
 	lang_entry(124,"Add")
+	lang_entry(125,"Mnemonic")
 
 	lang_entry(200,"Noun")
 	lang_entry(201,"Verb")

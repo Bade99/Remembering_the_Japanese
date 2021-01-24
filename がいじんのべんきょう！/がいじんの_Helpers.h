@@ -24,7 +24,12 @@
 //NOTE: Neither the caller nor us should bother freeing anything since the program is going to stop execution
 #define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).mem).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
+//Notifies the user on non terminal errors, as an extra frees the memory for the errmsg, TODO(fran): I dont know whether freeing is good or not
+#define sqlite_exec_runtime_check(errmsg) if (errmsg){MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).mem).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND);sqlite3_free(errmsg);errmsg=0;}
+
 #define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
+
+#define sqliteok_runtime_check(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND)
 
 //----------------------STRING-----------------------:
 
@@ -110,6 +115,7 @@ static convert_res convert_utf8_to_utf16(const utf8* s, int sz /*bytes*/) {
 }
 
 //INFO: For the string to be null-terminated sz must include the null terminator
+//- sz in bytes
 static convert_res convert_utf16_to_utf8(const utf16* s, int sz /*bytes*/) {
 	using type = utf8;
 	convert_res res{0};

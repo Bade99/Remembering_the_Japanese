@@ -3,12 +3,15 @@
 //TODO(fran): batch file for compiling that way too
 //TODO(fran): store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): rounded corners for everything, it'll look and feel better for this type of application
+//TODO(fran): mix between showing jp and the user writing the translation, and showing translation and the user writing jp
+//TODO(fran): a stats or report page that shows the user data like word count, accuracy, number of practices, ...
 
 //-------------------Stuff I learnt-------------------:
 //If you have no .rc file and try to load something from it (eg LoadStringW) then the antivirus, in my case kaspersky, detects the exe as VHO:Exploit.Win32.Convagent.gen and sometimes it even says it's a Trojan
 //IMPORTANT: Unsurprisingly enough the biggest problem I had by using japanese on my paths and files was with the Resource editor, it seems to always default to ascii and write paths in ascii also, which means you cant get to your files!!! If I ever get someone else working on this I must change the way I handle it right now, which is basically writing the .rc file myself, also I cant ever add something to that rc or what I wrote to fix it will be overriden. One idea I got was setting the lang for the resource, say I add an icon, then if I say that icon belongs to the japanese lang it might then use the correct codepage and get the correct filepath. As an extra im now very confused about the .rc files, people say you should version control them but they clearly have my filepath hardcoded in there, so other people will have theirs, that's a recipe for disaster in my book. I should probably try with the resx format, maybe you have more control over that one (Extra extra note, thanks to putting the assets folder outside new devs can get their .rc file to work without problem, the path will only contain ascii, look at the github page if you dont understand why). Raymond's solution works https://devblogs.microsoft.com/oldnewthing/20190607-00/?p=102569 if I dont update the file. I had to give up and change to name of the folder Im working on from がいじんのべんきょう！ to Remembering_the_Japanese, this is pathetic visual studio, I cant comprehend how they have encoding problems in 2020, this should've been fixed 10 years ago!!!!
 
 //-----------------Macro Definitions-----------------:
+#define _CRT_SECURE_NO_WARNINGS /*Dont take away functions for which you dont have replacement, and Im not stupid*/
 #ifdef _DEBUG
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
@@ -130,12 +133,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //------------------Database Setup-------------------:
     //NOTE: at least for now we'll only have one user, when the time comes and we feel that's needed we'll simply add an intermediate folder for each user into which a separate db will be stored
     sqlite3* db;
-    constexpr cstr db_name[] = L"\\db";
+    constexpr cstr db_name[] = 
+#ifdef _DEBUG /*TODO(fran): this aint too bulletproof*/
+        L"\\test-db";
+#else 
+        L"\\db";
+#endif
     str db_path = str(work_folder) + db_name; 
 
     //TODO(fran): im kind of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
-    int open_db_res = sqlite3_open16(db_path.c_str(), &db); defer{ sqlite3_close(db); };
+    int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
+    defer{ 
+        int close_res = sqlite3_close(db); sqliteok_runtime_check(close_res,db); 
+#if defined(_DEBUG) && 0
+        DeleteFileW(db_path.c_str());
+#endif
+    };
 
     //----------------Window Setup-----------------:
     RECT べんきょう_nc_rc = UNCAPNC_calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
@@ -211,3 +225,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 
 //NOTE: as an aside this application also servers as a test so see whether any part on the compilation/execution/version control pipeline fails due to the unusual japanese characters
+
+
+//Algorithms to decide which words to show:
+//1. for each word keep a count of times shown and pick, at random from say a set of 30 down to 10, and keep count also of last_time_shown and pick at random from another set of 30 down to 5 of the least recently shown words. When the user asks explicitly for a word to be remembered we reset the shown count to 0 and maybe also set last_time_shown to the oldest possible, and do the same for words the user gets wrong on the practices. Advantages: assuming a 5 words a day workflow the user will see the new words off and on for a week, old word are guaranteed to be shown from time to time and in case the user fails at one of them it will go to the front of our priority queue, not so in the case they get it right, then it'll probably dissapear for quite a while, the obvious problem with this system is the lack of use of words that land in the middle of the two filters, we may want to maintain new words appearing for more than a week, closer to a month, one solution would be to pick 60 or 90 words

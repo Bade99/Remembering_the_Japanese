@@ -11,6 +11,9 @@
 #include "unCap_combobox.h"
 
 //TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
+//TODO(fran): a back button to go one page back
+//TODO(fran): pressing enter on new_word page should map to the add button
+//TODO(fran): tabstop for comboboxes doesnt seem to work
 
 struct べんきょうSettings {
 
@@ -37,6 +40,7 @@ constexpr char べんきょう_table_words_structure[] =
 	"hiragana			TEXT UNIQUE NOT NULL COLLATE NOCASE," //hiragana or katakana
 	"kanji				TEXT COLLATE NOCASE,"
 	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
+	"mnemonic			TEXT,"
 	"lexical_category	INTEGER," //noun,verb,... TODO(fran): could use an enum and reference to another table
 	"creation_date		TEXT," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
 	"last_shown_date	INTEGER" //Unix Time, we dont care to show this value, it's simply for sorting
@@ -79,6 +83,25 @@ lexical_category retrieve_lexical_category_from_combobox(HWND cb) {
 	res = (lexical_category)(sel + 1);//NOTE: thanks to the fact that when there's no selection sel=-1 we can map everything perfectly from dont_care onwards
 	return res;
 }
+union learnt_word { //will contain utf16* when getting data from the UI, and utf8* to send requests to the db
+	struct s { void* mem; size_t sz; };
+	using type = s;
+	struct {
+#define _foreach_learnt_word_member(op) \
+		op(type,hiragana) \
+		op(type,kanji) \
+		op(type,translation) \
+		op(type,lexical_category) \
+		op(type,mnemonic) \
+
+		_foreach_learnt_word_member(_generate_member_no_default_init);
+
+	} attributes;
+	type all[sizeof(attributes) / sizeof(type)];
+
+	//learnt_word() { for (auto& s : all) s = str(L""); } //TODO(fran): why do I need to do this for the compiler to allow me to instantiate?
+	//~learnt_word() { for (auto& s : all) s.~basic_string(); }
+};
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -113,10 +136,11 @@ struct べんきょうProcState {
 		union new_word_controls {
 			using type = HWND;
 			struct {
-				type edit_kanji;
 				type edit_hiragana;//or katakana
+				type edit_kanji;
 				type edit_translation;
 				type combo_lexical_category;//verb,noun,...
+				type edit_mnemonic;//create a story/phrase around the word
 				//TODO(fran): here you should be able to add more than one translation
 				type button_save;
 			}list;
@@ -216,6 +240,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		EDITONELINE_set_brushes(state->controls.new_word.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 		SendMessage(state->controls.new_word.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));
 
+		state->controls.new_word.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		lexical_category_setup_combobox(state->controls.new_word.list.combo_lexical_category);
+		//SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
+		SetWindowSubclass(state->controls.new_word.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+		SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+		ACC(state->controls.new_word.list.combo_lexical_category, 123);
+
 		state->controls.new_word.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 		EDITONELINE_set_brushes(state->controls.new_word.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
@@ -226,14 +258,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		EDITONELINE_set_brushes(state->controls.new_word.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 		SendMessage(state->controls.new_word.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
 
-		state->controls.new_word.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP
+		state->controls.new_word.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-
-		lexical_category_setup_combobox(state->controls.new_word.list.combo_lexical_category);
-		//SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
-		SetWindowSubclass(state->controls.new_word.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
-		SendMessage(state->controls.new_word.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
-		ACC(state->controls.new_word.list.combo_lexical_category, 123);
+		EDITONELINE_set_brushes(state->controls.new_word.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+		SendMessage(state->controls.new_word.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
 
 		state->controls.new_word.list.button_save = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -294,11 +322,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
 
-			int wnd_cnt = ARRAYSIZE(state->controls.landingpage.all);
+			int wnd_cnt = ARRAYSIZE(state->controls.new_word.all);
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
-			int start_y = (h - pad_cnt * h_pad - wnd_cnt * wnd_h) / 2;
+			int start_y = (h - (pad_cnt-1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
 
 			int edit_hiragana_x = w_pad;
 			int edit_hiragana_y = start_y;
@@ -321,15 +349,21 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int edit_translation_w = max_w;
 			int edit_translation_h = wnd_h;
 
+			int edit_mnemonic_x = edit_hiragana_x;
+			int edit_mnemonic_y = edit_translation_y + edit_translation_h + h_pad;
+			int edit_mnemonic_w = max_w;
+			int edit_mnemonic_h = wnd_h;
+
 			int btn_save_w = 70;
 			int btn_save_h = wnd_h;
-			int btn_save_y = edit_translation_y + edit_translation_h + h_pad;
+			int btn_save_y = edit_mnemonic_y + edit_mnemonic_h + h_pad;
 			int btn_save_x = (w - btn_save_w) / 2;
 
 			_MyMoveWindow(state->controls.new_word.list.edit_hiragana, edit_hiragana, FALSE);
 			_MyMoveWindow(state->controls.new_word.list.combo_lexical_category, cb_lex_categ, FALSE);
 			_MyMoveWindow(state->controls.new_word.list.edit_kanji, edit_kanji, FALSE);
 			_MyMoveWindow(state->controls.new_word.list.edit_translation, edit_translation, FALSE);
+			_MyMoveWindow(state->controls.new_word.list.edit_mnemonic, edit_mnemonic, FALSE);
 			_MyMoveWindow(state->controls.new_word.list.button_save, btn_save, FALSE);
 
 		} break;
@@ -368,6 +402,84 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		state->current_page = new_page;
 		resize_controls(state);
 		show_page(state, state->current_page,SW_SHOW);
+	}
+
+	bool check_new_word(ProcState* state) {
+		auto& page = state->controls.new_word;
+		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_translation };
+		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
+			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
+			if (!sz_char) {
+				EDITONELINE_show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, ETP::top);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool insert_new_word(ProcState* state, const learnt_word& w) {
+		bool res;
+		//TODO(fran): specify all the columns for the insert, that will be our error barrier
+		//TODO(fran): we are inserting everything with '' which is not right for numbers
+		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
+
+#define _sqlite3_generate_columns(type,name,...) "" + #name + ","
+		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
+		columns.pop_back(); //We need to remove the trailing comma
+
+#define _sqlite3_generate_values(type,name,...) "'" + (utf8*)w.attributes.name.mem + "'"","
+		std::string values = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_values); 
+		values.pop_back(); //We need to remove the trailing comma
+
+		std::string insert_word = std::string("INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
+
+		char* insert_errmsg;
+		res = sqlite3_exec(state->settings->db, insert_word.c_str(), 0, 0, &insert_errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(insert_errmsg);
+
+		//TODO(fran): handle if the word already exists, maybe show the old word and ask if they want to override that content, NOTE: the handling code shouldnt be here, this function should be as isolated as possible, if we start heavily interacting with the user this will be ugly
+
+		return res;
+	}
+
+	bool save_new_word(ProcState* state) {
+		bool res = false;
+		if (check_new_word(state)) {
+			learnt_word w;
+			auto& page = state->controls.new_word;
+			//TODO(fran): macro
+			int sz_char;
+#define _get_edit_str(sz_char,edit,str) \
+			sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
+			str.sz = sz_char * sizeof(utf16); \
+			str.mem = malloc(str.sz); \
+			SendMessageW(edit, WM_GETTEXT, sz_char, (WPARAM)str.mem);
+
+			_get_edit_str(sz_char, page.list.edit_hiragana, w.attributes.hiragana);
+			_get_edit_str(sz_char, page.list.edit_kanji, w.attributes.kanji);
+			_get_edit_str(sz_char, page.list.edit_translation, w.attributes.translation);
+			_get_edit_str(sz_char, page.list.edit_mnemonic, w.attributes.mnemonic);
+
+			//NOTE: we convert the number to utf16 and then utf8 in order to make the conversion be able to iterate over all elements of the array
+			int lex_categ = retrieve_lexical_category_from_combobox(page.list.combo_lexical_category);
+			sz_char = _snwprintf(nullptr,0, L"%d", lex_categ) + 1;
+			w.attributes.lexical_category.sz = sz_char * sizeof(utf16);
+			w.attributes.lexical_category.mem = malloc(w.attributes.lexical_category.sz);
+			_snwprintf((utf16*)w.attributes.lexical_category.mem, sz_char, L"%d", lex_categ);
+
+			learnt_word w_utf8;
+			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
+				auto res = convert_utf16_to_utf8((utf16*)w.all[i].mem, (int)w.all[i].sz);
+				w_utf8.all[i].mem = res.mem;
+				w_utf8.all[i].sz = res.sz;
+				free(w.all[i].mem);//maybe set it to zero too
+			}
+			defer{ for (auto& _ : w_utf8.all)free_convert(_.mem); };
+			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
+			res = insert_new_word(state, w_utf8); 
+			//TODO(fran): maybe handle repeated words here
+		}
+		return res;
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -426,31 +538,38 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				switch (state->current_page) {
 				case ProcState::page::landing:
 				{
-					if (child == state->controls.landingpage.list.button_new) {
+					auto& page = state->controls.landingpage;
+					if (child == page.list.button_new) {
 						set_current_page(state, ProcState::page::new_word);
 					}
-					else if (child == state->controls.landingpage.list.button_practice) {
+					else if (child == page.list.button_practice) {
 						set_current_page(state, ProcState::page::practice);
 					}
-					else if (child == state->controls.landingpage.list.button_search) {
+					else if (child == page.list.button_search) {
 						set_current_page(state, ProcState::page::search);
 					}
 				} break;
 				case ProcState::page::new_word:
 				{
-
+					auto& page = state->controls.new_word;
+					if (child == page.list.button_save) {
+						if (save_new_word(state)) {
+							//If the new word was successfully saved then go back to the landing, TODO(fran): a better idea may be to reset the new_word page, so that the user can add multiple words faster
+							set_current_page(state, ProcState::page::landing);
+						}
+					}
 				} break;
 				case ProcState::page::practice:
 				{
-
+					auto& page = state->controls.practice;
 				} break;
 				case ProcState::page::search:
 				{
-
+					auto& page = state->controls.search;
 				} break;
 				case ProcState::page::show_word:
 				{
-
+					auto& page = state->controls.show_word;
 				} break;
 
 				}
@@ -481,6 +600,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case WM_GETTEXTLENGTH:
 		{
 			return 0;
+		} break;
+		case WM_IME_SETCONTEXT://sent the first time on SetFocus
+		{
+			return 0; //We dont want IME for the general wnd, the childs can decide
 		} break;
 		case WM_WINDOWPOSCHANGING:
 		{
@@ -552,6 +675,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_PARENTNOTIFY:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_SETFOCUS:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_KILLFOCUS:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
