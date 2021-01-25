@@ -214,3 +214,58 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 
 	return DefSubclassProc(hwnd, msg, wparam, lParam);
 }
+
+//INFO: only use for CBS_DROPDOWN comboboxes
+LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
+	switch (msg) {
+	case WM_PAINT:
+	{
+		PAINTSTRUCT p;
+		HDC dc = BeginPaint(hwnd, &p);
+		FillRect(dc,&p.rcPaint,unCap_colors.ControlTxt);
+		EndPaint(hwnd, &p);
+	} break;
+	case WM_SIZE:
+	{
+		LRESULT res = DefSubclassProc(hwnd, msg, wparam, lparam);
+		COMBOBOXINFO info = { sizeof(info) };
+		GetComboBoxInfo(hwnd, &info);
+		RECT rc; GetClientRect(hwnd,&rc);
+		InflateRect(&rc, -1, -1);//Allow for a little border, for now
+		//MoveWindow(info.hwndItem, rc.left, rc.top, RECTWIDTH(rc), RECTHEIGHT(rc), FALSE);
+		MoveWindow(info.hwndItem, rc.left, info.rcItem.top, RECTWIDTH(rc), RECTHEIGHT(info.rcItem), FALSE);
+		//NOTE: doing this I think I may have found the reason for their control not fully accepting the dimensions you want, their edit control doesnt have vertical centering, so the text wouldnt look center in the middle of the control, if this is the reason it's as pathetic as can be
+
+		//TODO(fran): now the edit control is correctly centered but we have too much of the bk seeping through
+
+		return res;
+	} break;
+	case WM_NCPAINT:
+	{
+		//return 0;
+		return DefSubclassProc(hwnd, msg, wparam, lparam);
+	} break;
+	case WM_ERASEBKGND:
+	{
+		return 0;
+	} break;
+	case CB_SETCURSEL:
+	{
+		LONG_PTR  dwStyle = GetWindowLongPtr(hwnd, GWL_STYLE);
+		// turn off WS_VISIBLE
+		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle & ~WS_VISIBLE);
+
+		// perform the default action, minus painting
+		LRESULT ret = DefSubclassProc(hwnd, msg, wparam, lparam); //defproc for setcursel DOES DRAWING, we gotta do the good ol' trick of invisibility, also it seems that it stores a paint request instead, cause after I make it visible again it asks for wm_paint, as it should have in the first place
+
+		// turn on WS_VISIBLE
+		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle);
+
+		//Notify parent (once again something that should be the default but isnt)
+		SendMessage(GetParent(hwnd), WM_COMMAND, MAKELONG(GetDlgCtrlID(hwnd), CBN_SELCHANGE), (LPARAM)hwnd);
+		return ret;
+	} break;
+	default: return DefSubclassProc(hwnd, msg, wparam, lparam);
+	}
+	return 0;
+}

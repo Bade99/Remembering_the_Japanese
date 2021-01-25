@@ -14,6 +14,13 @@
 //TODO(fran): a back button to go one page back
 //TODO(fran): pressing enter on new_word page should map to the add button
 //TODO(fran): tabstop for comboboxes doesnt seem to work
+//TODO(fran): there are still some maximize-restore problems, where controls disappear
+//TODO(fran): check that no kanji is written to the hiragana box
+//TODO(fran): fix new_word edit control not showing the caret in the right place! im sure I already did this for some other project
+
+//TODO(fran): hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
+
+//IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
 struct べんきょうSettings {
 
@@ -42,8 +49,8 @@ constexpr char べんきょう_table_words_structure[] =
 	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
 	"mnemonic			TEXT,"
 	"lexical_category	INTEGER," //noun,verb,... TODO(fran): could use an enum and reference to another table
-	"creation_date		TEXT," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
-	"last_shown_date	INTEGER" //Unix Time, we dont care to show this value, it's simply for sorting
+	"creation_date		TEXT DEFAULT CURRENT_TIMESTAMP," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
+	"last_shown_date	INTEGER DEFAULT 0" //Unix Time, we dont care to show this value, it's simply for sorting
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
 
@@ -159,7 +166,7 @@ struct べんきょうProcState {
 		union search_controls {
 			using type = HWND;
 			struct {
-				type edit_search;
+				type combo_search;
 				//and a list for the results
 			}list;
 			type all[sizeof(list) / sizeof(type)];
@@ -272,6 +279,17 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 		//TODO(fran): create the other "tabs"
 
+		//---------------------Search----------------------:
+		state->controls.search.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN /*| CBS_HASSTRINGS TODO(fran):is this necessary*/
+			, 0,0,0,0, state->wnd, 0, NULL, NULL);
+		ACC(state->controls.search.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
+		SetWindowSubclass(state->controls.search.list.combo_search, TESTComboProc, 0, 0);
+		//COMBOBOXINFO info = { sizeof(info) };
+		//GetComboBoxInfo(state->controls.search.list.combo_search, &info);
+		//DestroyWindow(info.hwndItem); //NOTE: we can also use this to find out where the button is placed, to enlarge the edit control
+		//TODO(fran): now we know the edit control doesnt draw the button, so it has to be the hwnd_combo, subclass and handle wm_paint
+
+		for (auto ctl : state->controls.search.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 	}
 
 	void resize_controls(ProcState* state) {
@@ -373,7 +391,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		} break;
 		case ProcState::page::search: 
 		{
-			state->controls.search.all;
+			int max_w = w - w_pad * 2;
+			int cb_search_x = w_pad;
+			int cb_search_y = h_pad;
+			int cb_search_h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
+			int cb_search_w = max_w;
+
+			_MyMoveWindow(state->controls.search.list.combo_search, cb_search, FALSE);
+
 		} break;
 		case ProcState::page::show_word: 
 		{
@@ -481,6 +506,42 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 		return res;
 	}
+	struct search_word_res { utf16** matches; int cnt; };
+	void free_search_word(search_word_res* res) {
+		for (int i = 0; i < res->cnt; i++) {
+			free_convert(res->matches[i]);
+		}
+		free(res->matches);
+		res->cnt = 0;//shouldnt be necessary
+	}
+	search_word_res/*what to return?*/ search_word(ProcState* state, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
+		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the translation too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
+		search_word_res res; 
+		res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
+		res.cnt = 0;
+		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match)+1)*sizeof(*match)); defer{ free_convert(match_str.mem); };
+		char* select_errmsg;
+		std::string select_matches = std::string("SELECT ") + "hiragana" /*TODO(fran): column names should be stored somewhere*/ + " FROM " + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.mem + "%'" + " LIMIT " + std::to_string(max_cnt_results) + ";";
+
+		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			//NOTE: from what I understood this gets executed once for every resulting row
+			//NOTE: unfortunately everything here comes in utf8 //TODO(fran): may be better to use the separate functions sqlite3_prepare, sqlite3_step, and to retrieve use sqlite3_column_[type] (this way I get utf16 at once)
+			Assert(column_cnt == 1);
+			search_word_res* res = (decltype(res))extra_param;
+
+			//res->matches[res->cnt] = (decltype(*res->matches))convert_utf8_to_utf16(results[0], (int)strlen(results[0]) + 1).mem;//INFO: interesting, I know this is correct but compiler cant allow it, an explanation here https://stackoverflow.com/questions/3674456/why-this-is-causing-c2102-requires-l-value
+
+			auto r = convert_utf8_to_utf16(results[0], (int)strlen(results[0]) + 1);
+			res->matches[res->cnt] = (decltype(*res->matches))r.mem;
+
+			res->cnt++;
+			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
+		};
+
+		sqlite3_exec(state->settings->db, select_matches.c_str(), parse_match_result, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);//TODO(fran): should I free the result and return an empty?
+		return res;
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -556,6 +617,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						if (save_new_word(state)) {
 							//If the new word was successfully saved then go back to the landing, TODO(fran): a better idea may be to reset the new_word page, so that the user can add multiple words faster
 							set_current_page(state, ProcState::page::landing);
+							//TODO(fran): clear new_word controls, now this one's annoying cause not everything is cleared the same way
 						}
 					}
 				} break;
@@ -566,6 +628,45 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				case ProcState::page::search:
 				{
 					auto& page = state->controls.search;
+					if (child == page.list.combo_search) {
+						WORD notif = HIWORD(wparam);
+						switch (notif) {
+						case CBN_EDITUPDATE://The user has changed the content of the edit box, this msg is sent before the change is rendered in the control
+						{
+							//NOTE: there's also CBN_EDITCHANGE which does the same but after the modification has been rendered
+
+							//Do a search for what they wrote and show the results in the listbox of the combobox
+							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
+							int sz_char = (int)SendMessage(page.list.combo_search, WM_GETTEXTLENGTH, 0, 0)+1;
+							if (sz_char > 1) {
+								utf16* search = (decltype(search))malloc(sz_char * sizeof(*search));
+								SendMessage(page.list.combo_search, WM_GETTEXT, sz_char, (LPARAM)search);
+
+								//TODO(fran): this might be an interesting case for multithreading, though idk how big the db has to be before this search is slower than the user writing, also for jp text the IME wont allow for the search to start til the user presses enter, that may be another <-TODO(fran): chrome-like handling for IME, text goes to the edit control at the same time as the IME
+
+								auto search_res = search_word(state, search, 5);
+								//TODO(fran): clear the listbox
+								if (search_res.cnt) {
+									for (int i = 0; i < search_res.cnt; i++) {
+										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
+									}
+									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
+
+									//Show the listbox
+									SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
+								}
+								else {
+									//Hide the listbox
+									SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
+								}
+							}
+							else {
+								//Hide the listbox
+								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
+							}
+						} break;
+						}
+					}
 				} break;
 				case ProcState::page::show_word:
 				{
@@ -605,6 +706,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			return 0; //We dont want IME for the general wnd, the childs can decide
 		} break;
+		case WM_IME_NOTIFY://for some reason you still get this even when not doing WM_IME_SETCONTEXT
+		{
+			return 0;
+		} break;
 		case WM_WINDOWPOSCHANGING:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -630,7 +735,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			else res = DefWindowProc(hwnd, msg, wparam, lparam);
 			return res;
 		} break;
-		case WM_CTLCOLORLISTBOX: //TODO(fran): this has to go
+		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
+		{
+			HDC listboxDC = (HDC)wparam;
+			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
+			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));
+
+			return (INT_PTR)unCap_colors.ControlBk;
+		} break;
+		case WM_CTLCOLOREDIT: //for the combobox edit control (if I dont subclass it) //TODO(fran): this has to go
 		{
 			HDC listboxDC = (HDC)wparam;
 			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
@@ -685,6 +798,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case WM_KILLFOCUS:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_PRINTCLIENT://For some reason the base combobox (not subclassed) sends this msg, it makes no sense to me why the cb would need my client rendering
+		{
+			return 0;
 		} break;
 		default:
 #ifdef _DEBUG

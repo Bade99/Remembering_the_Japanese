@@ -71,6 +71,9 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(205,"Conjunction")
 	lang_entry(206,"Pronoun")
 	lang_entry(207,"Counter")
+
+	lang_entry(250,"Search Hiragana")
+
 ;
 
 constexpr static utf16 lang_español_entries[] =

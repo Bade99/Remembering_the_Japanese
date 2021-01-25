@@ -5,16 +5,20 @@
 //TODO(fran): rounded corners for everything, it'll look and feel better for this type of application
 //TODO(fran): mix between showing jp and the user writing the translation, and showing translation and the user writing jp
 //TODO(fran): a stats or report page that shows the user data like word count, accuracy, number of practices, ...
+//TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work
+//TODO(fran): should I stop giving suggestions through the IME window? so the user isnt dependent on the correct writing of the IME suggestions, at least for something like the searchbar
 
 //-------------------Stuff I learnt-------------------:
 //If you have no .rc file and try to load something from it (eg LoadStringW) then the antivirus, in my case kaspersky, detects the exe as VHO:Exploit.Win32.Convagent.gen and sometimes it even says it's a Trojan
 //IMPORTANT: Unsurprisingly enough the biggest problem I had by using japanese on my paths and files was with the Resource editor, it seems to always default to ascii and write paths in ascii also, which means you cant get to your files!!! If I ever get someone else working on this I must change the way I handle it right now, which is basically writing the .rc file myself, also I cant ever add something to that rc or what I wrote to fix it will be overriden. One idea I got was setting the lang for the resource, say I add an icon, then if I say that icon belongs to the japanese lang it might then use the correct codepage and get the correct filepath. As an extra im now very confused about the .rc files, people say you should version control them but they clearly have my filepath hardcoded in there, so other people will have theirs, that's a recipe for disaster in my book. I should probably try with the resx format, maybe you have more control over that one (Extra extra note, thanks to putting the assets folder outside new devs can get their .rc file to work without problem, the path will only contain ascii, look at the github page if you dont understand why). Raymond's solution works https://devblogs.microsoft.com/oldnewthing/20190607-00/?p=102569 if I dont update the file. I had to give up and change to name of the folder Im working on from がいじんのべんきょう！ to Remembering_the_Japanese, this is pathetic visual studio, I cant comprehend how they have encoding problems in 2020, this should've been fixed 10 years ago!!!!
+//This isnt anything new but simply a reflective moment that came to me, how each time I stopped using a windows feature the arquitecting came so much easier, the systems put in place for handling stuff are terrible, either cause they are or simply because Im outside windows and dont follow their design method, by creating my own, much simpler, much less interdependent system I could do stuff much faster, more efficient, and easier
 
 //-----------------Macro Definitions-----------------:
 #define _CRT_SECURE_NO_WARNINGS /*Dont take away functions for which you dont have replacement, and Im not stupid*/
 #ifdef _DEBUG
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
+//#define _DELETE_DB
 #endif
 
 //---------------------Includes----------------------:
@@ -141,12 +145,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 #endif
     str db_path = str(work_folder) + db_name; 
 
+#if defined(_DEBUG) && defined(_DELETE_DB) //Delete db file if exists
+    DeleteFileW(db_path.c_str());
+#endif
+
     //TODO(fran): im kind of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
     int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
     defer{ 
         int close_res = sqlite3_close(db); sqliteok_runtime_check(close_res,db); 
-#if defined(_DEBUG) && 0
+#if defined(_DEBUG) && defined(_DELETE_DB)
         DeleteFileW(db_path.c_str());
 #endif
     };
