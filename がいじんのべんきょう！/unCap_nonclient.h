@@ -1311,6 +1311,10 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	{
 		return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): may be useful
 	} break;
+	case WM_INPUTLANGCHANGE:
+	{
+		return DefWindowProc(hwnd, msg, wparam, lparam);//we dont care bout this
+	} break;
 	case WM_SYSKEYDOWN:
 	{
 		unsigned char vk = (unsigned char)wparam;

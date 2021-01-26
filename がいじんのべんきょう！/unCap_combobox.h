@@ -217,6 +217,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 
 //INFO: only use for CBS_DROPDOWN comboboxes
 LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
+	//{ static int msg_count; printf("TEST Combo: %d : ", msg_count++); printf(msgToString(msg)); printf("\n"); }
 	switch (msg) {
 	case WM_PAINT:
 	{
@@ -225,6 +226,7 @@ LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
 		FillRect(dc,&p.rcPaint,unCap_colors.ControlTxt);
 		EndPaint(hwnd, &p);
 	} break;
+#if 1 /*Remove button for opening listbox*/
 	case WM_SIZE:
 	{
 		LRESULT res = DefSubclassProc(hwnd, msg, wparam, lparam);
@@ -240,6 +242,7 @@ LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
 
 		return res;
 	} break;
+#endif
 	case WM_NCPAINT:
 	{
 		//return 0;
@@ -268,4 +271,10 @@ LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
 	default: return DefSubclassProc(hwnd, msg, wparam, lparam);
 	}
 	return 0;
+}
+
+
+LRESULT CALLBACK PrintMsgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData) {
+	{ static int msg_count; printf("%s: %d : ", (char*)dwRefData, msg_count++); printf(msgToString(msg)); printf("\n"); }
+	return DefSubclassProc(hwnd, msg, wparam, lparam);
 }

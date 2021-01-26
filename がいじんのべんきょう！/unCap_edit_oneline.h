@@ -366,7 +366,7 @@ void EDITONELINE_notify_parent(EditOnelineProcState* state, WORD notif_code) {
 
 //TODO(fran): some day paint/handle my own IME window
 LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-	printf(msgToString(msg)); printf("\n");
+	//printf(msgToString(msg)); printf("\n");
 
 	EditOnelineProcState* state = EDITONELINE_get_state(hwnd);
 	switch (msg) {

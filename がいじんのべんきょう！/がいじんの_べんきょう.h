@@ -280,14 +280,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//TODO(fran): create the other "tabs"
 
 		//---------------------Search----------------------:
-		state->controls.search.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN /*| CBS_HASSTRINGS TODO(fran):is this necessary*/
+		state->controls.search.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP /*TODO(fran):is CBS_HASSTRINGS necessary?*/
 			, 0,0,0,0, state->wnd, 0, NULL, NULL);
 		ACC(state->controls.search.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
 		SetWindowSubclass(state->controls.search.list.combo_search, TESTComboProc, 0, 0);
-		//COMBOBOXINFO info = { sizeof(info) };
-		//GetComboBoxInfo(state->controls.search.list.combo_search, &info);
-		//DestroyWindow(info.hwndItem); //NOTE: we can also use this to find out where the button is placed, to enlarge the edit control
-		//TODO(fran): now we know the edit control doesnt draw the button, so it has to be the hwnd_combo, subclass and handle wm_paint
+		COMBOBOXINFO info = { sizeof(info) };
+		GetComboBoxInfo(state->controls.search.list.combo_search, &info);
+		//SetWindowSubclass(info.hwndItem, PrintMsgProc, 0, (DWORD_PTR)"Combo Edit");
+		SetWindowSubclass(info.hwndList, PrintMsgProc, 0, (DWORD_PTR)"Combo List");
+		//cstr listclass[100];
+		//GetClassNameW(info.hwndList, listclass, 100); //INFO: class is ComboLBox, one interesting class windows has an it is hidden
 
 		for (auto ctl : state->controls.search.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 	}
@@ -648,12 +650,25 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 								//TODO(fran): clear the listbox
 								if (search_res.cnt) {
 									for (int i = 0; i < search_res.cnt; i++) {
-										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
+										//SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
 									}
 									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
 
 									//Show the listbox
 									SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
+#if 0
+									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
+									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);//returns -1 on error, but who cares
+									//NOTE: unless LBS_OWNERDRAWVARIABLE style is defined all items have the same height
+									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,10);
+									RECT rw; GetWindowRect(page.list.combo_search, &rw);
+									MoveWindow(nfo.hwndList, rw.left, rw.bottom, RECTWIDTH(rw), list_h, TRUE);
+									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+									SendMessage(nfo.hwndList, 0x1ae/*LBCB_STARTTRACK*/, 0, 0); //does start mouse tracking
+									//NOTE: I think LBCB_ENDTRACK is handled by itself
+#endif
+									//TODO(fran): check listbox windowrect here
+									//IDEA: bail out and have the first item on the list be exactly what the user just wrote(chrome does the same), serves as a helping hand for someone that wants to go back to what they wrote but dont know they can by pressing escape
 								}
 								else {
 									//Hide the listbox
