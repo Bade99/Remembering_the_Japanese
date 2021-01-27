@@ -17,6 +17,7 @@
 //TODO(fran): there are still some maximize-restore problems, where controls disappear
 //TODO(fran): check that no kanji is written to the hiragana box
 //TODO(fran): fix new_word edit control not showing the caret in the right place! im sure I already did this for some other project
+//TODO(fran): add extra control on new_word called "Notes" where the user can write anything eg make a clarification
 
 //TODO(fran): hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 
@@ -639,6 +640,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 							//Do a search for what they wrote and show the results in the listbox of the combobox
 							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
+
+							//DWORD sel_start, sel_end; SendMessage(page.list.combo_search, CB_GETEDITSEL, (WPARAM)&sel_start, (LPARAM)&sel_end);
+
+							COMBOBOX_clear_list_items(page.list.combo_search);
+
 							int sz_char = (int)SendMessage(page.list.combo_search, WM_GETTEXTLENGTH, 0, 0)+1;
 							if (sz_char > 1) {
 								utf16* search = (decltype(search))malloc(sz_char * sizeof(*search));
@@ -648,37 +654,63 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 								auto search_res = search_word(state, search, 5);
 								//TODO(fran): clear the listbox
+
+								//Semi HACK: set first item of the listbox to what the user just wrote, to avoid the stupid combobox from selecting something else
+								//Show the listbox
+								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
+								SendMessageW(page.list.combo_search, CB_INSERTSTRING, 0, (LPARAM)search);
+
 								if (search_res.cnt) {
 									for (int i = 0; i < search_res.cnt; i++) {
-										//SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
+										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
 									}
 									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
 
-									//Show the listbox
-									SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
-#if 0
+#if 1
+									//TODO(fran): why the hell does this make the mouse disappear, just terrible, I really need to make my own one
+									//TODO(fran): not all the items are shown if they are too many, I think there's a msg that increases the number of items to show
+
+									//NOTE: ok now we have even more garbage, the cb sets the selection to the whole word, which means that the next char the user writes _overrides_ the previous one, I really cant comprehend how this is so awful to use, I must be doing something wrong
+									//SendMessage(page.list.combo_search, CB_SETEDITSEL, 0, MAKELONG(sel_start,sel_end));//This is also stupid, you go from DWORD on CB_GETEDITSEL to WORD here, you loose a whole byte of info
+
+									//IMPORTANT INFO: I think that the "autoselection" problem only happens when you call CB_SHOWDROPDOWN, if we called it _before_ adding elements to the list we may be ok, the answer is yes and no, my idea works _but_ the listbox doesnt update its size to accomodate for the items added after showing it, gotta do that manually
+
+									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
+									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
+									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
+									RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
+									MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
+									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+#else
 									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
 									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);//returns -1 on error, but who cares
 									//NOTE: unless LBS_OWNERDRAWVARIABLE style is defined all items have the same height
-									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,10);
+									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
 									RECT rw; GetWindowRect(page.list.combo_search, &rw);
 									MoveWindow(nfo.hwndList, rw.left, rw.bottom, RECTWIDTH(rw), list_h, TRUE);
+									SetWindowPos(nfo.hwndList, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);//INFO: here was the problem, the window was being occluded
+									//ShowWindow(nfo.hwndList, SW_SHOWNA);
 									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
 									SendMessage(nfo.hwndList, 0x1ae/*LBCB_STARTTRACK*/, 0, 0); //does start mouse tracking
 									//NOTE: I think LBCB_ENDTRACK is handled by itself
 #endif
-									//TODO(fran): check listbox windowrect here
-									//IDEA: bail out and have the first item on the list be exactly what the user just wrote(chrome does the same), serves as a helping hand for someone that wants to go back to what they wrote but dont know they can by pressing escape
+									//TODO(fran): add something to the default list item or add extra info to the db results to differentiate the default first listbox item from the results
+									//TODO(fran): now we have semi success with the cb, but still the first character comes out a little too late, it feels bad, we probably cant escape creating our own combobox
 								}
 								else {
-									//Hide the listbox
-									SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
+									//Hide the listbox, well... maybe not since we now show the search string on the first item
+									//SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
 								}
 							}
 							else {
 								//Hide the listbox
 								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
 							}
+						} break;
+						case CBN_CLOSEUP:
+						{
+							//SendMessage(page.list.combo_search, CB_RESETCONTENT, 0, 0);//Terrible again, what if you just want to clear the listbox alone? we need the poor man's solution:
+							COMBOBOX_clear_list_items(page.list.combo_search);
 						} break;
 						}
 					}
@@ -817,6 +849,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case WM_PRINTCLIENT://For some reason the base combobox (not subclassed) sends this msg, it makes no sense to me why the cb would need my client rendering
 		{
 			return 0;
+		} break;
+		case WM_DELETEITEM://Sent by the cb when I delete its items (which I need to do one by one since there's no msg to send it that can do that)
+		{
+			return TRUE;
 		} break;
 		default:
 #ifdef _DEBUG

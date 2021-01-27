@@ -485,6 +485,10 @@ static LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 	{
 		return 0; //We dont want IME for a button
 	} break;
+	case WM_INPUTLANGCHANGE:
+	{
+		return 0;
+	} break;
 	case WM_SETFOCUS: //Button has WS_TABSTOP style and we got keyboard focus thanks to that
 	{
 		//TODO(fran): repaint and show as if the user is hovering over the button
