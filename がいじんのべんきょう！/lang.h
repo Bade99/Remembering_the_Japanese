@@ -79,6 +79,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(271,"Last practiced:")
 	lang_entry(272,"Score:")
 	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
+	lang_entry(274,"Never") /*TODO(fran): maybe "Change" is better?*/
 
 	//TODO(fran): get fmt and change Word to %1
 	lang_entry(300,"Word not found, would you like to add it?") /*Nicer than "do you want to add it?" I think*/

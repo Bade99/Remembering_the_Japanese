@@ -57,9 +57,9 @@ constexpr char べんきょう_table_words_structure[] =
 	"lexical_category	INTEGER," //noun,verb,... TODO(fran): could use an enum and reference to another table
 	/*System generated*/
 	"creation_date		TEXT DEFAULT CURRENT_TIMESTAMP," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
-	"last_shown_date	INTEGER DEFAULT 0," //Unix Time, we dont care to show this value, it's simply for sorting
+	"last_shown_date	INTEGER DEFAULT 0," //Unix Time, used for sorting, TODO(fran): I should actually put a negative value since 0 maps to 1970 but unix time can go much further back than that
 	"times_shown		INTEGER DEFAULT 0,"
-	"times_right		INTEGER DEFAULT 0"
+	"times_right		INTEGER DEFAULT 0" 
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
 
@@ -138,6 +138,9 @@ struct stored_word {
 	learnt_word user_defined;
 	extra_word application_defined;
 };
+
+#define _sqlite3_generate_columns(type,name,...) "" + #name + ","
+//NOTE: you'll have to remove the last comma since sql doesnt accept trailing commas
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -626,7 +629,6 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
 
-#define _sqlite3_generate_columns(type,name,...) "" + #name + ","
 		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
 		columns.pop_back(); //We need to remove the trailing comma
 
@@ -728,7 +730,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 	get_word_res get_word(ProcState* state, utf16* word_hiragana) {
 		get_word_res res{0};
 		auto match_str = convert_utf16_to_utf8(word_hiragana, (int)(cstr_len(word_hiragana) + 1) * sizeof(*word_hiragana)); defer{ free_any_str(match_str.str); };
-		std::string select_word = std::string("SELECT ") + "*" /*TODO(fran): column names should be stored somewhere*/ + " FROM " + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "'";
+		std::string select_word = std::string("SELECT ")
+			+ _foreach_learnt_word_member(_sqlite3_generate_columns)
+			+ _foreach_extra_word_member(_sqlite3_generate_columns); 
+		select_word.pop_back();//remove trailing comma
+		select_word += std::string(" FROM ") + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "'";
+		//NOTE: here I'd like to check last_shown_date and do an if last_shown_date == 0 -> 'Never' else last_shown_data, but I cant cause of the macros, it's pretty hard to do operations on specific columns if you have to autogen it with macros
 
 		auto parse_select_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
 			get_word_res* res = (decltype(res))extra_param;
@@ -741,8 +748,27 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 #define load_extra_word_member(type,name,...) if(results) res->word.application_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
 			_foreach_learnt_word_member(load_learnt_word_member);
 			_foreach_extra_word_member(load_extra_word_member);
-			//TODO(fran): iterating over ".all" may be a more sensible idea
-			//TODO(fran): I think I should do column matching
+			
+			try {//Format last_shown_date (this would be easier to do in the query but I'd have to remove the macros)
+				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.last_shown_date.str, nullptr, 10);
+				free_any_str(res->word.application_defined.attributes.last_shown_date.str);
+				if (unixtime == 0) {
+					//this word has never been shown in a practice run
+					str never = RS(274);
+					int sz_bytes = (never.length() + 1) * sizeof(str::value_type);
+					res->word.application_defined.attributes.last_shown_date = alloc_any_str(sz_bytes);
+					memcpy(res->word.application_defined.attributes.last_shown_date.str, never.c_str(), sz_bytes);
+				}
+				else {
+					std::time_t temp = unixtime;
+					std::tm* time = std::localtime(&temp);//IMPORTANT: not multithreading safe, returns a pointer to an internal unique object
+					res->word.application_defined.attributes.last_shown_date = alloc_any_str(30 * sizeof(utf16));
+					wcsftime((utf16*)res->word.application_defined.attributes.last_shown_date.str, 30, L"%Y-%m-%d", time);
+				}
+			}
+			catch (...) {}
+
+			//TODO(fran): once again we want to change something for the UI, the created_date should only show "y m d", that may mean that we want macros for the user defined stuff, but not for application defined, there are 2 out of 4 things we want to change there
 
 			return 0;
 		};
