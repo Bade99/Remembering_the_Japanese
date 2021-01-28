@@ -74,6 +74,15 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(250,"Search Hiragana")
 
+
+	lang_entry(270,"Created:")
+	lang_entry(271,"Last practiced:")
+	lang_entry(272,"Score:")
+	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
+
+	//TODO(fran): get fmt and change Word to %1
+	lang_entry(300,"Word not found, would you like to add it?") /*Nicer than "do you want to add it?" I think*/
+
 ;
 
 constexpr static utf16 lang_español_entries[] =
@@ -92,8 +101,8 @@ constexpr static utf16 lang_español_entries[] =
 static void save_to_file_lang(def_lang lang, utf16* folder) {
 	str filename = str(folder) + L"\\" + lang.name;
 	int sz = lang.entries_sz - (lang.entries[(lang.entries_sz / sizeof(*lang.entries)) - 1] ? 0 : sizeof(*lang.entries));//remove null terminator at the time of saving the file
-	auto res = convert_utf16_to_utf8(lang.entries, sz); defer{ free_convert(res.mem); };
-	write_entire_file(filename.c_str(), res.mem, (u32)res.sz);
+	auto res = convert_utf16_to_utf8(lang.entries, sz); defer{ free_any_str(res.str); };
+	write_entire_file(filename.c_str(), res.str, (u32)res.sz);
 }
 
 static void save_to_file_langs(def_lang* langs, int cnt, utf16* folder) {
@@ -161,6 +170,6 @@ static lang_mapper load_file_lang(utf16* folder, utf16* lang_name) { //TODO(fran
 	str path = str(folder) + L"\\" + lang_name;
 	auto file_res = read_entire_file(path.c_str()); defer{ free_file_memory(file_res.mem); };
 	auto convert_res = convert_utf8_to_utf16((utf8*)file_res.mem, file_res.sz);
-	res.map = mappify_lang((cstr*)convert_res.mem, lang_key_value_separator[0]);
+	res.map = mappify_lang((cstr*)convert_res.str, lang_key_value_separator[0]);
 	return res;
 }

@@ -985,6 +985,10 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		default: return SendMessage(state->client, msg, wparam, lparam);
 		}
 	} break;
+	case WM_CLOSE:
+	{
+		return SendMessage(state->wnd,WM_COMMAND,MAKELONG(UNCAPNC_CLOSE,0),0);//TODO(fran): I feel like I should change this sndmsg to a call to the proc since im in it
+	} break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
