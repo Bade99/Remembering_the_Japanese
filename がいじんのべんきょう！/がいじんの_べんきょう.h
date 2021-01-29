@@ -11,6 +11,8 @@
 #include "unCap_combobox.h"
 #include "unCap_Math.h"
 
+//INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8
+
 //TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): a back button to go one page back
 //TODO(fran): pressing enter on new_word page should map to the add button
@@ -23,6 +25,9 @@
 //TODO(fran): pressing enter in the edit control of the searchbox should trigger searching
 //TODO(fran): when querying for dates to show to the user format them to show up to the day, not including hours,min,sec
 //TODO(fran): extra page "Stats" or "Your progress" so the user can see how they are doing, we can put there a total percentage of accuracy in a nice circular control that animates from 0% to whatever the user's got
+//TODO(fran): add the back button windows 10 style by asking the nc_parent to show it, that one thing I do think windows did right
+//TODO(fran): the add buton in new_word should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
+//TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana each word in the practice, and you being able to press that button like object and going to the show_word page
 
 
 //IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
@@ -50,7 +55,7 @@ _add_struct_to_serialization_namespace(べんきょうSettings)
 constexpr char べんきょう_table_words[] = "words";
 constexpr char べんきょう_table_words_structure[] = 
 //NOTE: user modifiable values first, application defined after
-	"hiragana			TEXT UNIQUE NOT NULL COLLATE NOCASE," //hiragana or katakana
+	"hiragana			TEXT PRIMARY KEY COLLATE NOCASE," //hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
 	"kanji				TEXT COLLATE NOCASE,"
 	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
 	"mnemonic			TEXT,"
@@ -63,8 +68,9 @@ constexpr char べんきょう_table_words_structure[] =
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
 
+//NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
 enum lexical_category { //The value of this enums is what will be stored on the db, we'll map them to their correct language string
-	dont_care = 0, //I tend to annotate the different adjectives, but not much else
+	dont_care = -1, //I tend to annotate the different adjectives, but not much else
 	noun,
 	verb,
 	adj_い,
@@ -76,28 +82,22 @@ enum lexical_category { //The value of this enums is what will be stored on the 
 };
 
 str lexical_category_to_str(lexical_category cat) {
-	return RS(200 + cat - 1); //NOTE: dont_care should never be shown
+	return RS(200 + cat); //NOTE: dont_care should never be shown
 }
-u32 lexical_category_str_id(lexical_category cat) {
-	return 200 + cat - 1; //NOTE: dont_care should never be shown
+u32 lexical_category_str_lang_id(lexical_category cat) {
+	return 200 + cat; //NOTE: dont_care should never be shown
 }
 void lexical_category_setup_combobox(HWND cb) {
 	//IMPORTANT INFO: the first element to add to a combobox _must_ be at index 0, it does not support adding any index, amazingly enough, conclusion: the windows' combobox is terrible
 	//So thanks to the huge limitation of comboboxes we have to subtract one from everything, and at the time of consulting the cb we'll need to add one, this is simply stupid //TODO(fran): find a fix
-	ACT(cb, lexical_category::noun-1, lexical_category_str_id(lexical_category::noun));
-	ACT(cb, lexical_category::verb-1, lexical_category_str_id(lexical_category::verb));
-	ACT(cb, lexical_category::adj_い-1, lexical_category_str_id(lexical_category::adj_い));
-	ACT(cb, lexical_category::adj_な-1, lexical_category_str_id(lexical_category::adj_な));
-	ACT(cb, lexical_category::adverb-1, lexical_category_str_id(lexical_category::adverb));
-	ACT(cb, lexical_category::conjunction-1, lexical_category_str_id(lexical_category::conjunction));
-	ACT(cb, lexical_category::pronoun-1, lexical_category_str_id(lexical_category::pronoun));
-	ACT(cb, lexical_category::counter-1, lexical_category_str_id(lexical_category::counter));
-}
-lexical_category retrieve_lexical_category_from_combobox(HWND cb) {
-	lexical_category res;
-	int sel = (int)SendMessage(cb, CB_GETCURSEL, 0, 0);
-	res = (lexical_category)(sel + 1);//NOTE: thanks to the fact that when there's no selection sel=-1 we can map everything perfectly from dont_care onwards
-	return res;
+	ACT(cb, lexical_category::noun, lexical_category_str_lang_id(lexical_category::noun));
+	ACT(cb, lexical_category::verb, lexical_category_str_lang_id(lexical_category::verb));
+	ACT(cb, lexical_category::adj_い, lexical_category_str_lang_id(lexical_category::adj_い));
+	ACT(cb, lexical_category::adj_な, lexical_category_str_lang_id(lexical_category::adj_な));
+	ACT(cb, lexical_category::adverb, lexical_category_str_lang_id(lexical_category::adverb));
+	ACT(cb, lexical_category::conjunction, lexical_category_str_lang_id(lexical_category::conjunction));
+	ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
+	ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
 }
 union learnt_word { //will contain utf16* when getting data from the UI, and utf8* to send requests to the db
 	using type = any_str;
@@ -110,6 +110,7 @@ union learnt_word { //will contain utf16* when getting data from the UI, and utf
 		op(type,lexical_category) \
 
 		_foreach_learnt_word_member(_generate_member_no_default_init);
+		//NOTE: the ones that map to primary keys must be the first on the list, that way they are easily filtered out when updating their values
 
 	} attributes;
 	type all[sizeof(attributes) / sizeof(type)];
@@ -117,6 +118,8 @@ union learnt_word { //will contain utf16* when getting data from the UI, and utf
 	//learnt_word() { for (auto& s : all) s = str(L""); } //TODO(fran): why do I need to do this for the compiler to allow me to instantiate?
 	//~learnt_word() { for (auto& s : all) s.~basic_string(); }
 };
+constexpr int learnt_word_pk_count = 1;//
+
 union extra_word {
 	using type = any_str;
 	struct {
@@ -139,8 +142,37 @@ struct stored_word {
 	extra_word application_defined;
 };
 
+//---------------------Macros-------------------------:
+
 #define _sqlite3_generate_columns(type,name,...) "" + #name + ","
 //NOTE: you'll have to remove the last comma since sql doesnt accept trailing commas
+
+#define _sqlite3_generate_columns_array(type,name,...) #name,
+
+#define _sqlite3_generate_values(type,name,...) "'" + (utf8*)word->attributes.name.str + "'"","
+//NOTE: you'll have to remove the last comma since sql doesnt accept trailing commas
+
+#define _sqlite3_generate_values_array(type,name,...) std::string("'") + (utf8*)word->attributes.name.str + "'",
+
+
+//Data retrieval from UI (UI string contents are always utf16)
+
+/*NOTE: edit control or similar that uses WM_GETTEXT, eg static control, button, ...*/
+#define _get_edit_str(edit,any_str) \
+			{ \
+				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
+				any_str = alloc_any_str(_sz_char * sizeof(utf16)); \
+				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
+			}
+
+#define _get_combo_sel_str(cb,any_str) \
+			{ \
+				int lex_categ = (int)SendMessageW(cb, CB_GETCURSEL, 0, 0); \
+				int sz_char = _snwprintf(nullptr, 0, L"%d", lex_categ) + 1; \
+				any_str = alloc_any_str(sz_char * sizeof(utf16)); \
+				_snwprintf((utf16*)w.attributes.lexical_category.str, sz_char, L"%d", lex_categ); \
+			}
+
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -207,7 +239,7 @@ struct べんきょうProcState {
 		union show_word_controls {
 			using type = HWND;
 			struct {
-				type edit_hiragana;//or katakana
+				type static_hiragana;//or katakana
 				type edit_kanji;
 				type edit_translation;
 				type combo_lexical_category;//verb,noun,...
@@ -252,7 +284,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	void startup(ProcState* state) {
 		using namespace std::string_literals;
-		std::string create_work_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ");"s; //INFO: the param that requests this expects utf8
+		std::string create_work_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ") WITHOUT ROWID;"s; //INFO: the param that requests this expects utf8
 		char* create_errmsg;
 		sqlite3_exec(state->settings->db, create_work_table.c_str(), 0, 0, &create_errmsg);
 		sqlite_exec_runtime_assert(create_errmsg);
@@ -348,10 +380,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			auto& controls = state->controls.show_word;
 
-			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.static_hiragana = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -519,28 +549,28 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int wnd_h = 30;
 			int start_y = (h - (pad_cnt - 1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
 
-			int edit_hiragana_x = w_pad;
-			int edit_hiragana_y = start_y;
-			int edit_hiragana_h = wnd_h;
-			int edit_hiragana_w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+			int static_hiragana_x = w_pad;
+			int static_hiragana_y = start_y;
+			int static_hiragana_h = wnd_h;
+			int static_hiragana_w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
 
 			int cb_lex_categ_w = max_w / 3;
 			int cb_lex_categ_x = w - w_pad - cb_lex_categ_w;
-			int cb_lex_categ_y = edit_hiragana_y + edit_hiragana_h + h_pad / 2;
-			int cb_lex_categ_h = edit_hiragana_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
+			int cb_lex_categ_y = static_hiragana_y + static_hiragana_h + h_pad / 2;
+			int cb_lex_categ_h = static_hiragana_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
 
 
-			int edit_kanji_x = edit_hiragana_x;
+			int edit_kanji_x = static_hiragana_x;
 			int edit_kanji_y = cb_lex_categ_y + cb_lex_categ_h + h_pad / 2;
 			int edit_kanji_w = max_w;
 			int edit_kanji_h = wnd_h;
 
-			int edit_translation_x = edit_hiragana_x;
+			int edit_translation_x = static_hiragana_x;
 			int edit_translation_y = edit_kanji_y + edit_kanji_h + h_pad;
 			int edit_translation_w = max_w;
 			int edit_translation_h = wnd_h;
 
-			int edit_mnemonic_x = edit_hiragana_x;
+			int edit_mnemonic_x = static_hiragana_x;
 			int edit_mnemonic_y = edit_translation_y + edit_translation_h + h_pad;
 			int edit_mnemonic_w = max_w;
 			int edit_mnemonic_h = wnd_h;
@@ -572,7 +602,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int btn_modify_y = static_score_y + static_score_h + h_pad;
 			int btn_modify_x = (w - btn_modify_w) / 2;
 
-			_MyMoveWindow(controls.list.edit_hiragana, edit_hiragana, FALSE);
+			_MyMoveWindow(controls.list.static_hiragana, static_hiragana, FALSE);
 			_MyMoveWindow(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
 			_MyMoveWindow(controls.list.edit_kanji, edit_kanji, FALSE);
 			_MyMoveWindow(controls.list.edit_translation, edit_translation, FALSE);
@@ -623,7 +653,20 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return true;
 	}
 
-	bool insert_new_word(ProcState* state, const learnt_word& w) {
+	bool check_show_word(ProcState* state) {
+		auto& page = state->controls.show_word;
+		HWND edit_required[] = { page.list.edit_translation };
+		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
+			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
+			if (!sz_char) {
+				EDITONELINE_show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, ETP::top);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool insert_word(ProcState* state, const learnt_word* word) {
 		bool res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
@@ -632,11 +675,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
 		columns.pop_back(); //We need to remove the trailing comma
 
-#define _sqlite3_generate_values(type,name,...) "'" + (utf8*)w.attributes.name.str + "'"","
 		std::string values = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_values); 
 		values.pop_back(); //We need to remove the trailing comma
 
-		std::string insert_word = std::string("INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
+		std::string insert_word = std::string(" INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
 
 		char* insert_errmsg;
 		res = sqlite3_exec(state->settings->db, insert_word.c_str(), 0, 0, &insert_errmsg) == SQLITE_OK;
@@ -652,23 +694,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		if (check_new_word(state)) {
 			learnt_word w;
 			auto& page = state->controls.new_word;
-			//TODO(fran): macro
-			int sz_char;
-#define _get_edit_str(sz_char,edit,s) \
-			sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
-			s = alloc_any_str(sz_char * sizeof(utf16)); \
-			SendMessageW(edit, WM_GETTEXT, sz_char, (WPARAM)s.str);
 
-			_get_edit_str(sz_char, page.list.edit_hiragana, w.attributes.hiragana);
-			_get_edit_str(sz_char, page.list.edit_kanji, w.attributes.kanji);
-			_get_edit_str(sz_char, page.list.edit_translation, w.attributes.translation);
-			_get_edit_str(sz_char, page.list.edit_mnemonic, w.attributes.mnemonic);
+			_get_edit_str(page.list.edit_hiragana, w.attributes.hiragana);
+			_get_edit_str(page.list.edit_kanji, w.attributes.kanji);
+			_get_edit_str(page.list.edit_translation, w.attributes.translation);
+			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
 
-			//NOTE: we convert the number to utf16 and then utf8 in order to make the conversion be able to iterate over all elements of the array
-			int lex_categ = retrieve_lexical_category_from_combobox(page.list.combo_lexical_category);
-			sz_char = _snwprintf(nullptr,0, L"%d", lex_categ) + 1;
-			w.attributes.lexical_category = alloc_any_str(sz_char * sizeof(utf16));
-			_snwprintf((utf16*)w.attributes.lexical_category.str, sz_char, L"%d", lex_categ);
+			_get_combo_sel_str(page.list.combo_lexical_category, w.attributes.lexical_category);
 
 			learnt_word w_utf8;
 			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
@@ -678,7 +710,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			}
 			defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
 			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
-			res = insert_new_word(state, w_utf8); 
+			res = insert_word(state, &w_utf8); 
 			//TODO(fran): maybe handle repeated words here
 		}
 		return res;
@@ -697,7 +729,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		res.cnt = 0;
 		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match)+1)*sizeof(*match)); defer{ free_any_str(match_str.str); };
 		char* select_errmsg;
-		std::string select_matches = std::string("SELECT ") + "hiragana" /*TODO(fran): column names should be stored somewhere*/ + " FROM " + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "%'" + " LIMIT " + std::to_string(max_cnt_results) + ";";
+		std::string select_matches = std::string(" SELECT ") + "hiragana" /*TODO(fran): column names should be stored somewhere*/ + " FROM " + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "%'" + " LIMIT " + std::to_string(max_cnt_results) + ";";
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
 			//NOTE: from what I understood this gets executed once for every resulting row
@@ -755,7 +787,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				if (unixtime == 0) {
 					//this word has never been shown in a practice run
 					str never = RS(274);
-					int sz_bytes = (never.length() + 1) * sizeof(str::value_type);
+					int sz_bytes = (int)(never.length() + 1) * sizeof(str::value_type);
 					res->word.application_defined.attributes.last_shown_date = alloc_any_str(sz_bytes);
 					memcpy(res->word.application_defined.attributes.last_shown_date.str, never.c_str(), sz_bytes);
 				}
@@ -809,7 +841,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			auto controls = state->controls.show_word;
 			//IDEA: in this page we could reuse the controls from new_word, that way we first call preload_page(new_word) with word_to_show.user_defined and then do our thing (this idea doesnt quite work)
 
-			SendMessageW(controls.list.edit_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
+			SendMessageW(controls.list.static_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
 			SendMessageW(controls.list.edit_kanji, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.kanji.str);
 			SendMessageW(controls.list.edit_translation, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.translation.str);
 			SendMessageW(controls.list.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.mnemonic.str);
@@ -844,6 +876,55 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 		} break;
 		}
+	}
+
+	bool update_word(ProcState* state, learnt_word* word) {
+		bool res;
+		//TODO(fran): specify all the columns for the insert, that will be our error barrier
+		//TODO(fran): we are inserting everything with '' which is not right for numbers
+		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
+
+		std::string columns[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
+
+		std::string values[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) };
+
+		std::string update_word = std::string(" UPDATE ") + べんきょう_table_words + " SET ";
+		for (int i = learnt_word_pk_count/*dont update pk columns*/; i < ARRAYSIZE(columns); i++)
+			update_word += columns[i] + "=" + values[i] + ",";
+		update_word.pop_back();//you probably need to remove the trailing comma as always
+		update_word += " WHERE ";
+		for (int i = 0/*match by pk columns*/; i < learnt_word_pk_count; i++)
+			update_word += columns[i] + " LIKE " + values[i] + (((i+1) != learnt_word_pk_count)? "AND" : "");
+		//TODO(fran): should I use "like" or "="  or "==" ?
+
+		char* update_errmsg;
+		res = sqlite3_exec(state->settings->db, update_word.c_str(), 0, 0, &update_errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(update_errmsg);
+
+		return res;
+	}
+
+	bool modify_word(ProcState* state) {
+		bool res = false;
+		if (check_show_word(state)) {
+			learnt_word w;
+			auto& page = state->controls.show_word;
+
+			_get_edit_str(page.list.static_hiragana, w.attributes.hiragana);
+			_get_edit_str(page.list.edit_kanji, w.attributes.kanji);
+			_get_edit_str(page.list.edit_translation, w.attributes.translation);
+			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
+			_get_combo_sel_str(page.list.combo_lexical_category, w.attributes.lexical_category);
+
+			learnt_word w_utf8; defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
+			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
+				w_utf8.all[i] = convert_utf16_to_utf8((utf16*)w.all[i].str, (int)w.all[i].sz);
+				free_any_str(w.all[i].str);//maybe set it to zero too
+			}
+
+			res = update_word(state, &w_utf8);
+		}
+		return res;
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1051,8 +1132,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				case ProcState::page::show_word:
 				{
 					auto& page = state->controls.show_word;
-
-					//TODO(fran): modify button
+					if (child == page.list.button_modify) {
+						//TODO(fran): modify button
+						if (modify_word(state)) {
+							set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
+						}
+					}
+					//TODO(fran): add delete button
 				} break;
 
 				}

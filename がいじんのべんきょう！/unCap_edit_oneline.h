@@ -1182,6 +1182,10 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 	{
 		return (LRESULT)state->font;
 	} break;
+	case WM_DEADCHAR://Very interesting, this is the way that TranslateMessage notifies about things like a tilde being pressed, since this keys arent expected to be directly made into characters on the screen
+	{
+		return DefWindowProc(hwnd, msg, wparam, lparam);
+	} break;
 	default:
 	{
 
