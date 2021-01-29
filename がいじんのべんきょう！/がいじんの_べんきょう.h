@@ -252,6 +252,7 @@ struct べんきょうProcState {
 				//TODO(fran): store on the db: times_shown and times_correct
 
 				type button_modify;
+				type button_delete;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} show_word;
@@ -419,6 +420,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
 			UNCAPBTN_set_brushes(controls.list.button_modify, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+
+			controls.list.button_delete = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP | BS_BITMAP
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_modify, 273);
+			UNCAPBTN_set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.bin);
+			//TODO(fran): use an img of a trash can for this one, so it's smaller and square and we can put it to the side of the modify button which is the important one and should remain centered
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -602,6 +610,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int btn_modify_y = static_score_y + static_score_h + h_pad;
 			int btn_modify_x = (w - btn_modify_w) / 2;
 
+			int btn_delete_h = wnd_h;
+			int btn_delete_w = btn_delete_h;
+#if 0 //TODO(fran): which one to go with?
+			int btn_delete_x = btn_modify_x + btn_modify_w + w_pad*;/*TODO(fran): clamp to not go beyond w*/
+			int btn_delete_y = btn_modify_y;
+#else
+			int btn_delete_x = (w - btn_delete_w)/2;
+			int btn_delete_y = btn_modify_y + btn_modify_h + h_pad;
+#endif
+
 			_MyMoveWindow(controls.list.static_hiragana, static_hiragana, FALSE);
 			_MyMoveWindow(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
 			_MyMoveWindow(controls.list.edit_kanji, edit_kanji, FALSE);
@@ -613,6 +631,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			_MyMoveWindow(controls.list.static_last_shown_date, static_last_shown_date, FALSE);
 			_MyMoveWindow(controls.list.static_score, static_score, FALSE);
 			_MyMoveWindow(controls.list.button_modify, btn_modify, FALSE);
+			_MyMoveWindow(controls.list.button_delete, btn_delete, FALSE);
 
 		} break;
 		}

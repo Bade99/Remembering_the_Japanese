@@ -75,8 +75,9 @@ union UNCAP_BMPS { //1bpp 16x16 bitmaps
 		HBITMAP tick;
 		HBITMAP dropdown;
 		HBITMAP circle;
+		HBITMAP bin;
 	};
-	HBITMAP all[7];//REMEMBER to update
+	HBITMAP all[8];//REMEMBER to update
 
 private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
 };
