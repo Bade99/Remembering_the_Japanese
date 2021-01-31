@@ -457,6 +457,55 @@ static void SetText_txt_app(HWND wnd, const cstr* new_txt, const cstr* new_appna
 	}
 }
 
+static POINT __msgbox_store_xy(int x = INT32_MIN , int y = INT32_MIN) { //TODO(fran): look for more elegant ways to send data from MessageBox to Hook_MsgBox
+	static POINT p{ 0 };
+	if ((x != INT32_MIN) || (y != INT32_MIN)) {
+		p.x = x;
+		p.y = y;
+	}
+	return p;
+}
+static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
+{
+	//Thanks https://stackoverflow.com/questions/1530561/set-location-of-messagebox
+
+	if (code == HCBT_CREATEWND)
+	{
+		CREATESTRUCT* pcs = ((CBT_CREATEWND*)lparam)->lpcs;
+
+		if ((pcs->style & WS_DLGFRAME) || (pcs->style & WS_POPUP))//TODO(fran): this checks dont seem too robust
+		{
+			HWND wnd = (HWND)wparam;//Msgbox
+
+			POINT p = __msgbox_store_xy();
+
+			//NOTE: this may or may not work, therefore we arent gonna use it
+			/*pcs->x = p.x;
+			pcs->y = p.y;*/
+
+			//We try to change the position of the msgbox
+			SetWindowPos(wnd, 0,p.x,p.y,0,0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER);
+		}
+	}
+
+	return CallNextHookEx(0 /*this was necessary on the times of win95, not anymore*/, code, wparam, lparam);
+}
+
+static int MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType, int x, int y) {
+	__msgbox_store_xy(x, y);
+	HHOOK hook_proc = SetWindowsHookEx(WH_CBT, Hook_MsgBox, 0, GetCurrentThreadId()); //attach the hook
+	int res = MessageBoxA(hWnd, lpText, lpCaption, uType);
+	UnhookWindowsHookEx(hook_proc); // remove the hook
+	return res;
+}
+static int MessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType, int x, int y) {
+	__msgbox_store_xy(x, y);
+	HHOOK hook_proc = SetWindowsHookEx(WH_CBT, Hook_MsgBox, 0, GetCurrentThreadId()); //attach the hook
+	int res = MessageBoxW(hWnd, lpText, lpCaption, uType);
+	UnhookWindowsHookEx(hook_proc); // remove the hook
+	return res;
+}
+
 //----------------------FONT-----------------------:
 #include <vector>		//TODO(fran): get rid of
 static str GetApp_FontFaceName() {
