@@ -312,13 +312,15 @@ bool contains_char(cstr c, cstr* chars) {
 	return res;
 }
 
-enum ETP {//EditOneline_tooltip_placement
-	left = (1 << 1),
-	top = (1 << 2),
-	right = (1 << 3),
-	bottom = (1 << 4),
-	//current_char = (1 << 5), //instead of placement in relation to the control wnd it will be done relative to a character
-};
+namespace ETP {
+	enum ETP {//EditOneline_tooltip_placement
+		left = (1 << 1),
+		top = (1 << 2),
+		right = (1 << 3),
+		bottom = (1 << 4),
+		//current_char = (1 << 5), //instead of placement in relation to the control wnd it will be done relative to a character
+	};
+}
 //TODO(fran): positioning relative to a character offset, eg {3,5} 3rd char of 5th row place on top or left or...
 void EDITONELINE_show_tip(HWND editoneline, const cstr* msg, int duration_ms, u32 ETP_flags) {
 	EditOnelineProcState* state = EDITONELINE_get_state(editoneline); Assert(state);

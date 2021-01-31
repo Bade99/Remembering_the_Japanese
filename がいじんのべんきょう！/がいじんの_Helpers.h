@@ -25,7 +25,7 @@
 #define sqlite_exec_runtime_assert(errmsg) if (errmsg)MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).str).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
 //Notifies the user on non terminal errors, as an extra frees the memory for the errmsg, TODO(fran): I dont know whether freeing is good or not
-#define sqlite_exec_runtime_check(errmsg) if (errmsg){MessageBoxW(0,(str(L"SQLite: ") + (utf16*)convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1)).str).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND);sqlite3_free(errmsg);errmsg=0;}
+#define sqlite_exec_runtime_check(errmsg) if (errmsg){any_str err = convert_utf8_to_utf16(errmsg,(int)(strlen(errmsg)+1));MessageBoxW(0,(str(L"SQLite: ") + (utf16*)err.str).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND);free_any_str(err.str);sqlite3_free(errmsg);errmsg=0;}
 
 #define sqliteok_runtime_assert(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
@@ -457,13 +457,34 @@ static void SetText_txt_app(HWND wnd, const cstr* new_txt, const cstr* new_appna
 	}
 }
 
-static POINT __msgbox_store_xy(int x = INT32_MIN , int y = INT32_MIN) { //TODO(fran): look for more elegant ways to send data from MessageBox to Hook_MsgBox
-	static POINT p{ 0 };
-	if ((x != INT32_MIN) || (y != INT32_MIN)) {
-		p.x = x;
-		p.y = y;
+namespace MBP { //INFO: a way to avoid having redefinition errors for unscoped enum
+	enum MBP {//MessageBox Placement
+		left = (1 << 1),
+		top = (1 << 2),
+		right = (1 << 3),
+		bottom = (1 << 4),
+		center = (1 << 5),
+	};
+}
+struct MsgBoxPlacement { HWND relativeTo; int MBP_flags; };
+//INFO: MBP_flags defaults: left (if left or right or center isnt selected) & top (if top or bottom or center isnt selected)
+//INFO: in relation to the previous, you can always expect this function to return a valid setter for x and y
+static MsgBoxPlacement __msgbox_store_placement(HWND relativeTo = (HWND)INT32_MIN, int MBP_flags = INT32_MIN) { //TODO(fran): look for more elegant ways to send data from MessageBox to Hook_MsgBox
+	static MsgBoxPlacement MBP{ 0 };
+	if ((relativeTo != (HWND)INT32_MIN) && (MBP_flags != INT32_MIN)) {
+		
+		//Set defaults in case the user didnt do it
+		//Flags for moving along x
+		if (!(MBP_flags & MBP::left || MBP_flags & MBP::right || MBP_flags & MBP::center))//If one of this is not set
+			MBP_flags |= MBP::left;//default to left
+		//Flags for moving along y
+		if (!(MBP_flags & MBP::top || MBP_flags & MBP::bottom || MBP_flags & MBP::center))//If one of this is not set
+			MBP_flags |= MBP::top;//default to top
+
+		MBP.relativeTo = relativeTo;
+		MBP.MBP_flags = MBP_flags;
 	}
-	return p;
+	return MBP;
 }
 static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
 {
@@ -477,29 +498,58 @@ static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
 		{
 			HWND wnd = (HWND)wparam;//Msgbox
 
-			POINT p = __msgbox_store_xy();
+			MsgBoxPlacement placement = __msgbox_store_placement();
+			RECT rw; GetWindowRect(placement.relativeTo, &rw);
+			int rel_x=rw.left;
+			int rel_y=rw.top;
+			int rel_w = RECTWIDTH(rw);
+			int rel_h = RECTHEIGHT(rw);
+			POINT p{0};//msgbox's new x and y
 
-			//NOTE: this may or may not work, therefore we arent gonna use it
-			/*pcs->x = p.x;
-			pcs->y = p.y;*/
+			if (placement.MBP_flags & MBP::center) {
+				p.x = rel_x + rel_w / 2 - pcs->cx / 2;
+				p.y = rel_y + rel_h / 2 - pcs->cy / 2;
+			}
 
-			//We try to change the position of the msgbox
-			SetWindowPos(wnd, 0,p.x,p.y,0,0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER);
+			if (placement.MBP_flags & MBP::top) {
+				p.y = rel_y;
+			}
+
+			if (placement.MBP_flags & MBP::bottom) {
+				p.y = rel_y + rel_h - pcs->cy;
+			}
+
+			if (placement.MBP_flags & MBP::left) {
+				p.x = rel_x;
+			}
+
+			if (placement.MBP_flags & MBP::right) {
+				p.x = rel_x + rel_w - pcs->cx;
+			}
+
+			//NOTE: this may or may not work, depends on the window, but I do think it always works for msgboxes
+			pcs->x = p.x;
+			pcs->y = p.y;
+
+			//This didnt work
+			//SetWindowPos(wnd, 0,p.x,p.y,0,0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER);
 		}
 	}
 
-	return CallNextHookEx(0 /*this was necessary on the times of win95, not anymore*/, code, wparam, lparam);
+	return CallNextHookEx(0 /*NOTE: this was necessary on the times of win95, not anymore*/, code, wparam, lparam);
 }
 
-static int MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType, int x, int y) {
-	__msgbox_store_xy(x, y);
+//INFO: placement is relative to hWnd
+static int MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType, int MBP_flags) {
+	__msgbox_store_placement(hWnd, MBP_flags);
 	HHOOK hook_proc = SetWindowsHookEx(WH_CBT, Hook_MsgBox, 0, GetCurrentThreadId()); //attach the hook
 	int res = MessageBoxA(hWnd, lpText, lpCaption, uType);
 	UnhookWindowsHookEx(hook_proc); // remove the hook
 	return res;
 }
-static int MessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType, int x, int y) {
-	__msgbox_store_xy(x, y);
+//INFO: placement is relative to hWnd
+static int MessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType, int MBP_flags) {
+	__msgbox_store_placement(hWnd, MBP_flags);
 	HHOOK hook_proc = SetWindowsHookEx(WH_CBT, Hook_MsgBox, 0, GetCurrentThreadId()); //attach the hook
 	int res = MessageBoxW(hWnd, lpText, lpCaption, uType);
 	UnhookWindowsHookEx(hook_proc); // remove the hook

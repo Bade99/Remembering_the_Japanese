@@ -1167,7 +1167,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 									set_current_page(state, ProcState::page::show_word);
 								}
 								else {
-									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
+									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
 									if (ret == IDYES) {
 										learnt_word new_word{0};
 										new_word.attributes.hiragana = word;
@@ -1190,7 +1190,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					}
 					if (child == page.list.button_delete) {
 
-						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
+						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
 						if (ret == IDYES) {
 							if (remove_word(state)) {
 								set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
