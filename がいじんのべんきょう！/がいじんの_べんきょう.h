@@ -28,7 +28,8 @@
 //TODO(fran): add the back button windows 10 style by asking the nc_parent to show it, that one thing I do think windows did right
 //TODO(fran): the add buton in new_word should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana each word in the practice, and you being able to press that button like object and going to the show_word page
-
+//TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
+//TODO(fran): if we're gonna continue using messageboxes they must be placed somewhere inside our window
 
 //IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -257,7 +258,7 @@ struct べんきょうProcState {
 			type all[sizeof(list) / sizeof(type)];
 		} show_word;
 
-	}controls;
+	}controls; //TODO(fran): should be called pages
 };
 
 namespace べんきょう { //INFO: Im trying namespaces to see if this is better than having every function with the name of the wndclass
@@ -685,7 +686,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return true;
 	}
 
-	bool insert_word(ProcState* state, const learnt_word* word) {
+	bool insert_word(sqlite3* db, const learnt_word* word) {
 		bool res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
@@ -700,7 +701,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		std::string insert_word = std::string(" INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
 
 		char* insert_errmsg;
-		res = sqlite3_exec(state->settings->db, insert_word.c_str(), 0, 0, &insert_errmsg) == SQLITE_OK;
+		res = sqlite3_exec(db, insert_word.c_str(), 0, 0, &insert_errmsg) == SQLITE_OK;
 		sqlite_exec_runtime_check(insert_errmsg);
 
 		//TODO(fran): handle if the word already exists, maybe show the old word and ask if they want to override that content, NOTE: the handling code shouldnt be here, this function should be as isolated as possible, if we start heavily interacting with the user this will be ugly
@@ -729,7 +730,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			}
 			defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
 			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
-			res = insert_word(state, &w_utf8); 
+			res = insert_word(state->settings->db, &w_utf8); 
 			//TODO(fran): maybe handle repeated words here
 		}
 		return res;
@@ -741,7 +742,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 		free(res.matches);
 	}
-	search_word_res search_word_matches(ProcState* state, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
+	search_word_res search_word_matches(sqlite3* db, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
 		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the translation too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
 		search_word_res res; 
 		res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
@@ -765,7 +766,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
 		};
 
-		sqlite3_exec(state->settings->db, select_matches.c_str(), parse_match_result, &res, &select_errmsg);
+		sqlite3_exec(db, select_matches.c_str(), parse_match_result, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);//TODO(fran): should I free the result and return an empty?
 		return res;
 	}
@@ -778,7 +779,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		for(auto s : res.word.application_defined.all) if(s.str) free_any_str(s.str);
 		for(auto s : res.word.user_defined.all) if (s.str) free_any_str(s.str);
 	}
-	get_word_res get_word(ProcState* state, utf16* word_hiragana) {
+	get_word_res get_word(sqlite3* db, utf16* word_hiragana) {
 		get_word_res res{0};
 		auto match_str = convert_utf16_to_utf8(word_hiragana, (int)(cstr_len(word_hiragana) + 1) * sizeof(*word_hiragana)); defer{ free_any_str(match_str.str); };
 		std::string select_word = std::string("SELECT ")
@@ -826,7 +827,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//TODO(fran):in the sql query convert the datetime values to the user's localtime
 
 		char* select_errmsg;
-		sqlite3_exec(state->settings->db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
+		sqlite3_exec(db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);
 		return std::move(res);
 	}
@@ -897,7 +898,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 	}
 
-	bool update_word(ProcState* state, learnt_word* word) {
+	bool update_word(sqlite3* db, learnt_word* word) {
 		bool res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
@@ -917,7 +918,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//TODO(fran): should I use "like" or "="  or "==" ?
 
 		char* update_errmsg;
-		res = sqlite3_exec(state->settings->db, update_word.c_str(), 0, 0, &update_errmsg) == SQLITE_OK;
+		res = sqlite3_exec(db, update_word.c_str(), 0, 0, &update_errmsg) == SQLITE_OK;
 		sqlite_exec_runtime_check(update_errmsg);
 
 		return res;
@@ -941,8 +942,39 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				free_any_str(w.all[i].str);//maybe set it to zero too
 			}
 
-			res = update_word(state, &w_utf8);
+			res = update_word(state->settings->db, &w_utf8);
 		}
+		return res;
+	}
+
+	bool delete_word(sqlite3* db, learnt_word* word) {
+		bool res = false;
+
+		//To delete you find the word by its primary keys
+		std::string delete_word = std::string(" DELETE FROM ") + べんきょう_table_words + " WHERE " + "hiragana" + " = " + "'" + (utf8*)word->attributes.hiragana.str + "'" + ";";//TODO(fran): parametric filtering by all primary keys
+
+
+		char* delete_errmsg;
+		res = sqlite3_exec(db, delete_word.c_str(), 0, 0, &delete_errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(delete_errmsg);
+		return res;
+	}
+
+	bool remove_word(ProcState* state) {
+		bool res = false;
+		learnt_word word_to_delete{ 0 };
+
+		auto& page = state->controls.show_word;
+
+		_get_edit_str(page.list.static_hiragana, word_to_delete.attributes.hiragana); //TODO(fran): should check for valid values? I feel it's pointless in this case
+		defer{ free_any_str(word_to_delete.attributes.hiragana.str); };
+
+		learnt_word word_to_delete_utf8; //TODO(fran): maybe converting the attributes in place would be nicer, also we could iterate over all the members and check for valid pointers and only convert those
+
+		word_to_delete_utf8.attributes.hiragana = convert_utf16_to_utf8((utf16*)word_to_delete.attributes.hiragana.str, (int)word_to_delete.attributes.hiragana.sz);
+		defer{ free_any_str(word_to_delete_utf8.attributes.hiragana.str); };
+
+		res = delete_word(state->settings->db, &word_to_delete_utf8);
 		return res;
 	}
 
@@ -1052,7 +1084,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 								//TODO(fran): this might be an interesting case for multithreading, though idk how big the db has to be before this search is slower than the user writing, also for jp text the IME wont allow for the search to start til the user presses enter, that may be another <-TODO(fran): chrome-like handling for IME, text goes to the edit control at the same time as the IME
 
-								auto search_res = search_word_matches(state, search, 5); defer{ free_search_word(search_res); };
+								auto search_res = search_word_matches(state->settings->db, search, 5); defer{ free_search_word(search_res); };
 								//TODO(fran): clear the listbox
 
 								//Semi HACK: set first item of the listbox to what the user just wrote, to avoid the stupid combobox from selecting something else
@@ -1129,13 +1161,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 								any_str word = alloc_any_str(char_sz * sizeof(utf16)); defer{ free_any_str(word.str); };
 								SendMessageW(page.list.combo_search, CB_GETLBTEXT, sel, (LPARAM)word.str);
 								//We got the word, it may or may not be valid, so there are two paths, show error or move to the next page "show_word"
-								get_word_res res = get_word(state, (utf16*)word.str); defer{ free_get_word(res); };
+								get_word_res res = get_word(state->settings->db, (utf16*)word.str); defer{ free_get_word(res); };
 								if (res.found) {
 									preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 									set_current_page(state, ProcState::page::show_word);
 								}
 								else {
-									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
+									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
 									if (ret == IDYES) {
 										learnt_word new_word{0};
 										new_word.attributes.hiragana = word;
@@ -1152,12 +1184,19 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				{
 					auto& page = state->controls.show_word;
 					if (child == page.list.button_modify) {
-						//TODO(fran): modify button
 						if (modify_word(state)) {
 							set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
 						}
 					}
-					//TODO(fran): add delete button
+					if (child == page.list.button_delete) {
+
+						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
+						if (ret == IDYES) {
+							if (remove_word(state)) {
+								set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
+							}
+						}
+}
 				} break;
 
 				}
