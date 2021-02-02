@@ -192,6 +192,11 @@ struct べんきょうProcState {
 		show_word,
 	} current_page;
 
+	struct prev_page_fifo_queue{
+		decltype(current_page) pages[10];
+		u32 cnt;
+	}previous_pages;
+
 	struct {
 
 		union landingpage_controls {
@@ -660,6 +665,29 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		show_page(state, state->current_page,SW_SHOW);
 	}
 
+	void goto_previous_page(ProcState* state) {
+		if (state->previous_pages.cnt>0) {
+			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
+			if(state->previous_pages.cnt==0)PostMessage(state->nc_parent, WM_SHOWBACKBTN, FALSE, 0);//hide the back button
+		}
+	}
+
+	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
+	void store_previous_page(ProcState* state, ProcState::page prev_page) {
+		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
+			//cnt stays the same
+			//we move all the entries one position down and place the new one on top
+			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
+			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
+			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
+		}
+		else {
+			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
+		}
+
+		PostMessage(state->nc_parent, WM_SHOWBACKBTN, TRUE, 0);//show the back button
+	}
+
 	bool check_new_word(ProcState* state) {
 		auto& page = state->controls.new_word;
 		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_translation };
@@ -1036,12 +1064,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				{
 					auto& page = state->controls.landingpage;
 					if (child == page.list.button_new) {
+						store_previous_page(state, state->current_page);
 						set_current_page(state, ProcState::page::new_word);
 					}
 					else if (child == page.list.button_practice) {
+						store_previous_page(state, state->current_page);
 						set_current_page(state, ProcState::page::practice);
 					}
 					else if (child == page.list.button_search) {
+						store_previous_page(state, state->current_page);
 						set_current_page(state, ProcState::page::search);
 					}
 				} break;
@@ -1051,6 +1082,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					if (child == page.list.button_save) {
 						if (save_new_word(state)) {
 							//If the new word was successfully saved then go back to the landing, TODO(fran): a better idea may be to reset the new_word page, so that the user can add multiple words faster
+							store_previous_page(state, state->current_page);
 							set_current_page(state, ProcState::page::landing);
 							//TODO(fran): clear new_word controls, now this one's annoying cause not everything is cleared the same way
 						}
@@ -1164,6 +1196,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 								get_word_res res = get_word(state->settings->db, (utf16*)word.str); defer{ free_get_word(res); };
 								if (res.found) {
 									preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
+									store_previous_page(state, state->current_page);
 									set_current_page(state, ProcState::page::show_word);
 								}
 								else {
@@ -1172,6 +1205,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 										learnt_word new_word{0};
 										new_word.attributes.hiragana = word;
 										preload_page(state, ProcState::page::new_word, &new_word);
+										store_previous_page(state, state->current_page);
 										set_current_page(state, ProcState::page::new_word);
 									}
 								}
@@ -1185,7 +1219,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					auto& page = state->controls.show_word;
 					if (child == page.list.button_modify) {
 						if (modify_word(state)) {
-							set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
+							goto_previous_page(state);
+							//set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
 						}
 					}
 					if (child == page.list.button_delete) {
@@ -1193,7 +1228,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
 						if (ret == IDYES) {
 							if (remove_word(state)) {
-								set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
+								goto_previous_page(state);
+								//set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
 							}
 						}
 }
@@ -1284,6 +1320,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));//TODO(fran): maybe a lighter color to signalize non-editable?
 
 			return (INT_PTR)unCap_colors.ControlBk;
+		} break;
+		case WM_BACK:
+		{
+			goto_previous_page(state);
+			return 0;
 		} break;
 		case WM_PAINT:
 		{

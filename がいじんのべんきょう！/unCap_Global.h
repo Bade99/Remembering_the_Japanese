@@ -55,8 +55,9 @@ union UNCAP_FONTS {
 	struct {
 		HFONT General;
 		HFONT Menu;
+		HFONT Caption;
 	};
-	HFONT all[2];//REMEMBER to update
+	HFONT all[3];//REMEMBER to update
 
 	//NOTE: this checks for the lower bound, if all is bigger than the elements the assert wont trigger, I havent yet found a way to do the correct check, which would be against the struct, without having to put a name to it and thus destroying the whole point of it
 private: void _(){ static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
@@ -76,8 +77,9 @@ union UNCAP_BMPS { //1bpp 16x16 bitmaps
 		HBITMAP dropdown;
 		HBITMAP circle;
 		HBITMAP bin;
+		HBITMAP arrowLine_left;
 	};
-	HBITMAP all[8];//REMEMBER to update
+	HBITMAP all[9];//REMEMBER to update
 
 private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
 };

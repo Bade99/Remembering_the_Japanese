@@ -26,11 +26,17 @@
 //	 then we destroy the wnd
 // ------------------------------------------------------------- //
 
+// ------------------ ADDITIONAL MSGS ("API") ------------------ //
+#define nonclient_base_msg_addr (WM_USER + 3000)
+#define WM_SHOWBACKBTN (nonclient_base_msg_addr+1) /*wparam = BOOL: TRUE->show | FALSE->hide ; lparam = unused*/ /*Shows a back arrow button that when pressed sends WM_BACK to the client*/ /*TODO(fran): maybe it should return 1 to let it be clear it worked*/
+#define WM_BACK (nonclient_base_msg_addr+2) /*wparam = unused*/ /*Msg to be sent to the client when the back button is pressed*/
+
 // ------------------------ INTERNAL MSGS ------------------------ //
 #define UNCAPNC_MINIMIZE 100 //sent through WM_COMMAND
 #define UNCAPNC_MAXIMIZE 101 //sent through WM_COMMAND
 #define UNCAPNC_CLOSE 102 //sent through WM_COMMAND
 #define UNCAPNC_RESTORE 103 //sent through WM_COMMAND
+#define UNCAPNC_BACK 104 //sent through WM_COMMAND
 
 #define UNCAPNC_TIMER_MENUDELAY 0xf1 //A little delay before allowing the user to select a new menu, this prevents problems, eg the user trying to close the menu by selecting it again in the menu bar
 
@@ -56,7 +62,9 @@ struct unCapNcProcState {
 
 	MY_MARGINS nc;
 
-	HWND btn_min, btn_max, btn_close;
+	HWND btn_min, btn_max, btn_close, btn_back;
+
+	bool btn_back_visible;
 
 	RECT rc_caption;
 	SIZE caption_btn;
@@ -91,7 +99,7 @@ void UNCAPNC_calc_caption(unCapNcProcState* state) {
 
 	state->rc_caption.bottom = distance(testrc.top, ncrc.top);
 
-	state->caption_btn.cy = RECTHEIGHT(state->rc_caption); state->caption_btn.cx = state->caption_btn.cy * 16 / 9;;
+	state->caption_btn.cy = RECTHEIGHT(state->rc_caption); state->caption_btn.cx = state->caption_btn.cy * 16 / 9;
 }
 
 RECT UNCAPNC_calc_nonclient_rc_from_client(RECT uncapcl_rc, BOOL has_menu) {
@@ -199,6 +207,12 @@ void UNCAPNC_show_rclickmenu(unCapNcProcState* state, POINT mouse) {
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_MAXIMIZE, (LPCWSTR)subm);
 	SetMenuItemString(subm, UNCAPNC_MAXIMIZE, FALSE, RCS(2));
 
+	//TODO(fran): I dont really know which is the best place for this btn
+	if (state->btn_back_visible) {
+		AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_BACK, (LPCWSTR)subm);
+		SetMenuItemString(subm, UNCAPNC_BACK, FALSE, RCS(4));
+	}
+
 	AppendMenuW(subm, MF_SEPARATOR | MF_OWNERDRAW, 0, (LPCWSTR)subm);
 
 	AppendMenuW(subm, MF_STRING | MF_OWNERDRAW, UNCAPNC_CLOSE, (LPCWSTR)subm);
@@ -237,6 +251,33 @@ void UNCAPNC_manual_maximize(unCapNcProcState* state) {//Maximize only works cor
 	placement.ptMaxPosition.y = work_rc.top;
 	placement.rcNormalPosition = old_placement.rcNormalPosition;//TODO(fran): for non WS_EX_TOOLWINDOW windows all this should be in workspace coords
 	SetWindowPlacement(state->wnd, &placement);//TODO(fran): I just wanted to set the placement, not ask this guy to update my window too (maybe I can do some extra resizing to adjust the situation)
+}
+
+namespace nonclient {
+	using ProcState = unCapNcProcState;
+
+	RECT calc_btn_back_rc(ProcState* state) {
+		RECT r; GetClientRect(state->wnd, &r);
+		RECT rc{ r.left, r.top, r.left + 1 * state->caption_btn.cx, r.top + state->caption_btn.cy };
+		return rc;
+	}
+
+	void resize_controls(ProcState* state) {
+		RECT rc = UNCAPNC_calc_client_rc(state); 
+		MoveWindow(state->client, rc.left, rc.top, RECTW(rc), RECTH(rc), TRUE);
+
+		RECT btn_back_rc = calc_btn_back_rc(state);
+		MoveWindow(state->btn_back, btn_back_rc.left, btn_back_rc.top, RECTW(btn_back_rc), RECTH(btn_back_rc), TRUE);
+
+		RECT btn_min_rc = UNCAPNC_calc_btn_min_rc(state); 
+		MoveWindow(state->btn_min, btn_min_rc.left, btn_min_rc.top, RECTW(btn_min_rc), RECTH(btn_min_rc), TRUE);//TODO(fran): I dont really need to ask for repaint do I?
+
+		RECT btn_max_rc = UNCAPNC_calc_btn_max_rc(state); 
+		MoveWindow(state->btn_max, btn_max_rc.left, btn_max_rc.top, RECTW(btn_max_rc), RECTH(btn_max_rc), TRUE);
+
+		RECT btn_close_rc = UNCAPNC_calc_btn_close_rc(state); 
+		MoveWindow(state->btn_close, btn_close_rc.left, btn_close_rc.top, RECTW(btn_close_rc), RECTH(btn_close_rc), TRUE);
+	}
 }
 
 //TODO(fran): add & at the beginning of menu string names, that's how you trigger them by pressing Alt+key https://stackoverflow.com/questions/38338426/meaning-of-ampersand-in-rc-files
@@ -294,7 +335,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 			FillRect(dc, &state->rc_caption, state->active ? unCap_colors.CaptionBk : unCap_colors.CaptionBk_Inactive);
 
-			SelectFont(dc, GetStockFont(DEFAULT_GUI_FONT));
+			SelectFont(dc, unCap_fonts.Caption);
 			TCHAR title[256]; int sz = GetWindowText(state->wnd, title, ARRAYSIZE(title));
 			TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 
@@ -304,17 +345,23 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 			int icon_width = icon_height;
 			int icon_align_height = (RECTHEIGHT(state->rc_caption) - icon_height) / 2;
 			int icon_align_width = icon_align_height;
-			state->rc_icon = rectWH(icon_align_height, icon_align_width, icon_width, icon_height);
+			int icon_x = icon_align_width;
+			if (state->btn_back_visible) {//INFO: we always assume the back button is leftmost and topmost of the caption area
+				RECT btn_back_rc = nonclient::calc_btn_back_rc(state);
+				icon_x += btn_back_rc.left + RECTW(btn_back_rc);
+			}
+
+			state->rc_icon = rectWH(icon_x, icon_align_height, icon_width, icon_height);
 			MYICON_INFO iconnfo = MyGetIconInfo(icon);
 			//TODO(fran): the last pixels from the circle dont seem to get rendered
-			urender::draw_icon(dc, icon_align_height, icon_align_width, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+			urender::draw_icon(dc, icon_x, icon_align_height, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
 
 			int yPos = (state->rc_caption.bottom + state->rc_caption.top - tm.tmHeight) / 2;
 			HBRUSH txtbr = state->active ? unCap_colors.ControlTxt : unCap_colors.ControlTxt_Inactive;
 			SetTextColor(dc, ColorFromBrush(txtbr)); SetBkMode(dc, TRANSPARENT);
 
 
-			TextOut(dc, icon_align_width * 2 + icon_width, yPos, title, sz);
+			TextOut(dc, icon_x + icon_width + max(icon_align_width,1), yPos, title, sz);
 
 			HBRUSH btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover;
 			if (state->active) {
@@ -334,6 +381,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 			UNCAPBTN_set_brushes(state->btn_close, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
 			UNCAPBTN_set_brushes(state->btn_min, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
 			UNCAPBTN_set_brushes(state->btn_max, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			UNCAPBTN_set_brushes(state->btn_back, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
 		}
 
 		//TODO(fran): move the menu up to get more screen real state, visual studio differentiates the menu items from the window title by rendering a darker square around the latter
@@ -434,31 +482,37 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 		SetWindowText(state->wnd, createnfo->lpszName); //NOTE: for handmade classes you have to manually call setwindowtext
 
-		RECT btn_min_rc = UNCAPNC_calc_btn_min_rc(state);
-		state->btn_min = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP, btn_min_rc.left, btn_min_rc.top, RECTWIDTH(btn_min_rc), RECTHEIGHT(btn_min_rc), state->wnd, (HMENU)UNCAPNC_MINIMIZE, 0, 0);
+		state->btn_min = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MINIMIZE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_min, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver); //NOTE: now I do this on WM_PAINT, commenting this actually introduces a bug for the first ms of execution where the button might draw with no brushes first and then be asked to redraw with the brushes loaded, introducing at least one frame of flicker
 
-		RECT btn_max_rc = UNCAPNC_calc_btn_max_rc(state);
-		state->btn_max = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP, btn_max_rc.left, btn_max_rc.top, RECTWIDTH(btn_max_rc), RECTHEIGHT(btn_max_rc), state->wnd, (HMENU)UNCAPNC_MAXIMIZE, 0, 0);
+		state->btn_max = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MAXIMIZE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_max, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		RECT btn_close_rc = UNCAPNC_calc_btn_close_rc(state);
-		state->btn_close = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP, btn_close_rc.left, btn_close_rc.top, RECTWIDTH(btn_close_rc), RECTHEIGHT(btn_close_rc), state->wnd, (HMENU)UNCAPNC_CLOSE, 0, 0);
+		state->btn_close = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_CLOSE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_close, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		HBITMAP bCross = unCap_bmps.close;//TODO(fran): let the user set this guys, store them in state
+		state->btn_back = CreateWindow(unCap_wndclass_button, NULL, WS_CHILD | BS_BITMAP 
+			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_BACK, 0, 0);
+
+		HBITMAP bCross = unCap_bmps.close;//TODO(fran): let the user set this guys
 		HBITMAP bMax = unCap_bmps.maximize;
 		HBITMAP bMin = unCap_bmps.minimize;
+		HBITMAP bBack = unCap_bmps.arrowLine_left;
 		SendMessage(state->btn_close, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bCross);
 		SendMessage(state->btn_max, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMax);
 		SendMessage(state->btn_min, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMin);
-
-		//TODO(fran): create the icons, one idea is to ask windows to paint them in some dc, and then I can store the HBITMAP and re-use it all I want
+		SendMessage(state->btn_back, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bBack);
 
 		if (lpParam->client_class_name) {
-			RECT rc = UNCAPNC_calc_client_rc(state);
-			state->client = CreateWindow(lpParam->client_class_name, TEXT(""), WS_CHILD | WS_VISIBLE, rc.left, rc.top, RECTWIDTH(rc), RECTHEIGHT(rc), state->wnd, 0, 0, lpParam->client_lp_param);
+			state->client = CreateWindowW(lpParam->client_class_name, NULL, WS_CHILD | WS_VISIBLE
+				,0,0,0,0, state->wnd, 0, 0, lpParam->client_lp_param);
 		}
+
+		nonclient::resize_controls(state);
+
 		return 0;
 	} break;
 	case WM_NCLBUTTONDBLCLK:
@@ -568,12 +622,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	} break;
 	case WM_SIZE:
 	{
-		RECT rc = UNCAPNC_calc_client_rc(state); MoveWindow(state->client, rc.left, rc.top, RECTWIDTH(rc), RECTHEIGHT(rc), TRUE);
-
-		RECT btn_min_rc = UNCAPNC_calc_btn_min_rc(state); MoveWindow(state->btn_min, btn_min_rc.left, btn_min_rc.top, RECTWIDTH(btn_min_rc), RECTHEIGHT(btn_min_rc), TRUE);//TODO(fran): I dont really need to ask for repaint do I?
-		RECT btn_max_rc = UNCAPNC_calc_btn_max_rc(state); MoveWindow(state->btn_max, btn_max_rc.left, btn_max_rc.top, RECTWIDTH(btn_max_rc), RECTHEIGHT(btn_max_rc), TRUE);
-		RECT btn_close_rc = UNCAPNC_calc_btn_close_rc(state); MoveWindow(state->btn_close, btn_close_rc.left, btn_close_rc.top, RECTWIDTH(btn_close_rc), RECTHEIGHT(btn_close_rc), TRUE);
-
+		nonclient::resize_controls(state);
 		return DefWindowProc(hwnd, msg, wparam, lparam);
 	} break;
 	case WM_SETTEXT:
@@ -982,6 +1031,11 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 			}
 			return 0;
 		} break;
+		case UNCAPNC_BACK:
+		{
+			PostMessage(state->client, WM_BACK, 0, 0);//TODO(fran): maybe SendMessage is better to ensure the user doesnt start pressing a million times? eg if going back hangs for a little bit it'd be better to hang ourselves too, maybe
+			return 0;
+		} break;
 		default: return SendMessage(state->client, msg, wparam, lparam);
 		}
 	} break;
@@ -1334,6 +1388,14 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		} break;
 		default:return DefWindowProc(hwnd, msg, wparam, lparam);
 		}
+	} break;
+	case WM_SHOWBACKBTN:
+	{
+		BOOL show = (BOOL)wparam;
+		state->btn_back_visible = show;
+		ShowWindow(state->btn_back, state->btn_back_visible ? SW_SHOW : SW_HIDE);
+		RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);//TODO(fran): we can avoid redraw if the show state didnt change
+		return 0;
 	} break;
 	default:
 		if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  

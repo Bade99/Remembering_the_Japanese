@@ -9,11 +9,30 @@
 
 //INFO: for 1bpp bmps in windows 0 = foreground , 1 = background, so the part you want to be visible has to have a 0
 
+//TODO(fran): this probably needs macro redefinitions depending on endianness
+
 #define lo16(x) ((u16)((x) & 0xffff))
 #define hi16(x) ((u16)(((x) >> 16) & 0xffff))
 
 #define bswap16(x) ((u16)((x>>8) | (x<<8)))
 #define bswap32(x) ((u32)((((u32)bswap16(lo16(x)))<<16) | ((u32)bswap16(hi16(x)))))
+
+//INFO: T better be unsigned, otherwise anything can happen
+//INFO: no optimization happened here, probably slow, _only_ use it at compile time!
+template<typename T>
+constexpr T swap_first_last_all(T n)
+{
+	T res=0;
+	for (size_t i = 0; i < sizeof(n) * 8 / 2; i++) {
+		//INFO: it seems like bit shift << and >> always upconvert to 32bit for lower bit variables, and if you want more bits, eg 64, you gotta ask for it explicitly, eg: (u64)1 << i
+		//take lower bit and put it higher, eg for 64 bit unsigned: bit 0 -> bit 63, bit 1 -> bit 62
+		res |= ((n & (static_cast<T>(1) << i)) << (sizeof(n) * 8 - 1 - i * 2));
+		//take higher bit and put it lower, eg for 64 bit unsigned: bit 63 -> bit 0, bit 62 -> bit 1
+		res |= ((n & (static_cast<T>(1) << (sizeof(n) * 8 / 2 + i))) >> (i * 2 + 1));
+	}
+
+	return res;
+}
 
 struct def_img {
 	int bpp;
@@ -225,3 +244,25 @@ constexpr u32 _bin[32] =
 	bswap32(0b1111'1111'1111'1111'1111'1111'1111'1111),
 };
 constexpr def_img bin{ 1,32,32, (void*)_bin };
+
+constexpr u16 _arrowLine_left[16] =
+{
+	//IMPORTANT INFO: because of some weird macro magic using bswap16(swap_first_last_all()) doesnt generate the top byte
+	swap_first_last_all(bswap16(0b1111'1111'1111'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1111'1111)),
+	swap_first_last_all(bswap16(0b1111'1110'1111'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'0111'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1011'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1101'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1110'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1111'0111)),
+	swap_first_last_all(bswap16(0b1000'0000'0000'0011)),
+	swap_first_last_all(bswap16(0b1111'1111'1111'0111)),
+	swap_first_last_all(bswap16(0b1111'1111'1110'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1101'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1011'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'0111'1111)),
+	swap_first_last_all(bswap16(0b1111'1110'1111'1111)),
+	swap_first_last_all(bswap16(0b1111'1111'1111'1111)),
+};
+constexpr def_img arrowLine_left{ 1,16,16, (void*)_arrowLine_left };

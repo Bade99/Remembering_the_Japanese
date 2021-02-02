@@ -233,6 +233,10 @@ static f64 EndCounter(i64 CounterStart, f64 PCFreq = GetPCFrequency())
 
 #define RECTHEIGHT(r) (r.bottom >= r.top ? r.bottom - r.top : r.top - r.bottom )
 
+#define RECTW(r) RECTWIDTH(r)
+
+#define RECTH(r) RECTHEIGHT(r)
+
 static RECT rectWH(LONG left, LONG top, LONG width, LONG height) {
 	RECT r;
 	r.left = left;

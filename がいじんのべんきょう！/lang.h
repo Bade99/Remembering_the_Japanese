@@ -48,6 +48,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(1,"Minimize")
 	lang_entry(2,"Maximize")
 	lang_entry(3,"Close")
+	lang_entry(4,"Back")
 
 	lang_entry(10,"Invalid character, do not use:")
 	lang_entry(11,"This information cannot be omitted")
