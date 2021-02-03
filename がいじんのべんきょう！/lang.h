@@ -86,6 +86,7 @@ constexpr static utf16 lang_english_entries[] =
 	//TODO(fran): get fmt and change Word to %1
 	lang_entry(300,"Word not found, would you like to add it?") /*Nicer than "do you want to add it?" I think*/
 
+	lang_entry(350,"Start")
 ;
 
 constexpr static utf16 lang_español_entries[] =

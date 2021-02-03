@@ -10,11 +10,11 @@
 #include "unCap_edit_oneline.h"
 #include "unCap_combobox.h"
 #include "unCap_Math.h"
+#include "がいじんの_score.h"
 
-//INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8
+//INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8 for input and utf8 for output (output could be changed to utf16)
 
 //TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
-//TODO(fran): a back button to go one page back
 //TODO(fran): pressing enter on new_word page should map to the add button
 //TODO(fran): tabstop for comboboxes doesnt seem to work
 //TODO(fran): there are still some maximize-restore problems, where controls disappear
@@ -24,12 +24,10 @@
 //TODO(fran): hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): pressing enter in the edit control of the searchbox should trigger searching
 //TODO(fran): when querying for dates to show to the user format them to show up to the day, not including hours,min,sec
-//TODO(fran): extra page "Stats" or "Your progress" so the user can see how they are doing, we can put there a total percentage of accuracy in a nice circular control that animates from 0% to whatever the user's got
-//TODO(fran): add the back button windows 10 style by asking the nc_parent to show it, that one thing I do think windows did right
+//TODO(fran): extra page "Stats" or "Your progress" so the user can see how they are doing, we can put there a total percentage of accuracy in a nice circular control that animates from 0% to whatever the user's got. also word count, accuracy, number of practices, ...
 //TODO(fran): the add buton in new_word should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
-//TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana each word in the practice, and you being able to press that button like object and going to the show_word page
+//TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana of each word in the practice, and you being able to press that button like object and going to the show_word page
 //TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
-//TODO(fran): if we're gonna continue using messageboxes they must be placed somewhere inside our window
 
 //IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -51,8 +49,6 @@ _add_struct_to_serialization_namespace(べんきょうSettings)
 
 //This window will comprise of 4 main separate ones, as if they were in a tab control, in the sense only one will be shown at any single time, and there wont be any relationships between them
 
-//TODO(fran): should I use the hiragana column as primary key?
-
 constexpr char べんきょう_table_words[] = "words";
 constexpr char べんきょう_table_words_structure[] = 
 //NOTE: user modifiable values first, application defined after
@@ -68,6 +64,29 @@ constexpr char べんきょう_table_words_structure[] =
 	"times_right		INTEGER DEFAULT 0" 
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
+
+#define べんきょう_table_user "user" //This table will simply contain one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also that will prevent that corruption of one user affects another
+#define べんきょう_table_user_structure \
+	"word_cnt			INTEGER DEFAULT 0,"\
+	"times_practiced	INTEGER DEFAULT 0,"\
+	"times_shown		INTEGER DEFAULT 0,"\
+	"times_right		INTEGER DEFAULT 0"\
+
+union user_stats {
+	i64 word_cnt;			//Count for words added
+	i64 times_practiced;	//Count for completed practice runs
+	i64 times_shown;		//Count for words shown in practice runs
+	i64 times_right;		//Count for correct word guessings in practice runs
+
+	f32 accuracy() { // from 0 to 1
+		f32 res = safe_ratio1((f32)times_right, (f32)times_shown);
+		return res;
+	}
+	i64 times_wrong() {
+		i64 res = times_shown - times_right;
+		return res;
+	}
+};
 
 //NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
 enum lexical_category { //The value of this enums is what will be stored on the db, we'll map them to their correct language string
@@ -116,8 +135,6 @@ union learnt_word { //will contain utf16* when getting data from the UI, and utf
 	} attributes;
 	type all[sizeof(attributes) / sizeof(type)];
 
-	//learnt_word() { for (auto& s : all) s = str(L""); } //TODO(fran): why do I need to do this for the compiler to allow me to instantiate?
-	//~learnt_word() { for (auto& s : all) s.~basic_string(); }
 };
 constexpr int learnt_word_pk_count = 1;//
 
@@ -227,8 +244,10 @@ struct べんきょうProcState {
 		union practice_controls {
 			using type = HWND;
 			struct {
-				type edit_question;
-				type edit_answer;
+				type score_accuracy;
+				type button_start;
+				//type edit_question;
+				//type edit_answer;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} practice;
@@ -289,13 +308,68 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 	}
 
-	void startup(ProcState* state) {
+	i64 get_table_rowcount(sqlite3* db, std::string table) {
+		i64 res;
+		std::string count = "SELECT COUNT(*) FROM " + table;
+		sqlite3_stmt* stmt;
+		int errcode;
+		errcode = sqlite3_prepare_v2(db, count.c_str(), (int)((count.length() + 1) * sizeof(decltype(count)::value_type)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
+		sqliteok_runtime_assert(errcode, db);
+
+		errcode = sqlite3_step(stmt);
+		sqlite_runtime_assert(errcode == SQLITE_ROW, db);
+
+		res = sqlite3_column_int64(stmt, 0);
+
+		sqlite3_finalize(stmt);
+
+		return res;
+	}
+
+	user_stats get_user_stats(sqlite3* db) {
+		user_stats res;
+		std::string stats = " SELECT " " word_cnt, times_practiced, times_shown, times_right " " FROM " べんきょう_table_user;
+
+		sqlite3_stmt* stmt;
+		int errcode;
+		errcode = sqlite3_prepare_v2(db, stats.c_str(), (int)((stats.length() + 1) * sizeof(decltype(stats)::value_type)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
+		sqliteok_runtime_assert(errcode, db);
+
+		errcode = sqlite3_step(stmt);
+		sqlite_runtime_assert(errcode == SQLITE_ROW, db);
+
+		res.word_cnt = sqlite3_column_int64(stmt, 0);
+		res.times_practiced = sqlite3_column_int64(stmt, 1);
+		res.times_shown = sqlite3_column_int64(stmt, 2);
+		res.times_right = sqlite3_column_int64(stmt, 3);
+
+		sqlite3_finalize(stmt);
+
+		return res;
+	}
+
+	void startup(sqlite3* db) {
 		using namespace std::string_literals;
-		std::string create_work_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ") WITHOUT ROWID;"s; //INFO: the param that requests this expects utf8
+		std::string create_word_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ") WITHOUT ROWID;"s; //INFO: the param that requests this expects utf8
 		char* create_errmsg;
-		sqlite3_exec(state->settings->db, create_work_table.c_str(), 0, 0, &create_errmsg);
+		sqlite3_exec(db, create_word_table.c_str(), 0, 0, &create_errmsg);
 		sqlite_exec_runtime_assert(create_errmsg);
 		//TODO(fran): we should also implement update table for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any bennefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
+
+		std::string create_user_table = "CREATE TABLE IF NOT EXISTS " べんきょう_table_user "(" べんきょう_table_user_structure ");"; //INFO: the param that requests this expects utf8
+		sqlite3_exec(db, create_user_table.c_str(), 0, 0, &create_errmsg);
+		sqlite_exec_runtime_assert(create_errmsg);
+
+		if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+			//The entry is already there, here we can set new values on future updates for example
+		}
+		else {
+			//Entry isnt there, create it
+			std::string insert_user = " INSERT INTO "s + べんきょう_table_user + " DEFAULT VALUES "s;
+			sqlite3_exec(db, insert_user.c_str(), 0, 0, &create_errmsg);
+			sqlite_exec_runtime_assert(create_errmsg);
+
+		}
 	}
 
 	void add_controls(ProcState* state) {
@@ -436,6 +510,22 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
+
+		//---------------------Practice----------------------:
+		{
+			auto& controls = state->controls.practice;
+
+			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD 
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			score::set_brushes(controls.list.score_accuracy, FALSE, unCap_colors.ControlBk, unCap_colors.Score_RingBk, unCap_colors.Score_RingFull, unCap_colors.Score_RingEmpty, unCap_colors.Score_InnerCircle);
+
+			controls.list.button_start = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_start, 350);
+			UNCAPBTN_set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+		}
 	}
 
 	void resize_controls(ProcState* state) {
@@ -536,7 +626,31 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::page::practice: 
 		{
 			auto& controls = state->controls.practice;
+
+			//Stats first, then start button
+
+			int wnd_cnt = ARRAYSIZE(controls.all);
+			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
+			int start_y = (h - (pad_cnt) * h_pad - wnd_cnt * wnd_h) / 2;//sort of ok
+
+			int score_accuracy_y = start_y;
+			int score_accuracy_w = wnd_h*2;
+			int score_accuracy_h = score_accuracy_w;
+			int score_accuracy_x = (w - score_accuracy_w)/2;
+
+			int last_stat_y = score_accuracy_y;
+			int last_stat_h = score_accuracy_h;
+
+			int button_start_y = last_stat_y + last_stat_h + h_pad;
+			int button_start_w = 70;
+			int button_start_h = wnd_h;
+			int button_start_x = (w - button_start_w)/2;
 			
+			_MyMoveWindow(controls.list.score_accuracy, score_accuracy, FALSE);
+			_MyMoveWindow(controls.list.button_start, button_start, FALSE);
+
 		} break;
 		case ProcState::page::search: 
 		{
@@ -655,6 +769,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::page::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		default:Assert(0);
 		}
 	}
 
@@ -923,6 +1038,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			}
 
 		} break;
+		case ProcState::page::practice:
+		{
+			user_stats* stats = (decltype(stats))data;
+			auto controls = state->controls.practice;
+#if 0
+			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
+#else
+			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
+#endif
+		} break;
 		}
 	}
 
@@ -1019,7 +1144,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			st->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
 			st->current_page = ProcState::page::landing;
 			set_state(hwnd, st);//TODO(fran): now I wonder why I append everything with the name of the wnd when I can simply use function overloading, even for get_state since all my functions do the same I can simple have one
-			startup(st);
+			startup(st->settings->db);
 			return TRUE;
 		} break;
 		case WM_CREATE:
@@ -1069,6 +1194,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					}
 					else if (child == page.list.button_practice) {
 						store_previous_page(state, state->current_page);
+						user_stats stats = get_user_stats(state->settings->db);
+						preload_page(state, ProcState::page::practice, &stats);
 						set_current_page(state, ProcState::page::practice);
 					}
 					else if (child == page.list.button_search) {

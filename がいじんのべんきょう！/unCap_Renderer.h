@@ -162,6 +162,139 @@ mask_bilinear_sample sample_bilinear_mask(img* mask, i32 x, i32 y) {
 	return sample;
 }
 
+//---------------Ring rendering---------------:
+
+f32 signum(f32 val) { return (f32)((f32(0) < val) - (val < f32(0))); }
+
+f32 isGreaterEqThanZero(f32 num) { return signum(signum(num) + 1); }
+
+f32 signOf(f32 num) { return signum(num) + !num; }
+
+f32 modulus(f32 num, f32 base) { return (f32)fmod(fmod(num, base) + base, base); }
+
+f32 isLowerEqThanZero(f32 num) { return isGreaterEqThanZero(-num); }
+
+f32 isGreaterEqThan(f32 a, f32 b) { return isGreaterEqThanZero(a - b); }
+
+f32 isLowerEqThan(f32 a, f32 b) { return isLowerEqThanZero(a - b); }
+
+f32 isGreaterThanZero(f32 num) { return !isLowerEqThanZero(num); }
+
+f32 saturate(f32 n) { return clamp01(n); }
+
+constexpr f32 PI = 3.1415f;
+constexpr f32 _2PI = PI*2.f;
+constexpr f32 stripeRadialStart = 0.30f;
+constexpr f32 stripeRadialEnd = 0.48f;
+constexpr f32 stripeDist = stripeRadialEnd - stripeRadialStart;
+
+f32 edgeTransparency(v2 absolutePos, v2 circleOrigin, float circleRadius)
+{
+	v2 center = v2{ 0.5f, 0.5f };
+	f32 distFromCircleOrigin = length(absolutePos - circleOrigin);
+
+	v2 pos = absolutePos - center;
+	f32 radialDist = length(pos);
+
+	f32 transparency = powf(cosf(distFromCircleOrigin * (PI / stripeDist)) + 0.8f, 10) * isLowerEqThan(distFromCircleOrigin, circleRadius);
+
+	return transparency;
+}
+
+v4 main_ring(v2 uv, f32 completion, v3 color) //2nd pass
+{
+	//Shader taken from https://github.com/ankomas/2019_1C_K3051_BackBuffer/blob/master/TGC.Group/Shaders/Oxygen.fx
+	//TODO(fran): all the extra functions this guy added are probably pointless and should be taken out, probably there's some extra perf waiting for us there
+	v2 absolutePos = uv;
+	v2 center = v2{ 0.5f, 0.5f };
+	v2 pos = absolutePos - center;
+	f32 radialDist = length(pos);
+
+	//f32 angleForColor = (PI * isGreaterEqThanZero(pos.y) - signOf(pos.y) * asinf(abs(pos.x) / radialDist));
+	f32 primitiveAngle = (PI * isGreaterEqThanZero(pos.y) - signOf(pos.y) * asinf(abs(pos.x) / radialDist));
+	f32 realAngle = modulus(primitiveAngle - isLowerEqThanZero(pos.x) * 2.f * primitiveAngle, _2PI);
+	//f32 blueIntensity = angleForColor / PI;
+
+	f32 transparency =
+		isGreaterEqThan(radialDist, stripeRadialStart)
+		* isLowerEqThan(radialDist, stripeRadialEnd)
+		* isLowerEqThan(realAngle, completion * _2PI)
+		* powf(sinf((radialDist - stripeRadialStart) * (PI / stripeDist)) + 0.8f, 10);
+
+	f32 circleDistanceFromOrigin = stripeRadialStart + stripeDist / 2;
+	v2 circleOrigin = v2{ 0.5f, 0.5f - circleDistanceFromOrigin };
+	v2 o2AngleUnitVector = v2{ sinf(completion * _2PI), -cosf(completion * _2PI) };
+	v2 secondCircleOrigin = center + o2AngleUnitVector * circleDistanceFromOrigin;
+
+	f32 circleRadius = stripeDist / 2;
+
+	f32 lowCircleTransparency = edgeTransparency(absolutePos, circleOrigin, circleRadius);
+	f32 highCircleTransparency = edgeTransparency(absolutePos, secondCircleOrigin, circleRadius);
+
+	float finalTransparency = max(transparency, max(lowCircleTransparency, highCircleTransparency));
+
+	//return v4{ 1.f - completion, completion, blueIntensity, completion * finalTransparency };
+	v4 res; 
+	res.rgb = color;
+	res.a = completion * finalTransparency;
+	return res;
+}
+
+v4 linear1_to_srgb255(v4 v) {
+	v4 res;
+	//NOTE: we assume alpha to be in linear space, probably it is
+	res.r = square_root(v.r) * 255.f;
+	res.g = square_root(v.g) * 255.f;
+	res.b = square_root(v.b) * 255.f;
+	res.a = v.a * 255.f;
+	return res;
+}
+
+f32 makeCircle(v2 absolutePos, v2 center, f32 radius)
+{
+	f32 radialDist = length(absolutePos - center);
+	f32 transparency = powf(.95f + cosf(radialDist * (PI / (radius * 2))), 30);
+
+	return isLowerEqThan(radialDist, radius) * saturate(transparency);
+}
+
+v4 main_outter_circle(v2 uv, v3 ring_bk_color) //1st pass
+{
+	f32 saturation = makeCircle(uv, v2{ .5f, .5f }, .5f);
+#if 0
+	return v4{ isLowerEqThanZero(completion) * .3f, 0, 0, saturation * .8f };
+	//TODO(fran): I believe the idea for the red component is that if completion gets to zero it shows the bk in a red-ish color, we could keep that
+#else
+	v4 res;
+	res.rgb = ring_bk_color;
+	res.a = saturation * .8f;
+	return res;
+#endif
+}
+
+v4 main_inner_circle(v2 uv, v3 inner_circle_color) //3rd pass
+{
+	v2 position = uv;
+	v2 center = v2{ .5f, .5f };
+	f32 radius = .29f;
+	f32 saturation = makeCircle(position, center, radius);
+#if 0
+	v3 color = v3{ 0.1 + isLowerEqThanZero(oxygen) * 0.3 * 0.5, 0.2, 0.2 };
+	//TODO(fran): same idea as in main_outter_circle here
+	float light = 1 - (position.y - center.x - radius) / (radius * 2);
+#else
+	v3 color = inner_circle_color;
+	float light = 1;//NOTE: we want a flat look
+#endif
+
+	v4 res;
+	res.rgb = color * light;
+	res.a = saturation;
+	return res;
+}
+//-------------------------------------------:
+
+
 namespace urender {
 
 	//TODO(fran): use something with alpha (png?) for rendering masks https://stackoverflow.com/questions/1505586/gdi-using-drawimage-to-draw-a-transperancy-mask-of-the-source-image
@@ -353,6 +486,17 @@ namespace urender {
 			Gdiplus::Unit::UnitPixel);//TODO(fran): get the current unit from the device
 	}
 
+	void draw_bitmap(HDC dest, int xDest, int yDest, int wDest, int hDest, HBITMAP bitmap, int xSrc, int ySrc, int wSrc, int hSrc) {
+		Gdiplus::Graphics graphics(dest);//Yeah, who cares, icons are small, I just want bilinear filtering
+		graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		Gdiplus::Bitmap bmp(bitmap,nullptr);//TODO(fran): documentation says it ignores alpha, if that's true then throw this away
+		//TODO?(fran): with gdi+ we can do subpixel placement (RectF)
+		graphics.DrawImage(&bmp,
+			Gdiplus::Rect(xDest, yDest, wDest, hDest),
+			xSrc, ySrc, wSrc, hSrc,
+			Gdiplus::Unit::UnitPixel);//TODO(fran): get the current unit from the device
+	}
+
 	//NOTE: specific procedure for drawing images on windows' menus, other drawing functions may fail on specific situations
 	//NOTE: this is set up to work with masks that have black as the color and white as transparency, otherwise you'll need to flip your colors, for example BitBlt(arrowDC, 0, 0, arrowW, arrowH, arrowDC, 0, 0, DSTINVERT)
 	void draw_menu_mask(HDC destDC, int xDest, int yDest, int wDest, int hDest, HBITMAP mask, int xSrc, int ySrc, int wSrc, int hSrc, HBRUSH colorbr)
@@ -381,6 +525,116 @@ namespace urender {
 		DeleteObject(fillBitmap);
 		DeleteDC(maskDC);
 	}
+
+//NOTE: the caller is in charge of deleting the hbitmap
+//NOTE: color values should be normalized between 0 and 1
+//returns 32bpp bitmap
+	HBITMAP render_ring(u32 w, u32 h, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color) {
+		img _buf;
+		img* buf = &_buf;
+		buf->width = w;
+		buf->height = h;
+		buf->bits_per_pixel = 32;
+		buf->pitch = buf->width * buf->bits_per_pixel / 8;
+		i32 buf_sz = buf->height * buf->pitch;
+		buf->mem = malloc(buf_sz); defer{ free(buf->mem); };
+
+		v2 origin{ 0,0 };
+		v2 x_axis{ (f32)w,0 };
+		v2 y_axis{ 0,(f32)h };
+
+		ring_color.rgb *= ring_color.a; //premultiplication for the color up front
+		ring_bk_color.rgb *= ring_bk_color.a;
+		inner_circle_color.rgb *= inner_circle_color.a;
+		bk_color.rgb *= bk_color.a;
+
+		f32 inv_x_axis_length_sq = 1.f / length_sq(x_axis);
+		f32 inv_y_axis_length_sq = 1.f / length_sq(y_axis);
+
+		i32 x_min = buf->width;
+		i32 x_max = 0;
+		i32 y_min = buf->height;
+		i32 y_max = 0;
+
+		v2 points[4] = { origin,origin + x_axis,origin + y_axis,origin + x_axis + y_axis };
+		for (v2 p : points) {
+			i32 floorx = (i32)floorf(p.x);
+			i32 ceilx = (i32)ceilf(p.x);
+			i32 floory = (i32)floorf(p.y);
+			i32 ceily = (i32)ceilf(p.y);
+
+			if (x_min > floorx)x_min = floorx;
+			if (y_min > floory)y_min = floory;
+			if (x_max < ceilx)x_max = ceilx;
+			if (y_max < ceily)y_max = ceily;
+		}
+
+		if (x_min < 0)x_min = 0;
+		if (y_min < 0)y_min = 0;
+		if (x_max > buf->width)x_max = buf->width;
+		if (y_max > buf->height)y_max = buf->height;
+
+		u8* row = (u8*)buf->mem + x_min * (buf->bits_per_pixel / 8)/*bytes per pixel*/ + y_min * buf->pitch;
+
+		for (int y = y_min; y < y_max; y++) {
+			u32* pixel = (u32*)row;
+			for (int x = x_min; x < x_max; x++) {
+				//AARRGGBB
+
+				v2 p = v2{ (f32)x,(f32)y };
+				v2 d = p - origin;
+				f32 u = dot(d, x_axis) * inv_x_axis_length_sq;
+				f32 v = dot(d, y_axis) * inv_y_axis_length_sq;
+				if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f) {
+
+					v4 texel_pass1 = main_outter_circle({ u,v }, ring_bk_color.rgb);
+					//NOTE: clamp first and then premultiply, this functions sometimes go off the roof on alpha
+					texel_pass1 = clamp01(texel_pass1);
+					texel_pass1.rgb *= texel_pass1.a; 
+
+					v4 texel_pass2 = main_ring({ u,v }, completion,ring_color.rgb);
+					texel_pass2 = clamp01(texel_pass2);
+					texel_pass2.rgb *= texel_pass2.a;
+					//REMEMBER: clamping is important, before this the ring was basically all black, the main_ring code overflows the 0 to 1 range and that was causing us to loose all of the high bit values
+
+					v4 texel_pass3 = main_inner_circle({ u,v }, inner_circle_color.rgb);
+					texel_pass3 = clamp01(texel_pass3);
+					texel_pass3.rgb *= texel_pass3.a;
+
+					v4 dest = bk_color;
+					
+					v4 blended = (1.f - texel_pass1.a) * dest + texel_pass1;
+
+					blended = (1.f - texel_pass2.a) * blended + texel_pass2;
+
+					blended = (1.f - texel_pass3.a) * blended + texel_pass3;
+
+					v4 blended255 = linear1_to_srgb255(blended);
+
+					//if (x == 29 && y == 6) *pixel = 255 << 24 | 255 << 16 | 0; else
+					
+					*pixel = round_f32_to_i32(blended255.a) << 24 | round_f32_to_i32(blended255.r) << 16 | round_f32_to_i32(blended255.g) << 8 | round_f32_to_i32(blended255.b) << 0; //TODO(fran): should use round_f32_to_u32?
+
+				}
+				pixel++;
+
+			}
+			row += buf->pitch;
+		}
+
+
+		//Create bitmap
+		HBITMAP full_ring = CreateBitmap(buf->width, buf->height, 1, buf->bits_per_pixel, buf->mem);
+		return full_ring;
+	}
+
+	void draw_ring(HDC destDC, i32 xDest, i32 yDest, i32 wDest, i32 hDest, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color) {
+		HBITMAP ring = render_ring(wDest, hDest, completion, ring_color, ring_bk_color, inner_circle_color, bk_color); defer{ DeleteObject(ring); };
+		draw_bitmap(destDC, xDest, yDest, wDest, hDest, ring, 0, 0, wDest, hDest);
+	}
+
+
+
 
 	static ULONG_PTR gdiplusToken;//HACK, gdi+ shouldnt need it in the first place but the devs had no idea what they were doing
 	void init() {
@@ -509,3 +763,4 @@ void DrawMenuImg(HDC destDC, RECT& r, HBITMAP mask) {
 		DeleteDC(maskDC);
 	}
 */
+

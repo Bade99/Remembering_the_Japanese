@@ -4,7 +4,6 @@
 //TODO(fran): store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): rounded corners for everything, it'll look and feel better for this type of application
 //TODO(fran): mix between showing jp and the user writing the translation, and showing translation and the user writing jp
-//TODO(fran): a stats or report page that shows the user data like word count, accuracy, number of practices, ...
 //TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work
 //TODO(fran): should I stop giving suggestions through the IME window? so the user isnt dependent on the correct writing of the IME suggestions, at least for something like the searchbar
 //TODO(fran): we probably also want a "forward" button
@@ -27,7 +26,7 @@
 #ifdef _DEBUG
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
-//#define _DELETE_DB
+#define _DELETE_DB
 #endif
 
 //---------------------Includes----------------------:

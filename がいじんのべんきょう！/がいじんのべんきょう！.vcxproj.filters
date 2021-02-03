@@ -83,6 +83,9 @@
     <ClInclude Include="unCap_combobox.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="がいじんの_score.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">

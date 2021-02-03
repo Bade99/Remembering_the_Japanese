@@ -199,6 +199,7 @@
     <ClInclude Include="windows_sdk.h" />
     <ClInclude Include="がいじんの_Helpers.h" />
     <ClInclude Include="がいじんの_Platform.h" />
+    <ClInclude Include="がいじんの_score.h" />
     <ClInclude Include="がいじんの_べんきょう.h" />
   </ItemGroup>
   <ItemGroup>

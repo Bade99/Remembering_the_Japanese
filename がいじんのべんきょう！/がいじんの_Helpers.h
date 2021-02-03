@@ -31,6 +31,8 @@
 
 #define sqliteok_runtime_check(result_code,db) if ((result_code)!=SQLITE_OK)MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND)
 
+#define sqlite_runtime_assert(assertion,db) if (!(assertion))MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
+
 //----------------------STRING-----------------------:
 
 #define to_str(v) std::to_wstring(v)
@@ -592,4 +594,18 @@ static str GetApp_FontFaceName() {
 			if(!f.compare(requested_fontname[i])) return requested_fontname[i]; 
 
 	return L"";
+}
+
+//----------------------WPARAM-----------------------:
+static WPARAM f32_to_WPARAM(f32 f) {
+	int n; static_assert(sizeof(n) == sizeof(f), "Say whaat?!");
+	memcpy(&n, &f, sizeof(f));
+	return (WPARAM)n;
+}
+
+static f32 f32_from_WPARAM(WPARAM w) {
+	f32 f;
+	int n = (int)w;
+	memcpy(&f, &n, sizeof(n));
+	return f;
 }

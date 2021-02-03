@@ -32,6 +32,10 @@ union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 		op(HBRUSH,Search_Edit_Bk,CreateSolidBrush(RGB(60, 61, 65))) \
 		op(HBRUSH,Search_Edit_Txt,CreateSolidBrush(RGB(248, 248, 242))) \
 		op(HBRUSH,Search_BkSelected,CreateSolidBrush(RGB(60, 61, 55))) \
+		op(HBRUSH,Score_RingBk,CreateSolidBrush(RGB(20, 21, 35))) \
+		op(HBRUSH,Score_RingFull,CreateSolidBrush(RGB(20, 243, 35))) \
+		op(HBRUSH,Score_RingEmpty,CreateSolidBrush(RGB(243, 21, 35))) \
+		op(HBRUSH,Score_InnerCircle,CreateSolidBrush(RGB(50, 51, 55))) \
 
 		foreach_color(_generate_member_no_default_init);
 

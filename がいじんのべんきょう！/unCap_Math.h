@@ -95,3 +95,45 @@ f32 lerp(f32 n1, f32 t, f32 n2) {
 	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
 	return (1.f - t) * n1 + t * n2;
 }
+
+v4 lerp(v4 n1, f32 t, v4 n2) {
+	return (1.f - t) * n1 + t * n2;
+}
+
+f32 square_root(f32 n) {
+	f32 res = sqrtf(n);
+	return res;
+}
+
+u32 round_f32_to_u32(f32 n) {
+	Assert(n >= 0.f);
+	//TODO(fran): intrinsic
+	u32 res = (u32)(n + .5f);
+	return res;
+}
+
+i32 round_f32_to_i32(f32 n) {
+	//TODO(fran): intrinsic
+	i32 res = (i32)(n + .5f); //TODO(fran): does this work correctly with negative numbers?
+	return res;
+}
+
+f32 clamp(f32 min, f32 n, f32 max) {
+	f32 res = n;
+	if (res < min) res = min;
+	else if (res > max) res = max;
+	return res;
+}
+
+f32 clamp01(f32 n) {
+	return clamp(0.f, n, 1.f);
+}
+
+v4 clamp01(v4 v) {
+	v4 res;
+	res.r = clamp01(v.r);
+	res.g = clamp01(v.g);
+	res.b = clamp01(v.b);
+	res.a = clamp01(v.a);
+	return res;
+}
