@@ -10,6 +10,10 @@
 #define SC_SETSCORE (score_base_msg_addr+1) /*wparam = float ; lparam = unused*/ /*score should be normalized between 0.0 and 1.0*/ /*IMPORTANT: use f32_to_WPARAM() from the "Helpers" file, casting (eg. (WPARAM).7f) wont work*/
 
 namespace score {
+
+#define ANIM_SCORE_ring 1
+
+	
 	struct ProcState {
 		HWND wnd;
 		HWND nc_parent;//NOTE: we dont probably care about interacting with the parent, this is just visual candy
@@ -28,6 +32,15 @@ namespace score {
 			HBRUSH inner_circle;
 		} brushes;
 
+		struct {
+			struct {
+				f32 score_start;
+				f32 score;//total score, last frame will present this value, in between frames will interpolate from score_start, also it must match ProcState->score or the animation will stop (this will be important when multithreading)
+				u32 frames_cnt;//total frames
+				u32 frame_idx;//current frame
+			} ring;
+
+		}anim;
 	};
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_score";
@@ -59,6 +72,49 @@ namespace score {
 		//left as a TODO if we want to reduce bitmap redraws
 	//	InvalidateRect(state->wnd, NULL, TRUE);
 	//}
+
+	void play_anim(HWND hwnd, UINT /*msg*/, UINT_PTR anim_id, DWORD /*sys_elapsed*/) {
+		ProcState* state = get_state(hwnd);
+		bool next_frame = false;
+
+		switch (anim_id) {
+		case ANIM_SCORE_ring:
+		{
+			auto& anim = state->anim.ring;
+			anim.frame_idx++;
+			if (anim.frame_idx < anim.frames_cnt) next_frame = true;
+
+			f32 dt = (f32)anim.frame_idx / (f32)anim.frames_cnt;
+
+			f32 anim_score = lerp(anim.score_start, dt, anim.score);
+
+			//HACK: (we cant match score this way)
+			PostMessage(state->wnd, SC_SETSCORE, f32_to_WPARAM(anim_score), 0);
+
+		} break;
+		}
+
+		if (next_frame) {
+			SetTimer(state->wnd, anim_id, max((u32)1, (u32)((1.f/(f32)win32_get_refresh_rate_hz(state->wnd))*1000)), play_anim);
+		}
+		else {
+			KillTimer(state->wnd, anim_id);
+		}
+	}
+
+	void start_anim(ProcState* state, u64 anim_id) {
+		switch (anim_id) {
+		case ANIM_SCORE_ring:
+		{
+			state->anim.ring.score_start = 0.f;
+			state->anim.ring.score = state->score;
+			u32 refresh = win32_get_refresh_rate_hz(state->wnd);
+			state->anim.ring.frames_cnt = refresh / 2;
+			state->anim.ring.frame_idx = 0;
+		} break;
+		}
+		SetTimer(state->wnd, anim_id, USER_TIMER_MINIMUM, play_anim);
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -105,6 +161,11 @@ namespace score {
 		} break;
 		case WM_SHOWWINDOW:
 		{
+			BOOL show = wparam;
+			if (show) {
+				//Start animation
+				start_anim(state, ANIM_SCORE_ring);
+			}
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_GETTEXT:
@@ -145,6 +206,7 @@ namespace score {
 		} break;
 		case WM_ERASEBKGND:
 		{
+#if 0
 			LRESULT res;
 			if (state->brushes.bk) {
 				HDC dc = (HDC)wparam;
@@ -158,6 +220,9 @@ namespace score {
 			}
 			else res = DefWindowProc(hwnd, msg, wparam, lparam);
 			return res;
+#else
+			return 0;//WM_PAINT will take care of everything
+#endif
 		} break;
 		case WM_PAINT:
 		{

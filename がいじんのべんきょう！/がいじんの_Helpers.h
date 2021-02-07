@@ -609,3 +609,24 @@ static f32 f32_from_WPARAM(WPARAM w) {
 	memcpy(&f, &n, sizeof(n));
 	return f;
 }
+
+
+//----------------------HMONITOR-----------------------:
+static u32 win32_get_refresh_rate_hz(HWND wnd) {
+	//TODO(fran): this may be simpler with GetDeviceCaps
+	u32 res = 60;
+	HMONITOR mon = MonitorFromWindow(wnd, MONITOR_DEFAULTTONEAREST); //TODO(fran): should it directly receive the hmonitor?
+	if (mon) {
+		MONITORINFOEX nfo;
+		nfo.cbSize = sizeof(nfo);
+		if (GetMonitorInfo(mon, &nfo)) {
+			DEVMODE devmode;
+			devmode.dmSize = sizeof(devmode);
+			devmode.dmDriverExtra = 0;
+			if (EnumDisplaySettings(nfo.szDevice, ENUM_CURRENT_SETTINGS, &devmode)) {
+				res = devmode.dmDisplayFrequency;
+			}
+		}
+	}
+	return res;
+}

@@ -631,6 +631,7 @@ namespace urender {
 	void draw_ring(HDC destDC, i32 xDest, i32 yDest, i32 wDest, i32 hDest, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color) {
 		HBITMAP ring = render_ring(wDest, hDest, completion, ring_color, ring_bk_color, inner_circle_color, bk_color); defer{ DeleteObject(ring); };
 		draw_bitmap(destDC, xDest, yDest, wDest, hDest, ring, 0, 0, wDest, hDest);
+		//TODO(fran): try with different bk colors and with a draw_bitmap function that uses AlphaBlend()
 	}
 
 
