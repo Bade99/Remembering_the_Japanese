@@ -366,6 +366,17 @@ static RECT clip_fit_childs(HWND parent, HWND child, RECT r) {
 	return res;
 }
 
+//----------------------POINT-----------------------:
+bool operator==(POINT p1, POINT p2) {
+	bool res = p1.x == p2.x && p1.y == p2.y;
+	return res;
+}
+
+bool operator!=(POINT p1, POINT p2) {
+	bool res = !(p1 == p2);
+	return res;
+}
+
 //----------------------HBRUSH-----------------------:
 
 static COLORREF ColorFromBrush(HBRUSH br) {

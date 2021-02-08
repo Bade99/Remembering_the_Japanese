@@ -100,6 +100,11 @@ v4 lerp(v4 n1, f32 t, v4 n2) {
 	return (1.f - t) * n1 + t * n2;
 }
 
+f32 squared(f32 n) {
+	f32 res = n * n;
+	return res;
+}
+
 f32 square_root(f32 n) {
 	f32 res = sqrtf(n);
 	return res;
@@ -137,3 +142,23 @@ v4 clamp01(v4 v) {
 	res.a = clamp01(v.a);
 	return res;
 }
+
+
+//Rectangle
+struct rect_i32 {
+	union {
+		i32 top;
+		i32 y;
+	};
+	union {
+		i32 left;
+		i32 x;
+	};
+	i32 w;
+	i32 h;
+
+	i32 right() { return left + w; }
+	i32 bottom() { return top + h; }
+	i32 center_x() { return left + w / 2; }
+	i32 center_y() { return top + h / 2; }
+};

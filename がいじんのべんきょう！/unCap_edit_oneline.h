@@ -207,16 +207,6 @@ BOOL SetCaretPos(POINT p) {
 //TODOs:
 //-caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
 
-bool operator==(POINT p1, POINT p2) {
-	bool res = p1.x == p2.x && p1.y == p2.y;
-	return res;
-}
-
-bool operator!=(POINT p1, POINT p2) {
-	bool res = !(p1 == p2);
-	return res;
-}
-
 //NOTE: pasting from the clipboard establishes a couple of invariants: lines end with \r\n, there's a null terminator, we gotta parse it carefully cause who knows whats inside
 bool EDITONELINE_paste_from_clipboard(EditOnelineProcState* state, const cstr* txt) { //returns true if it could paste something
 	bool res = false;

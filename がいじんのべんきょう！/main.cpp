@@ -26,7 +26,7 @@
 #ifdef _DEBUG
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
-#define _DELETE_DB
+//#define _DELETE_DB
 #endif
 
 //---------------------Includes----------------------:
@@ -214,6 +214,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         _BeginSerialize();
         serialized += _serialize_struct(lang_mgr);
         serialized += _serialize_struct(unCap_colors);
+        serialized += _serialize_struct(べんきょう_cl);
 
         save_to_file_serialized(serialized, work_folder);
     }

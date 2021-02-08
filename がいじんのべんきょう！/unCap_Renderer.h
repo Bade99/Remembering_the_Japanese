@@ -240,6 +240,18 @@ v4 main_ring(v2 uv, f32 completion, v3 color) //2nd pass
 	return res;
 }
 
+v4 srgb255_to_linear1(v4 v) {
+	//Apply 2.2, aka 2, gamma correction
+	v4 res;
+	//NOTE: we assume alpha to be in linear space, probably it is
+	f32 inv255 = 1.f / 255.f;
+	res.r = squared(v.r * inv255);
+	res.g = squared(v.g * inv255);
+	res.b = squared(v.b * inv255);
+	res.a = v.a * inv255;
+	return res;
+}
+
 v4 linear1_to_srgb255(v4 v) {
 	v4 res;
 	//NOTE: we assume alpha to be in linear space, probably it is
@@ -249,6 +261,30 @@ v4 linear1_to_srgb255(v4 v) {
 	res.a = v.a * 255.f;
 	return res;
 }
+
+v4 COLORREF_to_v4_linear1(COLORREF col, u8 alpha) {
+	//NOTE: we separate alpha since colorref doesnt really care or set alpha usually
+	v4 res;
+	res.r = (f32)GetRValue(col);
+	res.g = (f32)GetGValue(col);
+	res.b = (f32)GetBValue(col);
+	res.a = (f32)alpha;
+
+	res = srgb255_to_linear1(res);
+
+	return res;
+};
+
+#define RGBA(r,g,b,a)          ((COLORREF)(((BYTE)(r)|((WORD)((BYTE)(g))<<8))|(((DWORD)(BYTE)(b))<<16)|(((DWORD)(BYTE)(a))<<24)))
+
+#define GetAValue(rgb)      (LOBYTE((rgb)>>24))
+
+COLORREF v4_linear1_to_COLORREF(v4 col) {
+	//NOTE: no idea what to do with alpha since colorref doesnt really care or set alpha usually
+	v4 col255 = linear1_to_srgb255(col);
+	COLORREF res = RGBA((u32)col255.r, (u32)col255.g, (u32)col255.b, (u32)col255.a);
+	return res;
+};
 
 f32 makeCircle(v2 absolutePos, v2 center, f32 radius)
 {
@@ -530,6 +566,9 @@ namespace urender {
 //NOTE: color values should be normalized between 0 and 1
 //returns 32bpp bitmap
 	HBITMAP render_ring(u32 w, u32 h, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color) {
+
+		//TODO(fran): this is waaay too slow, we need to either vectorize or go to the gpu
+
 		img _buf;
 		img* buf = &_buf;
 		buf->width = w;
@@ -628,8 +667,32 @@ namespace urender {
 		return full_ring;
 	}
 
-	void draw_ring(HDC destDC, i32 xDest, i32 yDest, i32 wDest, i32 hDest, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color) {
+	//NOTE: colors should be in linear1 space
+	void draw_ring(HDC destDC, i32 xDest, i32 yDest, i32 wDest, i32 hDest, f32 completion, v4 ring_color, v4 ring_bk_color, v4 inner_circle_color, v4 bk_color, cstr* fontfamily) {
 		HBITMAP ring = render_ring(wDest, hDest, completion, ring_color, ring_bk_color, inner_circle_color, bk_color); defer{ DeleteObject(ring); };
+
+		if(fontfamily) { //Text rendering
+			HDC tempdc = CreateCompatibleDC(destDC); defer{ DeleteDC(tempdc); };
+			HBITMAP oldbmp = (decltype(ring))SelectObject(tempdc, ring); defer{ SelectObject(tempdc, oldbmp); };
+			Gdiplus::Graphics graphics(tempdc);//Yeah, gotta change this
+			graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
+			str percentage = to_str((u32)(completion * 100.f));
+#if 0
+			percentage += L"%";
+#endif
+
+			Gdiplus::FontFamily   fontFamily(fontfamily);
+			Gdiplus::Font         font(&fontFamily, min(wDest,hDest) * .25f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+			Gdiplus::PointF		  pointF((f32)wDest / 2.f, (f32)hDest / 2.f);
+			Gdiplus::StringFormat stringFormat;
+			stringFormat.SetAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);
+			stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);
+			COLORREF txt_color = v4_linear1_to_COLORREF(ring_color);
+			Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(GetAValue(txt_color), GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
+
+			graphics.DrawString(percentage.c_str(), (INT)percentage.length(), &font, pointF, &stringFormat, &solidBrush);
+		}
+
 		draw_bitmap(destDC, xDest, yDest, wDest, hDest, ring, 0, 0, wDest, hDest);
 		//TODO(fran): try with different bk colors and with a draw_bitmap function that uses AlphaBlend()
 	}

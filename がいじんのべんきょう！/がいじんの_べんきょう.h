@@ -11,6 +11,8 @@
 #include "unCap_combobox.h"
 #include "unCap_Math.h"
 #include "がいじんの_score.h"
+#include "win32_static_oneline.h"
+
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8 for input and utf8 for output (output could be changed to utf16)
 
@@ -72,7 +74,7 @@ constexpr char べんきょう_table_words_structure[] =
 	"times_shown		INTEGER DEFAULT 0,"\
 	"times_right		INTEGER DEFAULT 0"\
 
-union user_stats {
+union user_stats {//TODO(fran): some of this stuff is easier to update via a trigger, eg word count
 	i64 word_cnt;			//Count for words added
 	i64 times_practiced;	//Count for completed practice runs
 	i64 times_shown;		//Count for words shown in practice runs
@@ -244,7 +246,18 @@ struct べんきょうProcState {
 		union practice_controls {
 			using type = HWND;
 			struct {
+				type static_word_cnt_title;
+				type static_word_cnt;
+
+				type static_practice_cnt_title;
+				type static_practice_cnt;
+
+				type static_accuracy_title;
 				type score_accuracy;
+
+				type static_accuracy_timeline_title; //TODO(fran): we may want to add this, or smth else
+				type graph_accuracy_timeline;
+
 				type button_start;
 				//type edit_question;
 				//type edit_answer;
@@ -515,6 +528,26 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			auto& controls = state->controls.practice;
 
+			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_word_cnt_title, 351);
+
+			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			
+			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_practice_cnt_title, 352);
+
+			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			
+			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_title, 353);
+
 			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD 
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			score::set_brushes(controls.list.score_accuracy, FALSE, unCap_colors.ControlBk, unCap_colors.Score_RingBk, unCap_colors.Score_RingFull, unCap_colors.Score_RingEmpty, unCap_colors.Score_InnerCircle);
@@ -523,6 +556,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
 			UNCAPBTN_set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			
+			controls.list.static_accuracy_timeline_title; //TODO(fran): we may want to add this, or smth else like a total number of words practiced
+			controls.list.graph_accuracy_timeline;
+
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -536,7 +573,9 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		int w_pad = (int)((float)w * .05f);
 		int h_pad = (int)((float)h * .05f);
 		
-#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint);
+#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
+
+#define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
 
 		switch (state->current_page) {
 		case ProcState::page::landing: 
@@ -628,28 +667,104 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			auto& controls = state->controls.practice;
 
 			//Stats first, then start button
+			//For stats I imagine a 2x2 "grid":	first row has "word count" and "times practiced"
+			//									second row has "score" and a chart of accuracy for last 30 days for example
+
 
 			int wnd_cnt = ARRAYSIZE(controls.all);
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
-			int start_y = (h - (pad_cnt) * h_pad - wnd_cnt * wnd_h) / 2;//sort of ok
+			int start_y = (h - (pad_cnt) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): not good, what we want is the total height of all windows combined, an use that to center correctly, eg start_y = (h-total_h)/2; and we offset everything by start_y at the end
 
-			int score_accuracy_y = start_y;
-			int score_accuracy_w = wnd_h*2;
-			int score_accuracy_h = score_accuracy_w;
-			int score_accuracy_x = (w - score_accuracy_w)/2;
+			int grid_h = wnd_h * 4;
+			int grid_w = grid_h * 16 / 9;
+			int grid_start_y = start_y;
+			rect_i32 grid[2][2];
+			for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { grid[i][j].w = grid_w; grid[i][j].h = grid_h; }
+			int grid_w_pad = w_pad / 2;
+			int grid_h_pad = h_pad / 2;
+			bool two_by_two = (grid_w * 2 + grid_w_pad) <= max_w;
 
-			int last_stat_y = score_accuracy_y;
-			int last_stat_h = score_accuracy_h;
+			if (two_by_two) {
+				grid[0][0].left = w/2 - grid_w_pad/2 - grid[0][0].w;	grid[0][0].top = grid_start_y;
+				grid[0][1].left = w/2 + grid_w_pad/2;					grid[0][1].top = grid[0][0].top;
 
-			int button_start_y = last_stat_y + last_stat_h + h_pad;
-			int button_start_w = 70;
-			int button_start_h = wnd_h;
-			int button_start_x = (w - button_start_w)/2;
+				grid[1][0].left = grid[0][0].left;						grid[1][0].top = grid[0][0].bottom() + grid_h_pad;
+				grid[1][1].left = grid[0][1].left;						grid[1][1].top = grid[1][0].top;
+			}
+			else {
+				for (int next_y = grid_start_y, i = 0; i < 2; i++) 
+					for (int j = 0; j < 2; j++) { 
+						grid[i][j].left = (w - grid[i][j].w) / 2; 
+						grid[i][j].top = next_y; 
+						next_y = grid[i][j].bottom() + grid_h_pad; 
+					}
+			}
+			//NOTE: we dont handle the case when there's not enough height since it'll look too long if all the things are next to each other and you probably wont have the space anyway
+
+			rect_i32 cell;
+
+			//First cell
+			cell = grid[0][0];
+			rect_i32 static_word_cnt_title;
+			static_word_cnt_title.w = cell.w;
+			static_word_cnt_title.h = min(wnd_h,cell.h);
+			static_word_cnt_title.x = cell.center_x() - static_word_cnt_title.w/2;
+			static_word_cnt_title.y = cell.top;
+
+			//NOTE: the values should use a much bigger font
+			rect_i32 static_word_cnt;
+			static_word_cnt.w = cell.w;
+			static_word_cnt.x = cell.center_x() - static_word_cnt.w/2;
+			static_word_cnt.h = distance(cell.bottom(), static_word_cnt_title.bottom());
+			static_word_cnt.y = cell.bottom() - static_word_cnt.h;
+
+			//Second cell
+			cell = grid[0][1];
+			rect_i32 static_practice_cnt_title;
+			static_practice_cnt_title.w = cell.w;
+			static_practice_cnt_title.h = min(wnd_h, cell.h);
+			static_practice_cnt_title.x = cell.center_x() - static_practice_cnt_title.w / 2;
+			static_practice_cnt_title.y = cell.top;
+
+			rect_i32 static_practice_cnt;
+			static_practice_cnt.w = cell.w;
+			static_practice_cnt.x = cell.center_x() - static_practice_cnt.w / 2;
+			static_practice_cnt.h = distance(cell.bottom(), static_practice_cnt_title.bottom());
+			static_practice_cnt.y = cell.bottom() - static_practice_cnt.h;
+
+			//3rd cell
+			cell = grid[1][0];
+			rect_i32 static_accuracy_title;
+			static_accuracy_title.w = cell.w;
+			static_accuracy_title.h = min(wnd_h, cell.h);
+			static_accuracy_title.x = cell.center_x() - static_accuracy_title.w / 2;
+			static_accuracy_title.y = cell.top;
+
+			rect_i32 score_accuracy;
+			score_accuracy.h = min(cell.w, distance(cell.bottom(), static_accuracy_title.bottom()));
+			score_accuracy.w = score_accuracy.h;
+			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
+			score_accuracy.y = cell.bottom() - score_accuracy.h;
+
+
+
+			rect_i32 last_stat = score_accuracy;
+
+			rect_i32 button_start;
+			button_start.y = last_stat.bottom() + h_pad;
+			button_start.w = 70;
+			button_start.h = wnd_h;
+			button_start.x = (w - button_start.w)/2;
 			
-			_MyMoveWindow(controls.list.score_accuracy, score_accuracy, FALSE);
-			_MyMoveWindow(controls.list.button_start, button_start, FALSE);
+			_MyMoveWindow2(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
+			_MyMoveWindow2(controls.list.static_word_cnt, static_word_cnt, FALSE);
+			_MyMoveWindow2(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
+			_MyMoveWindow2(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
+			_MyMoveWindow2(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
+			_MyMoveWindow2(controls.list.score_accuracy, score_accuracy, FALSE);
+			_MyMoveWindow2(controls.list.button_start, button_start, FALSE);
 
 		} break;
 		case ProcState::page::search: 
@@ -1042,10 +1157,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			user_stats* stats = (decltype(stats))data;
 			auto controls = state->controls.practice;
-#if 0
+#define PRACTICE_TEST_STATS
+#ifndef PRACTICE_TEST_STATS
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
+			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
+			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
 #else
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
+			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
+			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(559).c_str());
+
 #endif
 		} break;
 		}

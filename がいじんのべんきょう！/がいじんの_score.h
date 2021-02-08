@@ -9,6 +9,8 @@
 #define score_base_msg_addr (WM_USER + 4000)
 #define SC_SETSCORE (score_base_msg_addr+1) /*wparam = float ; lparam = unused*/ /*score should be normalized between 0.0 and 1.0*/ /*IMPORTANT: use f32_to_WPARAM() from the "Helpers" file, casting (eg. (WPARAM).7f) wont work*/
 
+//TODO(fran): we are drawing the full score on the first frame since we ask for repaint on SC_SETSCORE, we should probably ask to start the anim there
+
 namespace score {
 
 #define ANIM_SCORE_ring 1
@@ -161,7 +163,7 @@ namespace score {
 		} break;
 		case WM_SHOWWINDOW:
 		{
-			BOOL show = wparam;
+			BOOL show = (BOOL)wparam;
 			if (show) {
 				//Start animation
 				start_anim(state, ANIM_SCORE_ring);
@@ -235,24 +237,18 @@ namespace score {
 			score_x = (RECTW(rc) - score_w) / 2;
 			score_y = (RECTH(rc) - score_h) / 2;
 
-			auto color_to_v4 = [](COLORREF col, u8 alpha) {
-				//NOTE: we separate alpha since colorref doesnt really care or set alpha usually
-				v4 res;
-				res.r = (f32)GetRValue(col) / 255.f;
-				res.g = (f32)GetGValue(col) / 255.f;
-				res.b = (f32)GetBValue(col) / 255.f;
-				res.a = (f32)alpha / 255.f;//TODO(fran): decide what to do with alpha, the user should have control over it
-				return res;
-			};
-
-			v4 ringfull = color_to_v4(ColorFromBrush(state->brushes.ringfull), 255);
-			v4 ringempty = color_to_v4(ColorFromBrush(state->brushes.ringempty), 255);
+			v4 ringfull = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringfull), 255);
+			v4 ringempty = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringempty), 255);
 			v4 ring_color = lerp(ringempty, state->score, ringfull);//NOTE: lerping should only be done on aldready premultiplied values, since we're using 255 we're ok for now
-			v4 ring_bk = color_to_v4(ColorFromBrush(state->brushes.ring_bk), 255);
-			v4 inner_circle = color_to_v4(ColorFromBrush(state->brushes.inner_circle), 255);
-			v4 bk = color_to_v4(ColorFromBrush(state->brushes.bk), 255);
+			v4 ring_bk = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ring_bk), 255);
+			v4 inner_circle = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.inner_circle), 255);
+			v4 bk = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.bk), 255);
 
-			urender::draw_ring(dc, score_x, score_y, score_w, score_h, state->score, ring_color, ring_bk, inner_circle, bk);
+			LOGFONT lf; int getobjres = GetObject(state->font, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
+
+			urender::draw_ring(dc, score_x, score_y, score_w, score_h, state->score, ring_color, ring_bk, inner_circle, bk,lf.lfFaceName);
+
+			//TODO(fran): fill in the unpainted parts with the bk color
 
 			EndPaint(hwnd, &ps);
 			return 0;

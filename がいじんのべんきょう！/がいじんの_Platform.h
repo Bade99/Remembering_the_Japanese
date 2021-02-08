@@ -27,17 +27,6 @@ struct text { //A _non_ null terminated cstring
 	size_t sz_chars; //TODO(fran): better is probably size in bytes
 };
 
-//TODO(fran): try something like this
-struct any_str {
-	void* str;
-	size_t sz;/*bytes*/
-};
-//NOTE: we want only one allocation and dealocation strategy that makes sense for the current project, in this case strings arent expected to ever be too large, therefore malloc and free is good enough
-static any_str alloc_any_str(size_t sz) {
-	any_str res{ malloc(sz), sz };
-	return res;
-}
-static void free_any_str(void* str) { free(str); };
 
 //TODO(fran): use this guys, if we use pointers utf8_str* we can cast easily to different types: (utf16_str*)&any_str
 struct utf8_str {
@@ -48,4 +37,19 @@ struct utf8_str {
 struct utf16_str {
 	utf16* str;
 	size_t sz;/*bytes*/
+
+	//Includes null terminator
+	size_t sz_char() { return sz / sizeof(*str); }//TODO(fran): it's probably better to not include the null terminator, or give two functions
 };
+//TODO(fran): try something like this
+struct any_str {
+	void* str;
+	size_t sz;/*bytes*/
+	operator utf16_str() const { return{ (utf16*)str,sz }; }//TODO(fran): this is terrible, this cast should be free
+};
+//NOTE: we want only one allocation and dealocation strategy that makes sense for the current project, in this case strings arent expected to ever be too large, therefore malloc and free is good enough
+static any_str alloc_any_str(size_t sz) {
+	any_str res{ malloc(sz), sz };
+	return res;
+}
+static void free_any_str(void* str) { free(str); };
