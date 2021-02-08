@@ -3,52 +3,114 @@
 #include "がいじんの_Platform.h"
 #include "がいじんの_Helpers.h"
 #include "unCap_Renderer.h"
+#include <vector>
 #include <windowsx.h>
 
 //NOTE: no ASCII support, always utf16
 
-//------------------"Additional Styles"------------------: 
-/*NOTE: you have at least the first byte free to add new styles*/
-#define SO_AUTOFONTSIZE (0x00000020L) //The size of the font auto adjusts to cover the maximum wnd area possible
-//IMPORTANT NOTE: 0x00000020L was the only style bit left unused by windows' static control
+//TODO(fran): we really need to Assert(state) on get_state, we cant cause it will fail the first time, but we can solve it via taking WM_NCCREATE out of the switch, the question now is which one is more performant
+//TODO(fran): respond on mouse move, we could put an indicator with a tooltip filled by the user
 
-//TODO(fran): draw border and bk
+namespace graph {
 
-namespace static_oneline {
+	constexpr cstr wndclass[] = L"がいじんの_wndclass_graph";
+
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
 		struct brushes {
-			HBRUSH txt, bk, border;//NOTE: for now we use the border color for the caret
-			HBRUSH txt_dis, bk_dis, border_dis; //disabled
+			//TODO(fran): we probably want multiple different drawing methods that will need different params
+			HBRUSH line, bk_under_line, bk, border;//NOTE: for now we use the border color for the caret
+			//HBRUSH txt_dis, bk_dis, border_dis; //disabled
 		}brushes;
+
 		LOGFONT font;
 		HFONT _font;//simply cause windows msgs ask for it
-		utf16_str txt;
-		//cstr default_text[100]; //NOTE: uses txt_dis brush for rendering
+
+		struct {
+			using type = f64;
+			type top;
+			type bottom;
+			std::vector<type> list;//we simplify to a common array type that can mostly hold anything (of the built in types)
+			struct {
+				size_t idx;
+				size_t length;//length=0 means no points, length=1 means one point aka the point at idx, length=2 means two points aka the point at idx and the next one
+				//NOTE: you can only go forward in the array, at least for now
+			}range_to_show;
+		}points;
 	};
 
-	constexpr cstr wndclass[] = L"unCap_wndclass_static_oneline";
 
 	ProcState* get_state(HWND wnd) {
 		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 		return state;
 	}
 
-	void set_state(HWND wnd, ProcState* state) {//NOTE: only used on creation
-		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
+	void set_state(HWND wnd, ProcState* state) {
+		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);
 	}
 
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	template<typename T>
+	void set_points(HWND wnd, T* values, size_t count) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			if (txt)state->brushes.txt = txt;
+			static_assert(std::is_convertible<T, decltype(state->points)::type>::value, "The type of *values cannot be trivially converted to f64");
+			state->points.list.clear();//delete old points
+			for (int i = 0; i < count; i++) state->points.list.push_back((decltype(state->points.list)::value_type)values[i]);
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
+	template<typename T>
+	void add_points(HWND wnd, T* values, size_t count) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			static_assert(std::is_convertible<T, decltype(state->points)::type>::value, "The type of *values cannot be trivially converted to f64");
+			for (int i = 0; i < count; i++) state->points.list.push_back((decltype(state->points.list)::value_type)values[i]);
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
+	template<typename T>
+	//NOTE: in an xy graph this would be y_max
+	void set_top_point(HWND wnd, T value) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			static_assert(std::is_convertible<T, decltype(state->points)::type>::value, "The type of value cannot be trivially converted to f64");
+			state->points.top = (decltype(state->points)::type)value;
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
+	template<typename T>
+	//NOTE: in an xy graph this would be y_min
+	void set_bottom_point(HWND wnd, T value) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			static_assert(std::is_convertible<T, decltype(state->points)::type>::value, "The type of value cannot be trivially converted to f64");
+			state->points.bottom = (decltype(state->points)::type)value;
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
+	//length=0 means no points, length=1 means one point aka the point at idx, length=2 means two points aka the point at idx and the next one
+	void set_viewable_points_range(HWND wnd, size_t idx, size_t length) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->points.range_to_show.idx = idx;
+			state->points.range_to_show.length = length;
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+	}
+
+	//NOTE: we simply use the brushes, we dont handle or delete them
+	void set_brushes(HWND wnd, BOOL repaint, HBRUSH line, HBRUSH bk_under_line, HBRUSH bk, HBRUSH border) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (line)state->brushes.line = line;
+			if (bk_under_line)state->brushes.bk_under_line = bk_under_line;
 			if (bk)state->brushes.bk = bk;
 			if (border)state->brushes.border = border;
-			if (txt_disabled)state->brushes.txt_dis = txt_disabled;
-			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-			if (border_disabled)state->brushes.border_dis = border_disabled;
 			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
 		}
 	}
@@ -65,8 +127,7 @@ namespace static_oneline {
 			set_state(hwnd, st);
 			st->wnd = hwnd;
 			st->parent = creation_nfo->hwndParent;
-			//st->default_text = 0;
-			//NOTE: SS_LEFT==0, that was their way of defaulting to left, problem with that is you cant look for a SS_LEFT bit set
+			st->points.list = decltype(st->points.list)();//INFO: c++ objects often need manual initialization, 0 aint good enough for them
 			return TRUE; //continue creation
 		} break;
 		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
@@ -84,8 +145,6 @@ namespace static_oneline {
 		case WM_CREATE:
 		{
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
-
-			if (createnfo->lpszName) PostMessage(state->wnd, WM_SETTEXT, 0, (LPARAM)createnfo->lpszName);
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
 		} break;
@@ -108,6 +167,8 @@ namespace static_oneline {
 		case WM_SHOWWINDOW: //6th. On startup you receive this cause of WS_VISIBLE flag
 		{
 			//Sent when window is about to be hidden or shown, doesnt let it clear if we are in charge of that or it's going to happen no matter what we do
+			BOOL show = (BOOL)wparam;
+			//TODO(fran): start animation
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_NCPAINT://7th
@@ -137,80 +198,15 @@ namespace static_oneline {
 		} break;
 		case WM_DESTROY:
 		{
+			state->points.list.~vector();
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
-			if (state->txt.str) {
-				free_any_str(state->txt.str);
-				state->txt = { 0 };
-			}
 			free(state);
+			set_state(hwnd, 0);//TODO(fran): I dont know if I should do this always
 			return 0;
 		}break;
-		case WM_PAINT:
-		{
-			PAINTSTRUCT ps;
-			RECT rc; GetClientRect(state->wnd, &rc);
-			int w = RECTW(rc), h = RECTH(rc);
-			//ps.rcPaint
-			HDC dc = BeginPaint(state->wnd, &ps);
-			bool window_enabled = IsWindowEnabled(state->wnd);
-			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE); //SS_CENTER, SS_RIGHT or default to SS_LEFT
-
-			//TODO(fran): render bk and border, flicker free
-
-#ifdef UNCAP_GDIPLUS
-			{
-				Gdiplus::Graphics graphics(dc);
-				graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
-
-				Gdiplus::FontFamily   fontFamily(state->font.lfFaceName);
-
-				int FontStyle_flags = Gdiplus::FontStyle::FontStyleRegular;
-				//TODO(fran): we need our own font renderer, from starters the font weight has a much finer control with logfont
-				if (state->font.lfWeight >= FW_BOLD)FontStyle_flags |= Gdiplus::FontStyle::FontStyleBold;
-				if (state->font.lfItalic)FontStyle_flags |= Gdiplus::FontStyle::FontStyleItalic;
-				if (state->font.lfUnderline)FontStyle_flags |= Gdiplus::FontStyle::FontStyleUnderline;
-				if (state->font.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
-
-				f32 fontsize;
-				if (style & SO_AUTOFONTSIZE) fontsize = (f32)h;
-				else fontsize = (f32)abs(state->font.lfHeight);//TODO(fran): this isnt correct, this are device units https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta
-				//TODO(fran): use this guy to make sure our fontsize fits horizontally too
-				//graphics.MeasureString(state->txt.str, (INT)(state->txt.sz_char() - 1),...);
-
-				Gdiplus::Font         font(&fontFamily, fontsize, FontStyle_flags, Gdiplus::UnitPixel);
-
-				Gdiplus::StringFormat stringFormat;
-				stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);//align vertically always
-
-				Gdiplus::PointF		  pointF;
-				Gdiplus::StringAlignment str_alignment;
-				if (style & SS_CENTER) {
-					pointF = { (f32)w / 2.f, (f32)h / 2.f };
-					str_alignment = Gdiplus::StringAlignment::StringAlignmentCenter;
-				}
-				else if (style & SS_RIGHT) {
-					pointF = { (f32)w, (f32)h / 2.f };
-					str_alignment = Gdiplus::StringAlignment::StringAlignmentFar;//TODO(fran): im not sure if this is it
-				}
-				else {//SS_LEFT
-					pointF = { (f32)rc.left, (f32)h / 2.f };
-					str_alignment = Gdiplus::StringAlignment::StringAlignmentNear;//TODO(fran): im not sure if this is it
-				}
-
-				stringFormat.SetAlignment(str_alignment);
-
-				COLORREF txt_color = ColorFromBrush(state->brushes.txt);
-				Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
-				graphics.DrawString(state->txt.str, (INT)(state->txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
-			}
-#endif
-
-			EndPaint(hwnd, &ps);
-			return 0;
-		} break;
 		case WM_NCHITTEST://When the mouse goes over us this is 1st msg received
 		{
 			//Received when the mouse goes over the window, on mouse press or release, and on WindowFromPoint
@@ -271,48 +267,83 @@ namespace static_oneline {
 			u32 disp_flags = (u32)lparam;
 			return 0; //We dont want IME
 		}break;
-		case WM_GETTEXT://the specified char count must include null terminator, since windows' defaults to force writing it to you
+		case WM_GETTEXT:
 		{
-			LRESULT res;
-			int char_cnt_with_null = max((int)wparam, 0);//Includes null char
-			int char_text_cnt_with_null = (int)(state->txt.sz_char());
-			if (char_cnt_with_null > char_text_cnt_with_null) char_cnt_with_null = char_text_cnt_with_null;
-			cstr* buf = (cstr*)lparam;
-			if (buf) {//should I check?
-				StrCpyN(buf, state->txt.str, char_cnt_with_null);
-				if (char_cnt_with_null < char_text_cnt_with_null) buf[char_cnt_with_null - 1] = (cstr)0;
-				res = char_cnt_with_null - 1;
-			}
-			else res = 0;
-			return res;
+			return 0;
 		} break;
-		case WM_GETTEXTLENGTH://does not include null terminator
+		case WM_GETTEXTLENGTH:
 		{
-			int res;
-			if (state->txt.sz_char()) res = (int)(state->txt.sz_char() - 1);
-			else res = 0;
-			return res;
+			return 0;
 		} break;
 		case WM_SETTEXT:
 		{
-			//TODO(fran): we should check the text doesnt have any \n
-			BOOL res = FALSE;
-			cstr* buf = (cstr*)lparam;//null terminated
-			if (buf) {
-				size_t char_sz = cstr_len(buf);//not including null terminator
+			return TRUE;//we "set" the text
+		} break;
+		case WM_PAINT:
+		{
+			PAINTSTRUCT ps;
+			RECT rc; GetClientRect(state->wnd, &rc);
+			int w = RECTW(rc), h = RECTH(rc);
+			//ps.rcPaint
+			HDC dc = BeginPaint(state->wnd, &ps);
 
-				size_t char_sz_with_null = char_sz + 1;
+			FillRect(dc, &rc, state->brushes.bk);
 
-				if (state->txt.str)free_any_str(state->txt.str);
-				state->txt = (utf16_str)alloc_any_str(char_sz_with_null * sizeof(*state->txt.str));
+			//TODO(fran): we probably want the WS_EX_COMPOSITED style by default, so we get double buffering without extra work
+			if (state->points.range_to_show.length && state->points.range_to_show.idx < state->points.list.size()) {
+				//we got a valid starting index and at least one point
+				size_t pt_count = min(distance(state->points.range_to_show.idx, state->points.list.size()), state->points.range_to_show.length);
+				POINT* points = (decltype(points))malloc(sizeof(*points) * (pt_count+2)); defer{ free(points); };
 
-				StrCpyNW(state->txt.str, buf, (int)char_sz_with_null);
+				f32 x_pad = safe_ratio0((f32)w,(f32)(pt_count-1));
+				f32 curr_x=0;
+				for (size_t i = 0; i < pt_count; i++) {
+					points[i].x = (int)round(curr_x);
+					curr_x += x_pad;
+					auto y_percent = distance(state->points.list[state->points.range_to_show.idx + i], state->points.bottom) / distance(state->points.top, state->points.bottom); //TODO(fran): this probably wraps incorrectly for values that go below bottom
 
-				res = TRUE;
-				InvalidateRect(state->wnd, NULL, TRUE);
+					//NOTE: now we have a problem, y axis goes down
+					//HACK:
+					y_percent = 1 - y_percent;
+					//one solution would be to render onto a separate buffer that has y going up, and then simply render to the screen with bitblt
+					
+					points[i].y = (i32)(y_percent * h);
+				}
+
+				//Draw below the line:
+				//Complete the polygon
+				{
+					points[pt_count] = { points[pt_count-1].x,h };
+					points[pt_count + 1] = { points[0].x,h };
+					HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line));
+					HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
+					HBRUSH oldbr = SelectBrush(dc, state->brushes.bk_under_line); defer{ SelectBrush(dc,oldbr); };
+					Polygon(dc, points, (int)(pt_count + 2));//draw
+				}
+
+				constexpr int line_thickness = 1;
+
+				HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line));
+				HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
+
+				MoveToEx(dc, points[0].x, points[0].y, nullptr);
+				if (pt_count == 1) {
+					//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
+					POINT end{ w,points[0].y };
+					PolylineTo(dc, &end, (DWORD)pt_count);
+				}
+				else {
+					PolylineTo(dc, &points[1], (DWORD)(pt_count-1));
+					//NOTE: there's also Polyline which doesnt depend on MoveTo but doesnt update the current position, that pos could be useful for "append drawing"
+				}
+				//TODO(fran): add style to allow for PolyBezierTo and handle WM_STYLECHANGE to update on realtime too
 			}
-			return res;
-		}break;
+
+			//TODO(fran): border and bk_under_line
+
+			EndPaint(hwnd, &ps);
+			return 0;
+		} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);
@@ -352,5 +383,4 @@ namespace static_oneline {
 		}
 	};
 	static const pre_post_main PREMAIN_POSTMAIN;
-
 }

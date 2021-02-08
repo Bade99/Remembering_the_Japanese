@@ -90,6 +90,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(351,"Word count") //or "Total Word count", or smth else, Im not sure this is clear whether it's for words added or practiced
 	lang_entry(352,"Practice runs")
 	lang_entry(353,"Accuracy")//or "Score" / "Lifetime score"
+	lang_entry(354,"Progress")//maybe something clearer
 ;
 
 constexpr static utf16 lang_español_entries[] =

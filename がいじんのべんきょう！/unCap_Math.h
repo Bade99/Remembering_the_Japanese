@@ -144,6 +144,12 @@ v4 clamp01(v4 v) {
 }
 
 
+//f64
+
+static f64 distance(f64 a, f64 b) {
+	return abs(a - b);
+}
+
 //Rectangle
 struct rect_i32 {
 	union {
@@ -162,3 +168,12 @@ struct rect_i32 {
 	i32 center_x() { return left + w / 2; }
 	i32 center_y() { return top + h / 2; }
 };
+
+
+//size_t
+static size_t distance(size_t a, size_t b) {
+	size_t res;
+	if (a >= b) res = a - b;
+	else res = b - a;
+	return res;
+}

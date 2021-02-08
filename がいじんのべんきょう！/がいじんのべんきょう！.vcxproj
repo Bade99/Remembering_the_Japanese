@@ -195,6 +195,7 @@
     <ClInclude Include="unCap_Renderer.h" />
     <ClInclude Include="unCap_Serialization.h" />
     <ClInclude Include="unCap_Vector.h" />
+    <ClInclude Include="win32_graph.h" />
     <ClInclude Include="win32_static_oneline.h" />
     <ClInclude Include="windows_msg_mapper.h" />
     <ClInclude Include="windows_sdk.h" />

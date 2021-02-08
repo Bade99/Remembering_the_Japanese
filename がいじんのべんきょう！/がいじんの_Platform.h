@@ -53,3 +53,7 @@ static any_str alloc_any_str(size_t sz) {
 	return res;
 }
 static void free_any_str(void* str) { free(str); };
+
+//TODO(fran):
+//https://stackoverflow.com/questions/42293192/making-a-dynamic-array-that-accepts-any-type-in-c
+//https://stackoverflow.com/questions/9804371/syntax-and-sample-usage-of-generic-in-c11

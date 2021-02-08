@@ -12,6 +12,7 @@
 #include "unCap_Math.h"
 #include "がいじんの_score.h"
 #include "win32_static_oneline.h"
+#include "win32_graph.h"
 
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8 for input and utf8 for output (output could be changed to utf16)
@@ -30,6 +31,7 @@
 //TODO(fran): the add buton in new_word should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana of each word in the practice, and you being able to press that button like object and going to the show_word page
 //TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
+//TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
 
 //IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -73,6 +75,12 @@ constexpr char べんきょう_table_words_structure[] =
 	"times_practiced	INTEGER DEFAULT 0,"\
 	"times_shown		INTEGER DEFAULT 0,"\
 	"times_right		INTEGER DEFAULT 0"\
+
+#define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
+
+#define べんきょう_table_version_structure \
+	"v					INTEGER"\
+//NOTE: lets keep it simple, versions are just a number, also the db wont be changing too often
 
 union user_stats {//TODO(fran): some of this stuff is easier to update via a trigger, eg word count
 	i64 word_cnt;			//Count for words added
@@ -534,7 +542,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);
 			
 			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -542,7 +550,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 			
 			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -557,8 +565,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			AWT(controls.list.button_start, 350);
 			UNCAPBTN_set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			
-			controls.list.static_accuracy_timeline_title; //TODO(fran): we may want to add this, or smth else like a total number of words practiced
-			controls.list.graph_accuracy_timeline;
+			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_timeline_title, 354);
+
+			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, unCap_colors.Graph_Line, unCap_colors.Graph_BkUnderLine, unCap_colors.Graph_Bk, unCap_colors.Graph_Border);
+
+			//TODO(fran): we may want to add smth else like a total number of words practiced
 
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -575,7 +590,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		
 #define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
 
-#define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
+#define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
 
 		switch (state->current_page) {
 		case ProcState::page::landing: 
@@ -675,7 +690,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
+#if 0
 			int start_y = (h - (pad_cnt) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): not good, what we want is the total height of all windows combined, an use that to center correctly, eg start_y = (h-total_h)/2; and we offset everything by start_y at the end
+#else
+			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
+#endif
 
 			int grid_h = wnd_h * 4;
 			int grid_w = grid_h * 16 / 9;
@@ -748,15 +767,33 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
 			score_accuracy.y = cell.bottom() - score_accuracy.h;
 
+			//4th cell
+			cell = grid[1][1];
+			rect_i32 static_accuracy_timeline_title;
+			static_accuracy_timeline_title.w = cell.w;
+			static_accuracy_timeline_title.h = min(wnd_h, cell.h);
+			static_accuracy_timeline_title.x = cell.center_x() - static_accuracy_timeline_title.w / 2;
+			static_accuracy_timeline_title.y = cell.top;
+
+			rect_i32 graph_accuracy_timeline;
+			graph_accuracy_timeline.h = min(cell.w, distance(cell.bottom(), static_accuracy_timeline_title.bottom()));
+			graph_accuracy_timeline.w = min(graph_accuracy_timeline.h * 16 / 9,cell.w);
+			graph_accuracy_timeline.x = cell.center_x() - graph_accuracy_timeline.w / 2;
+			graph_accuracy_timeline.y = cell.bottom() - graph_accuracy_timeline.h;
 
 
-			rect_i32 last_stat = score_accuracy;
+			rect_i32 last_stat = graph_accuracy_timeline;
 
 			rect_i32 button_start;
 			button_start.y = last_stat.bottom() + h_pad;
 			button_start.w = 70;
 			button_start.h = wnd_h;
 			button_start.x = (w - button_start.w)/2;
+
+			rect_i32 bottom_most_control = button_start;
+
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 			
 			_MyMoveWindow2(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
 			_MyMoveWindow2(controls.list.static_word_cnt, static_word_cnt, FALSE);
@@ -764,6 +801,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			_MyMoveWindow2(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
 			_MyMoveWindow2(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
 			_MyMoveWindow2(controls.list.score_accuracy, score_accuracy, FALSE);
+			_MyMoveWindow2(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
+			_MyMoveWindow2(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
 			_MyMoveWindow2(controls.list.button_start, button_start, FALSE);
 
 		} break;
@@ -1162,11 +1201,16 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
 			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
+			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
 #else
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
 			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(559).c_str());
-
+			i32 accu[]{ 77,56,32,12,48,95,65,32,54,67,79,88,100 };
+			graph::set_points(controls.list.graph_accuracy_timeline, accu, ARRAYSIZE(accu));
+			graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
+			graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
+			graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, ARRAYSIZE(accu));
 #endif
 		} break;
 		}

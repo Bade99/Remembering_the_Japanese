@@ -203,6 +203,7 @@ namespace score {
 			f32 new_score = f32_from_WPARAM(wparam);
 			state->score = clamp01(new_score);
 			//TODO(fran): it may be good to check whether new_score == old_score to avoid re-rendering
+			//TODO(fran): if we're already visible we should ask for an animation start from our prev_score
 			InvalidateRect(state->wnd, NULL, TRUE);
 			return 0;
 		} break;

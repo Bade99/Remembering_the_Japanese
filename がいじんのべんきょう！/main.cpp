@@ -7,6 +7,13 @@
 //TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work
 //TODO(fran): should I stop giving suggestions through the IME window? so the user isnt dependent on the correct writing of the IME suggestions, at least for something like the searchbar
 //TODO(fran): we probably also want a "forward" button
+//TODO(fran): dpi awareness https://docs.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows https://github.com/tringi/win32-dpi
+//TODO(fran): add a header for all ProcStates with a unique key for each proc that way it can later identify the state is the corresponding one to that wnd, eg:
+//struct ProcStateHeader {
+//    HWND wnd;
+//    HWND parent;
+//    u32 id;//or some other name
+//};
 
 //BIG TODO(fran): we can actually pre allocate the sizes for everything, and assign "static" structures to sections of the code for reuse, going back to the handmade hero mentality that'd help a lot, no need for mallocs all over the place, at most we should implement re allocation, but even that's not necessary if we fixed every size, I was thinking about differentiating current size and allocated size for things like strings, but that's also not needed, with fixed sizes we can have everything allocated on the correct size from the start, the content on the pages of this program is very much fixed and controllable
 //BIG TODO(fran): once we get this working make a resizer, that'd save lots of problems
