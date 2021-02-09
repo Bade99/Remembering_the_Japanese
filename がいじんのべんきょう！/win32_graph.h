@@ -10,6 +10,7 @@
 
 //TODO(fran): we really need to Assert(state) on get_state, we cant cause it will fail the first time, but we can solve it via taking WM_NCCREATE out of the switch, the question now is which one is more performant
 //TODO(fran): respond on mouse move, we could put an indicator with a tooltip filled by the user
+//TODO(fran): add graph generation animation
 
 namespace graph {
 

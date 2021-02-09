@@ -607,6 +607,18 @@ static str GetApp_FontFaceName() {
 	return L"";
 }
 
+static SIZE avg_str_dim(HFONT font, size_t char_cnt) {
+	SIZE res;
+
+	HDC dc = GetDC(0); defer{ ReleaseDC(0,dc); };//TODO(fran): maybe it's better to generate a new dc, idk how reliable and non obtrusive this is since that dc is accessed by mutliple threads
+	HFONT old_font = (HFONT)SelectObject(dc, font); defer{ SelectObject(dc,old_font); };//TODO(fran): pretty shitty solution
+	TEXTMETRIC tm; GetTextMetrics(dc, &tm);
+	res.cy = tm.tmHeight;
+	res.cx = (int)(tm.tmAveCharWidth * char_cnt);
+
+	return res;
+}
+
 //----------------------WPARAM-----------------------:
 static WPARAM f32_to_WPARAM(f32 f) {
 	int n; static_assert(sizeof(n) == sizeof(f), "Say whaat?!");

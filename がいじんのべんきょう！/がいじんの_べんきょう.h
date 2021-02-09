@@ -32,6 +32,7 @@
 //TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana of each word in the practice, and you being able to press that button like object and going to the show_word page
 //TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
+//TODO(fran): we may actually want to add a stats page to the landing page (and make it a 2x2 grid) in order to put stuff that's in practice, like "word count" and extra things like a list of last words added
 
 //IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -170,6 +171,18 @@ struct stored_word {
 	extra_word application_defined;
 };
 
+//Structures used by different practices
+struct practice_writing_word {
+	learnt_word word;
+	enum class type {
+		translate_hiragana_to_translation,
+		translate_translation_to_hiragana,
+		translate_kanji_to_hiragana,
+		translate_kanji_to_translation,
+		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correclty
+	}practice_type;
+};
+
 //---------------------Macros-------------------------:
 
 #define _sqlite3_generate_columns(type,name,...) "" + #name + ","
@@ -215,6 +228,8 @@ struct べんきょうProcState {
 		landing,
 		new_word,
 		practice,
+		practice_writing,//you're given a word in hiragana/kanji/translation and must write the response in hiragana/kanji/translation //TODO(fran)
+		practice_multiplechoice,//TODO(fran)
 		search,
 		show_word,
 	} current_page;
@@ -223,6 +238,8 @@ struct べんきょうProcState {
 		decltype(current_page) pages[10];
 		u32 cnt;
 	}previous_pages;
+
+	u32 practice_cnt;//counter for current completed practices while on a pratice run, use to stop the practice run once it gets to some threshold
 
 	struct {
 
@@ -273,6 +290,18 @@ struct べんきょうProcState {
 			type all[sizeof(list) / sizeof(type)];
 		} practice;
 
+		union practice_writing_controls {
+			using type = HWND;
+			struct {
+				type static_test_word;
+
+				type edit_answer;//pressing enter on it will trigger checking
+
+				type button_next;//TODO(fran): not the best name
+			}list;
+			type all[sizeof(list) / sizeof(type)];
+		} practice_writing;
+
 		union search_controls {
 			using type = HWND;
 			struct {
@@ -304,6 +333,19 @@ struct べんきょうProcState {
 		} show_word;
 
 	}controls; //TODO(fran): should be called pages
+
+	enum class available_practices {
+		writing,
+		multiplechoice,
+	};
+
+	struct {
+
+		struct practice_writing_state {
+			practice_writing_word practice;
+		}practice_writing;
+
+	} pagestate;
 };
 
 namespace べんきょう { //INFO: Im trying namespaces to see if this is better than having every function with the name of the wndclass
@@ -578,6 +620,28 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
+
+		//---------------------Practice writing----------------------:
+		{
+			auto& controls = state->controls.practice_writing;
+
+			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, unCap_colors.ControlBk, 0, 0, unCap_colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+
+			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, 0, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			//NOTE: text color and default text will be set according to the type of word that has to be written
+
+			controls.list.button_next = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			UNCAPBTN_set_brushes(controls.list.button_next, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.arrowSimple_right);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+		}
 	}
 
 	void resize_controls(ProcState* state) {
@@ -804,6 +868,42 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			_MyMoveWindow2(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
 			_MyMoveWindow2(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
 			_MyMoveWindow2(controls.list.button_start, button_start, FALSE);
+
+		} break;
+		case ProcState::page::practice_writing:
+		{
+			auto& controls = state->controls.practice_writing;
+
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_test_word;
+			static_test_word.y = start_y;
+			static_test_word.h = bigwnd_h;
+			static_test_word.w = w;
+			static_test_word.x = (w - static_test_word.w)/2;
+
+			rect_i32 edit_answer;
+			edit_answer.y = static_test_word.bottom() + h_pad;
+			edit_answer.h = wnd_h;
+			edit_answer.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_answer, WM_GETFONT, 0, 0), 20).cx);
+			edit_answer.x = (w - edit_answer.w) / 2;
+
+			rect_i32 button_next;
+			button_next.h = edit_answer.h;
+			button_next.w = button_next.h;
+			button_next.y = edit_answer.y;
+			button_next.x = edit_answer.right() - button_next.w;
+
+			rect_i32 bottom_most_control = button_next;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			_MyMoveWindow2(controls.list.static_test_word, static_test_word, FALSE);
+			_MyMoveWindow2(controls.list.edit_answer, edit_answer, FALSE);
+			_MyMoveWindow2(controls.list.button_next, button_next, FALSE);
 
 		} break;
 		case ProcState::page::search: 
@@ -1212,6 +1312,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
 			graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, ARRAYSIZE(accu));
 #endif
+			//BOOL can_practice = stats->word_cnt > 0;
+			//EnableWindow(controls.list.button_start, can_practice);
 		} break;
 		}
 	}
@@ -1293,6 +1395,50 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		defer{ free_any_str(word_to_delete_utf8.attributes.hiragana.str); };
 
 		res = delete_word(state->settings->db, &word_to_delete_utf8);
+		return res;
+	}
+
+	learnt_word get_practice_word(sqlite3* db) {
+		learnt_word res{0};
+		//TODO(fran)
+		return res;
+	}
+
+	struct practice_data {
+		ProcState::page page;
+		void* data;
+	};
+	practice_data prepare_practice(ProcState* state) {
+		practice_data res;
+		ProcState::available_practices practices[]{
+			ProcState::available_practices::writing,
+			//ProcState::available_practices::multiplechoice
+		};
+
+		ProcState::available_practices practice = practices[random_between(0,ARRAYSIZE(practices)-1)];
+		learnt_word practice_word = get_practice_word(state->settings->db);//we always get a target word
+		//TODO(fran): the corresponding practice page will take care of freeing the contents of this
+
+		switch (practice) {
+		case ProcState::available_practices::writing:
+		{
+			//NOTE: writing itself has many different practices
+			practice_writing_word* data = (decltype(data))malloc(sizeof(data));//TODO(fran): practice_writing page will take care of freeing this once the page completes its practice
+			data->word = std::move(practice_word);
+
+			practice_writing_word::type practice_types[]{
+				practice_writing_word::type::translate_hiragana_to_translation,
+				practice_writing_word::type::translate_translation_to_hiragana,
+				practice_writing_word::type::translate_kanji_to_hiragana,
+				practice_writing_word::type::translate_kanji_to_translation,
+			};
+
+			data->practice_type = practice_types[random_between(0, ARRAYSIZE(practice_types) - 1)];
+			res.page = ProcState::page::practice_writing;
+			res.data = data;
+		} break;
+		default: Assert(0);
+		}
 		return res;
 	}
 
@@ -1383,6 +1529,19 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				case ProcState::page::practice:
 				{
 					auto& page = state->controls.practice;
+					if (child == page.list.button_start) {
+						
+						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
+						if (word_cnt > 0) {
+							store_previous_page(state, state->current_page);//TODO(fran): any time the user presses the back button while on a practice they'll be prompted to confirm and then sent to the main practice page
+							//TODO(fran): randomly select the type of practice (eg hiragana to translation, etc) and retrieve the first candidate word
+							state->practice_cnt = 0;//reset the practice counter
+							practice_data practice = prepare_practice(state);//get a random practice
+							preload_page(state, practice.page, practice.data);//load the practice
+							set_current_page(state, practice.page);//go practice!
+						}
+						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
+					}
 				} break;
 				case ProcState::page::search:
 				{

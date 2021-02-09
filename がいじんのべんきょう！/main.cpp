@@ -116,6 +116,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     create_unCap_bmps(circle);
     create_unCap_bmps(bin);
     create_unCap_bmps(arrowLine_left);
+    create_unCap_bmps(arrowSimple_right);
 
     defer{ for (auto& bmp : unCap_bmps.all) if(bmp){ DeleteObject(bmp); bmp = NULL; } };
 

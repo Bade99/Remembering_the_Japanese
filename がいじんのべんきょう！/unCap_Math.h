@@ -55,6 +55,12 @@ static i32 clamp(i32 min, i32 n, i32 max) { //clamps between [min,max]
 	return res;
 }
 
+static i32 random_between(i32 min, i32 max) {
+	//TODO(fran): better random function
+	i32 res = min + (i32)( ((f64)rand() / (f64)RAND_MAX) * (f64)(max - min) );
+	return res;
+}
+
 //f32
 static f32 safe_ratioN(f32 dividend, f32 divisor, f32 n) {
 	f32 res;
