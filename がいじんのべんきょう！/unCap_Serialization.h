@@ -51,19 +51,27 @@
 
 //NOTE: I'm using str because of the ease of use around the macros, but actually every separator-like macro MUST be only 1 character long, not all functions were made with more than 1 character in mind, though most are
 
-extern i32 n_tabs;//TODO(fran): use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering
+//extern i32 n_tabs;//TODO(fran): use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering
 
-#define _BeginSerialize() n_tabs=0
-#define _BeginDeserialize() n_tabs=0
-#define _AddTab() n_tabs++
-#define _RemoveTab() n_tabs--
+static i32 n_tabs(i32 v = INT32_MAX) {
+	static i32 n_tabs=0;
+	if (v != INT32_MAX) {
+		n_tabs = v;
+	}
+	return n_tabs;
+}
+
+#define _BeginSerialize() n_tabs(0)
+#define _BeginDeserialize() n_tabs(0)
+#define _AddTab() n_tabs(n_tabs()+1)
+#define _RemoveTab() n_tabs(n_tabs()-1)
 #define _keyvaluesepartor str(L"=")
 #define _structbegin str(L"{")
 #define _structend str(L"}")
 #define _memberseparator str(L",")
 #define _newline str(L"\n")
 #define _tab L'\t'
-#define _tabs str(n_tabs,_tab)
+#define _tabs str(n_tabs(),_tab)
 
 //We use the Reflection standard
 #define _serialize_member(type,name,...) + _tabs + str(L#name) + _keyvaluesepartor + userial::serialize(name) + _newline /*TODO:find a way to remove this last +*/

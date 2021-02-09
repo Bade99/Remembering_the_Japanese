@@ -1423,7 +1423,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::available_practices::writing:
 		{
 			//NOTE: writing itself has many different practices
-			practice_writing_word* data = (decltype(data))malloc(sizeof(data));//TODO(fran): practice_writing page will take care of freeing this once the page completes its practice
+			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): practice_writing page will take care of freeing this once the page completes its practice
 			data->word = std::move(practice_word);
 
 			practice_writing_word::type practice_types[]{
