@@ -7,30 +7,48 @@
 #include "unCap_Reflection.h"
 
 //--------------------------------------------------------
-//Defines serialization and deserialization for every type (preferably ones not expected to change, for complex structs we have "Reflection for serialization")
+//Defines serialization and deserialization for every type
+//You can add your own complex structs via "reflection" or manually, preferably ones not expected to change
 //--------------------------------------------------------
 
-//struct nc{
-//	str serialize() {...}
+//There are 4 steps to serialization, explained easier by example:
+
+//struct Example {
+
+//1. Declare and generate your members
+
+//#define foreach_Example_member(op) \
+//		op(RECT, rc,200,200,600,800 ) \
+//		op(int, a ) \
+//		op(float, b, 4.f ) \
 //
-//	bool deserialize(str name, const str& content) {...}
-//	}
+//	foreach_Example_member(_generate_member); //adds all the members to your struct
 //
-//	namespace userial {
-//		str serialize(nc var) {
-//			return var.serialize();
-//		}
-//		bool deserialize(nc& var, str name, const str& content) {
-//			return var.deserialize(name, content);
-//		}
-//	}
+//	char* text; //you can still add members like usual though this ones wont be serialized
+//
+
+//2. Generate the serialization and deserialization functions
+
+//	_generate_default_struct_serialize(foreach_Example_member); //creates serialize() function
+//
+//	_generate_default_struct_deserialize(foreach_Example_member); //creates deserialize() function
+//
+//};
+
+//3. Add your new struct to the serialization namespace
+
+//_add_struct_to_serialization_namespace(Example)
+
+//4. The only thing left is to ask for a specific object to be serialized/deserialized, currently this is done only on startup. Go to main.cpp or the equivalent file on your project, look for _deserialize_struct and _serialize_struct and do the same as what the guys already there do
+
+//INFO:
 
 //Each serialize-deserialize function pair can decide the string format of the variable, eg SIZE might be encoded "{14,15}"
 
 //If the string does not contain the proper encoding for the variable it is ignored, and nothing is modified, 
 //therefore everything is expected to be preinitialized if you want to guarantee valid values
 
-//NOTE: for complex structs inside complex structs define them separately:
+//for complex structs inside complex structs define them separately:
 //struct smth {
 //	struct orth {
 //		int a;
@@ -49,10 +67,10 @@
 //};
 
 
-//NOTE: I'm using str because of the ease of use around the macros, but actually every separator-like macro MUST be only 1 character long, not all functions were made with more than 1 character in mind, though most are
 
-//extern i32 n_tabs;//TODO(fran): use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering
+//----------------------Implementation-------------------------
 
+//TODO(fran): use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering
 static i32 n_tabs(i32 v = INT32_MAX) {
 	static i32 n_tabs=0;
 	if (v != INT32_MAX) {
@@ -72,6 +90,8 @@ static i32 n_tabs(i32 v = INT32_MAX) {
 #define _newline str(L"\n")
 #define _tab L'\t'
 #define _tabs str(n_tabs(),_tab)
+
+//IMPORTANT: I'm using str because of the ease of use around the macros, but actually every separator-like macro MUST be only 1 character long, not all functions were made with more than 1 character in mind, though most are
 
 //We use the Reflection standard
 #define _serialize_member(type,name,...) + _tabs + str(L#name) + _keyvaluesepartor + userial::serialize(name) + _newline /*TODO:find a way to remove this last +*/
