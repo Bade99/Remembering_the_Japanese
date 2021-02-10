@@ -256,11 +256,4 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 //Any of this solutions are going to be potentially slower than one I make for at least one reason, no concurrency, I only got one user editing their db at one time, so no mutex-like behaviour is needed, also I dont know whether I can make them work with utf16 instead of utf8, which incurs a translation cost, and a couple other reasons
 
-//NOTE: when the user requests us to make them remember that word we should do the same as if the word had just been created, show it after 1 day, after 3 days, etc. Also this feature should discriminate between each possible translation, say one jp word has a noun and an adjective registered, then both should work as separate entities, aka the user can ask for one specific translation to be put on the priority queue, we got a "one to many" situation
-
-
-//NOTE: as an aside this application also servers as a test so see whether any part on the compilation/execution/version control pipeline fails due to the unusual japanese characters
-
-
-//Algorithms to decide which words to show:
-//1. for each word keep a count of times shown and pick, at random from say a set of 30 down to 10, and keep count also of last_time_shown and pick at random from another set of 30 down to 5 of the least recently shown words. When the user asks explicitly for a word to be remembered we reset the shown count to 0 and maybe also set last_time_shown to the oldest possible, and do the same for words the user gets wrong on the practices. Advantages: assuming a 5 words a day workflow the user will see the new words off and on for a week, old word are guaranteed to be shown from time to time and in case the user fails at one of them it will go to the front of our priority queue, not so in the case they get it right, then it'll probably dissapear for quite a while, the obvious problem with this system is the lack of use of words that land in the middle of the two filters, we may want to maintain new words appearing for more than a week, closer to a month, one solution would be to pick 60 or 90 words
+//NOTE: as an aside this application also serves as a test so see whether any part on the compilation/execution/version control pipeline fails due to the unusual japanese characters

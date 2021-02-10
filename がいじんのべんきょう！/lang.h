@@ -38,7 +38,7 @@ struct lang_mapper { //Identifies a usable language string mapping table
 
 #define lang_entry(id,txt) lang_make_text(id) lang_key_value_separator txt lang_newline
 
-//TODO(fran): lang_日本語
+//TODO(fran): lang_日本語 and lang_にほんご (this is a teaching app so I'd guess the user wants to know the hiragana and kanji, the other idea would be the kanji always has hiragana overlayed on top but that'd probably need quite a long restructuring and redesign)
 
 constexpr static utf16 lang_english[] = L"English";
 constexpr static utf16 lang_español[] = L"Español";

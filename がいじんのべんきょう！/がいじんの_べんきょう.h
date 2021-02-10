@@ -15,7 +15,7 @@
 #include "win32_graph.h"
 
 
-//INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16, and the second one in utf8 for input and utf8 for output (output could be changed to utf16)
+//INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
 
 //TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): pressing enter on new_word page should map to the add button
@@ -34,7 +34,11 @@
 //TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
 //TODO(fran): we may actually want to add a stats page to the landing page (and make it a 2x2 grid) in order to put stuff that's in practice, like "word count" and extra things like a list of last words added
 
-//IMPORTANT INFO: datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
+//IMPORTANT INFO TODO(fran): datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
+
+#define _SQL(x) (#x)
+//IMPORTANT: careful when using this, by design it allows for macros to expand so you better not redefine sql keywords, eg microsoft defines NULL as 0 so you should write something like NuLL instead
+#define SQL(x) _SQL(x)
 
 struct べんきょうSettings {
 
@@ -55,27 +59,36 @@ _add_struct_to_serialization_namespace(べんきょうSettings)
 //This window will comprise of 4 main separate ones, as if they were in a tab control, in the sense only one will be shown at any single time, and there wont be any relationships between them
 
 constexpr char べんきょう_table_words[] = "words";
-constexpr char べんきょう_table_words_structure[] = 
+#define _べんきょう_table_words words
+#define べんきょう_table_words_structure \
+	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
+	kanji				TEXT COLLATE NOCASE,\
+	translation			TEXT NOT NuLL COLLATE NOCASE,\
+	mnemonic			TEXT,\
+	lexical_category	INTEGER,\
+	creation_date		TEXT DEFAULT CURRENT_TIMESTAMP,\
+	last_shown_date	INTEGER DEFAULT 0,\
+	times_shown		INTEGER DEFAULT 0,\
+	times_right		INTEGER DEFAULT 0\
+
+
+//NOTE: hiragana: hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
 //NOTE: user modifiable values first, application defined after
-	"hiragana			TEXT PRIMARY KEY COLLATE NOCASE," //hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
-	"kanji				TEXT COLLATE NOCASE,"
-	"translation		TEXT NOT NULL COLLATE NOCASE," //TODO(fran): this should actually be a list, so we need a separate table
-	"mnemonic			TEXT,"
-	"lexical_category	INTEGER," //noun,verb,... TODO(fran): could use an enum and reference to another table
-	/*System generated*/
-	"creation_date		TEXT DEFAULT CURRENT_TIMESTAMP," //ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
-	"last_shown_date	INTEGER DEFAULT 0," //Unix Time, used for sorting, TODO(fran): I should actually put a negative value since 0 maps to 1970 but unix time can go much further back than that
-	"times_shown		INTEGER DEFAULT 0,"
-	"times_right		INTEGER DEFAULT 0" 
+//NOTE: creation_date: sqlite dates use ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
+//NOTE: last_shown_date: in Unix Time, used for sorting, TODO(fran): I should actually put a negative value since 0 maps to 1970 but unix time can go much further back than that
+
+//TODO(fran): hiragana, kanji and translation should actually be lists
+
 ;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 //INFO: the last line cant have a "," REMEMBER to put it or take it off
 
 #define べんきょう_table_user "user" //This table will simply contain one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also that will prevent that corruption of one user affects another
+#define _べんきょう_table_user user
 #define べんきょう_table_user_structure \
-	"word_cnt			INTEGER DEFAULT 0,"\
-	"times_practiced	INTEGER DEFAULT 0,"\
-	"times_shown		INTEGER DEFAULT 0,"\
-	"times_right		INTEGER DEFAULT 0"\
+	word_cnt			INTEGER DEFAULT 0,\
+	times_practiced	INTEGER DEFAULT 0,\
+	times_shown		INTEGER DEFAULT 0,\
+	times_right		INTEGER DEFAULT 0\
 
 #define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
 
@@ -83,7 +96,7 @@ constexpr char べんきょう_table_words_structure[] =
 	"v					INTEGER"\
 //NOTE: lets keep it simple, versions are just a number, also the db wont be changing too often
 
-union user_stats {//TODO(fran): some of this stuff is easier to update via a trigger, eg word count
+struct user_stats {//TODO(fran): some of this stuff is easier to update via a trigger, eg word count
 	i64 word_cnt;			//Count for words added
 	i64 times_practiced;	//Count for completed practice runs
 	i64 times_shown;		//Count for words shown in practice runs
@@ -239,7 +252,7 @@ struct べんきょうProcState {
 		u32 cnt;
 	}previous_pages;
 
-	u32 practice_cnt;//counter for current completed practices while on a pratice run, use to stop the practice run once it gets to some threshold
+	u32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
 
 	struct {
 
@@ -251,7 +264,6 @@ struct べんきょうProcState {
 				type button_search;
 			}list; //INFO: unfortunately in order to make 'all' auto-update we need to give a name to this struct
 			type all[sizeof(list)/sizeof(type)]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
-			//static_assert(sizeof(((landingpage_controls*)0)->all) == sizeof(s), "Element count for 'all' does not match, update the number!");
 		} landingpage;
 
 		union new_word_controls {
@@ -342,7 +354,7 @@ struct べんきょうProcState {
 	struct {
 
 		struct practice_writing_state {
-			practice_writing_word practice;
+			practice_writing_word* practice;
 		}practice_writing;
 
 	} pagestate;
@@ -413,26 +425,44 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	void startup(sqlite3* db) {
 		using namespace std::string_literals;
-		std::string create_word_table = "CREATE TABLE IF NOT EXISTS "s + べんきょう_table_words + "("s + べんきょう_table_words_structure+ ") WITHOUT ROWID;"s; //INFO: the param that requests this expects utf8
-		char* create_errmsg;
-		sqlite3_exec(db, create_word_table.c_str(), 0, 0, &create_errmsg);
-		sqlite_exec_runtime_assert(create_errmsg);
+		utf8 create_word_table[] = SQL(
+			CREATE TABLE IF NOT EXISTS _べんきょう_table_words( べんきょう_table_words_structure) WITHOUT ROWID;
+		);
+		utf8* errmsg;
+		sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
 		//TODO(fran): we should also implement update table for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any bennefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
 
-		std::string create_user_table = "CREATE TABLE IF NOT EXISTS " べんきょう_table_user "(" べんきょう_table_user_structure ");"; //INFO: the param that requests this expects utf8
-		sqlite3_exec(db, create_user_table.c_str(), 0, 0, &create_errmsg);
-		sqlite_exec_runtime_assert(create_errmsg);
+		utf8 create_user_table[] = SQL(
+			CREATE TABLE IF NOT EXISTS _べんきょう_table_user(べんきょう_table_user_structure);
+		);
+		sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
 
 		if (get_table_rowcount(db, べんきょう_table_user) > 0) {
 			//The entry is already there, here we can set new values on future updates for example
 		}
 		else {
 			//Entry isnt there, create it
-			std::string insert_user = " INSERT INTO "s + べんきょう_table_user + " DEFAULT VALUES "s;
-			sqlite3_exec(db, insert_user.c_str(), 0, 0, &create_errmsg);
-			sqlite_exec_runtime_assert(create_errmsg);
+			utf8 insert_user[] = SQL(INSERT INTO _べんきょう_table_user DEFAULT VALUES;);
+			sqlite3_exec(db, insert_user, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
 
 		}
+
+		//Triggers 
+		//TODO(fran): here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean the should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
+
+		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+		utf8 create_trigger_increment_word_cnt[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
+			BEGIN
+				UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
+			END;
+		);
+		sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
 	}
 
 	void add_controls(ProcState* state) {
@@ -1021,6 +1051,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::page::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case ProcState::page::practice_writing: for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		default:Assert(0);
@@ -1296,7 +1327,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			user_stats* stats = (decltype(stats))data;
 			auto controls = state->controls.practice;
-#define PRACTICE_TEST_STATS
+//#define PRACTICE_TEST_STATS
 #ifndef PRACTICE_TEST_STATS
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
@@ -1315,6 +1346,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			//BOOL can_practice = stats->word_cnt > 0;
 			//EnableWindow(controls.list.button_start, can_practice);
 		} break;
+		case ProcState::page::practice_writing:
+		{
+			practice_writing_word* word_to_practice = (decltype(word_to_practice))data;
+			state->pagestate.practice_writing.practice = word_to_practice;//TODO(fran): free the object this points to and the word inside the object
+
+			//TODO(fran): setup control colors, text and default text, etc
+
+		} break;
+		default: Assert(0);
 		}
 	}
 
@@ -1401,6 +1441,77 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 	learnt_word get_practice_word(sqlite3* db) {
 		learnt_word res{0};
 		//TODO(fran)
+
+//Algorithms to decide which words to show:
+//Baseline:
+//1. least shown: use times_shown and pick the 30 of lowest value, then reduce that at random down to 10.
+//2. least recently shown: use last_shown_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
+//TODO(fran): When the user asks explicitly for a word to be remembered we reset the times_shown count to 0 and maybe also set last_shown_date to the oldest possible date, and do the same for words the user gets wrong on the practices.
+//Advantages: assuming a 5 words a day workflow the user will see the new words off and on for a week, old words are guaranteed to be shown from time to time and in case the user fails at one of them it will go to the front of our priority queue, not so in the case they get it right, then it'll probably dissapear for quite a while, the obvious problem with this system is the lack of use of words that land in the middle of the two filters, we may want to maintain new words appearing for more than a week, closer to a month, one solution would be to pick 60 or 90 words
+//Extra: we could allow for specific practices, for example, replacing the "note besides the bed" in the sense that the user can tells us I want to practice specifically what I added yesterday or the day I last added something new
+//Super extra: when remembering a word this feature should also discriminate between each possible translation, say one jp word has a noun and an adjective registered, then both should work as separate entities, aka the user can ask for one specific translation to be put on the priority queue, we got a "one to many" situation
+
+
+		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
+		columns.pop_back(); //We need to remove the trailing comma
+
+		//TODO(fran): we probably want to speed up this searches via adding indexes to times_shown and last_shown_date
+
+		std::string select_practice_word =
+			std::string(" SELECT ") + "*" " FROM "
+			"("
+				//1. least shown: use times_shown and pick the 30 of lowest value, then reduce that at random down to 10.
+				" SELECT " "*" " FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
+				"("
+					" SELECT "  "*" " FROM "
+						"(" + " SELECT " + columns + " FROM " + べんきょう_table_words + " ORDER BY times_shown ASC LIMIT 30" ")"
+					"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
+				")"
+				" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
+				//2. least recently shown: use last_shown_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
+				" SELECT " + "*" " FROM "
+				"("
+					" SELECT " "*" " FROM "
+						"(" + " SELECT " + columns + " FROM " + べんきょう_table_words + +" ORDER BY last_shown_date ASC LIMIT 30" + ")"
+					"ORDER BY RANDOM() LIMIT 5"
+				")"
+			")"
+			"ORDER BY RANDOM() LIMIT 1"
+		;//Now that's why sql is a piece of garbage, look at the size of that query!! for such a stupid two select + union operation, if they had given you the obvious option of storing the select on a variable, then store the other select on a variable and then union both this would be so much more readable, comprehensible and easier to write
+
+		auto parse_select_practice_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			learnt_word* res = (decltype(res))extra_param;
+			//NOTE: we should already know the order of the columns since they should all be specified in their correct order in the select
+			//NOTE: we should always get only one result
+
+			#define load_practice_word_member(type,name,...) if(results) res->attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
+			_foreach_learnt_word_member(load_practice_word_member);
+
+			return 0;
+		};
+
+		char* errmsg;
+		sqlite3_exec(db, select_practice_word.c_str(), parse_select_practice_word_result, &res, &errmsg);
+		sqlite_exec_runtime_check(errmsg);
+
+		return res;
+	}
+
+	bool has_hiragana(const learnt_word* word) {
+		bool res;
+		res = word && word->attributes.hiragana.str && *((utf16*)word->attributes.hiragana.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+		return res;
+	}
+
+	bool has_translation(const learnt_word* word) {
+		bool res;
+		res = word && word->attributes.translation.str && *((utf16*)word->attributes.translation.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+		return res;
+	}
+
+	bool has_kanji(const learnt_word* word) {
+		bool res;
+		res = word && word->attributes.kanji.str && *((utf16*)word->attributes.kanji.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
 		return res;
 	}
 
@@ -1423,17 +1534,17 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::available_practices::writing:
 		{
 			//NOTE: writing itself has many different practices
-			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): practice_writing page will take care of freeing this once the page completes its practice
+			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): MEMLEAK practice_writing page will take care of freeing this once the page completes its practice
 			data->word = std::move(practice_word);
 
-			practice_writing_word::type practice_types[]{
-				practice_writing_word::type::translate_hiragana_to_translation,
-				practice_writing_word::type::translate_translation_to_hiragana,
-				practice_writing_word::type::translate_kanji_to_hiragana,
-				practice_writing_word::type::translate_kanji_to_translation,
-			};
+			std::vector<practice_writing_word::type> practice_types;
+			bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
+			practice_types.push_back(practice_writing_word::type::translate_hiragana_to_translation);//we always add a default to make sure there can never be no items
+			if (hiragana && translation) practice_types.push_back(practice_writing_word::type::translate_translation_to_hiragana);
+			if (hiragana && kanji) practice_types.push_back(practice_writing_word::type::translate_kanji_to_hiragana);
+			if (kanji && translation) practice_types.push_back(practice_writing_word::type::translate_kanji_to_translation);
 
-			data->practice_type = practice_types[random_between(0, ARRAYSIZE(practice_types) - 1)];
+			data->practice_type = practice_types[random_between(0, (i32)(practice_types.size() - 1))];
 			res.page = ProcState::page::practice_writing;
 			res.data = data;
 		} break;
@@ -1533,11 +1644,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						
 						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
 						if (word_cnt > 0) {
-							store_previous_page(state, state->current_page);//TODO(fran): any time the user presses the back button while on a practice they'll be prompted to confirm and then sent to the main practice page
-							//TODO(fran): randomly select the type of practice (eg hiragana to translation, etc) and retrieve the first candidate word
-							state->practice_cnt = 0;//reset the practice counter
+							constexpr int practice_cnt = 15;
+							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 							practice_data practice = prepare_practice(state);//get a random practice
 							preload_page(state, practice.page, practice.data);//load the practice
+							store_previous_page(state, state->current_page);//TODO(fran): any time the user presses the back button while on a practice they'll be prompted to confirm and then sent to the main practice page
 							set_current_page(state, practice.page);//go practice!
 						}
 						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
