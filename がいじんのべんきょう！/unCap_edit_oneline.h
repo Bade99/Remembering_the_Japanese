@@ -1178,6 +1178,23 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 	{
 		return DefWindowProc(hwnd, msg, wparam, lparam);
 	} break;
+	case WM_PARENTNOTIFY: //Msgs from our potential childs
+	{
+		return 0;//what the childs do is completely opaque to us
+	} break;
+	case WM_COMMAND:
+	{
+		LRESULT res;
+		HWND child = (HWND)lparam;
+		if (child) {//Notifs from our childs
+			//NOTE: for now childs are completely opaque, we simply work as "pasamanos", TODO(fran): we shouldnt have to do this, what we need is some sort of observer, aka something happens and the control can send the msg directly to a place where it'll be answered, having this parent child relationships is not enough, for example in cases like this were there are lots of things that can be appended to edit controls, searchbar, button, scrollbar, ...
+			res = SendMessage(state->parent, WM_COMMAND, wparam, lparam);
+		}
+		else {//otherwise it's a notif from an accelerator or menu
+			Assert(0);
+		}
+		return res;
+	} break;
 	default:
 	{
 

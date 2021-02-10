@@ -353,6 +353,19 @@ struct べんきょうProcState {
 
 	struct {
 
+		//TODO(fran): we need to make the practices also have a type, in order to put them all in the same vector and be able to make a full review afterwards
+		struct practice_review_state {
+			struct practice_data {
+				enum class practice_type {
+					writing,
+					multiplechoice,
+				} type;
+				void* data;
+			};
+
+			std::vector<practice_data> practices;
+		}practice_review;
+
 		struct practice_writing_state {
 			practice_writing_word* practice;
 		}practice_writing;
@@ -597,7 +610,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			controls.list.button_delete = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP | BS_BITMAP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			UNCAPBTN_set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			UNCAPBTN_set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.bin);
 			//TODO(fran): use an img of a trash can for this one, so it's smaller and square and we can put it to the side of the modify button which is the important one and should remain centered
 
@@ -655,19 +668,19 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			auto& controls = state->controls.practice_writing;
 
-			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, unCap_colors.ControlBk, 0, 0, unCap_colors.ControlBk_Disabled, 0);
 			//NOTE: text color will be set according to the type of word being shown
 
-			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, 0, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
-			controls.list.button_next = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			UNCAPBTN_set_brushes(controls.list.button_next, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			controls.list.button_next = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP | BS_BITMAP
+				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
+			UNCAPBTN_set_brushes(controls.list.button_next, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.arrowSimple_right);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -683,6 +696,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		int h_pad = (int)((float)h * .05f);
 		
 #define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
+#define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
 
 #define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
 
@@ -921,19 +935,21 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			edit_answer.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_answer, WM_GETFONT, 0, 0), 20).cx);
 			edit_answer.x = (w - edit_answer.w) / 2;
 
-			rect_i32 button_next;
-			button_next.h = edit_answer.h;
-			button_next.w = button_next.h;
-			button_next.y = edit_answer.y;
-			button_next.x = edit_answer.right() - button_next.w;
+			rect_i32 button_next;//child inside edit_answer
+			button_next.y = 1; //we want the button to be inside the edit control so we gotta make it a little smaller to avoid covering the border //TODO(fran): we should ask the parent for its border size
+			button_next.h = edit_answer.h - 2;
+			button_next.w = min(button_next.h, edit_answer.w);
+			button_next.x = edit_answer.w - button_next.w - 1;
 
-			rect_i32 bottom_most_control = button_next;
+			//button_next.y += 40;//HACK: I just want to see the button first, then I can try to put it above the edit control
+
+			rect_i32 bottom_most_control = edit_answer;
 
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 			_MyMoveWindow2(controls.list.static_test_word, static_test_word, FALSE);
 			_MyMoveWindow2(controls.list.edit_answer, edit_answer, FALSE);
-			_MyMoveWindow2(controls.list.button_next, button_next, FALSE);
+			MyMoveWindow(controls.list.button_next, button_next, FALSE);
 
 		} break;
 		case ProcState::page::search: 
@@ -1038,6 +1054,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			_MyMoveWindow(controls.list.button_delete, btn_delete, FALSE);
 
 		} break;
+		default:Assert(0);
 		}
 	}
 
@@ -1333,6 +1350,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
 			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
 			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
+			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
 #else
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
@@ -1348,12 +1366,63 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		} break;
 		case ProcState::page::practice_writing:
 		{
-			practice_writing_word* word_to_practice = (decltype(word_to_practice))data;
-			state->pagestate.practice_writing.practice = word_to_practice;//TODO(fran): free the object this points to and the word inside the object
+			practice_writing_word* practice = (decltype(practice))data;
+			auto controls = state->controls.practice_writing;
+			//store data for future proof checking
+			state->pagestate.practice_writing.practice = practice;//TODO(fran): free the object this points to and the word inside the object
+
+			utf16* test_word{0};//NOTE: compiler cant know that these guys will always be initialized so I gotta zero them
+			HBRUSH test_word_br{0};
+			str answer_placeholder;//NOTE: using string so the object doesnt get destroyed inside the switch statement
+			HBRUSH answer_br{0};
+
+			str answer_hiragana = str(L"こたえ");
+
+			switch (practice->practice_type) {
+			case decltype(practice->practice_type)::translate_hiragana_to_translation:
+			{
+				test_word = (utf16*)practice->word.attributes.hiragana.str;
+				test_word_br = unCap_colors.hiragana;
+				//TODO(fran): idk if I should put "translation" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
+				answer_placeholder = RS(380);
+				answer_br = unCap_colors.translation;
+			} break;
+			case decltype(practice->practice_type)::translate_kanji_to_hiragana:
+			{
+				test_word = (utf16*)practice->word.attributes.kanji.str;
+				test_word_br = unCap_colors.kanji;
+
+				answer_placeholder = answer_hiragana;
+				answer_br = unCap_colors.hiragana;
+			} break;
+			case decltype(practice->practice_type)::translate_kanji_to_translation:
+			{
+				test_word = (utf16*)practice->word.attributes.kanji.str;
+				test_word_br = unCap_colors.kanji;
+
+				answer_placeholder = RS(380);
+				answer_br = unCap_colors.translation;
+			} break;
+			case decltype(practice->practice_type)::translate_translation_to_hiragana:
+			{
+				test_word = (utf16*)practice->word.attributes.translation.str;
+				test_word_br = unCap_colors.translation;
+
+				answer_placeholder = answer_hiragana;
+				answer_br = unCap_colors.hiragana;
+			} break;
+			default:Assert(0);
+			}
 
 			//TODO(fran): setup control colors, text and default text, etc
+			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
+			static_oneline::set_brushes(controls.list.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
+			
+			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, answer_br, 0, 0, 0, 0, 0);
+			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 
 		} break;
+		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
 		default: Assert(0);
 		}
 	}
@@ -1796,12 +1865,24 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						}
 }
 				} break;
+				case ProcState::page::practice_writing:
+				{
+					auto& page = state->controls.practice_writing;
+					auto& pagestate = state->pagestate.practice_writing;
+					if (child == page.list.button_next) {
+						switch (pagestate.practice->practice_type) {
+							//TODO(fran): check if the answer was correct
+						default:Assert(0);
+						}
+					}
+					//TODO(fran): the user can also press enter on the edit control
+				} break;
 
 				}
 			}
 			else {
 				switch (LOWORD(wparam)) {//Menu notifications
-
+				default:Assert(0);
 				}
 			}
 			return 0;
