@@ -1622,6 +1622,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return res;
 	}
 
+	void init_cpp_objects(ProcState* state) {
+		state->pagestate.practice_review.practices = decltype(state->pagestate.practice_review.practices)();
+		//NOTE: since I know from the start the number of practices I could also allocate and array, but there's really no point, simpler is this since it's not at all performance critical code
+	}
+
+	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
@@ -1634,6 +1641,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			st->wnd = hwnd;
 			st->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
 			st->current_page = ProcState::page::landing;
+			init_cpp_objects(st);
 			set_state(hwnd, st);//TODO(fran): now I wonder why I append everything with the name of the wnd when I can simply use function overloading, even for get_state since all my functions do the same I can simple have one
 			startup(st->settings->db);
 			return TRUE;
