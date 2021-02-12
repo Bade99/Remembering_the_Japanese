@@ -167,17 +167,10 @@ static f64 distance(f64 a, f64 b) {
 }
 
 //Rectangle
-struct rect_i32 {
-	union {
-		i32 top;
-		i32 y;
-	};
-	union {
-		i32 left;
-		i32 x;
-	};
-	i32 w;
-	i32 h;
+union rect_i32 {
+	struct { i32 x, y, w, h; };
+	struct { i32 left, top, w, h; };
+	struct { v2_i32 xy, wh; };
 
 	i32 right() { return left + w; }
 	i32 bottom() { return top + h; }

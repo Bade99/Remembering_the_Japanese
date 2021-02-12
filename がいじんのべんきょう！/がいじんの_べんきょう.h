@@ -334,6 +334,15 @@ struct べんきょうProcState {
 			type all[sizeof(list) / sizeof(type)];
 		} search;
 
+		union review_practice_controls {
+			using type = HWND;
+			struct {
+				type static_review;
+				type gridview_practices;
+			}list;
+			type all[sizeof(list) / sizeof(type)];
+		}review_practice;
+
 		union show_word_controls {
 			using type = HWND;
 			struct {

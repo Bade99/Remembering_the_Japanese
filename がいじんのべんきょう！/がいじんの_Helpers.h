@@ -286,8 +286,10 @@ static RECT rect1pxB(RECT r) {
 #define BORDERTOP		(1<<2)
 #define BORDERRIGHT		(1<<3)
 #define BORDERBOTTOM	(1<<4)
+#define BORDERALL		(BORDERLEFT|BORDERTOP|BORDERRIGHT|BORDERBOTTOM)
 //NOTE: borders dont get centered, if you choose 5 it'll go 5 into the rc. TODO(fran): centered borders
 static void FillRectBorder(HDC dc, RECT r, int thickness, HBRUSH br, int borders) {
+	//TODO(fran): why the hell did I put thickness before br, FillRect has the br first!
 	RECT borderrc;
 	if (borders & BORDERLEFT) { borderrc = rectNpxL(r, thickness); FillRect(dc, &borderrc, br); }
 	if (borders & BORDERTOP) { borderrc = rectNpxT(r, thickness); FillRect(dc, &borderrc, br); }
