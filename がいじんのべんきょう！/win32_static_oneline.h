@@ -161,6 +161,7 @@ namespace static_oneline {
 
 			//TODO(fran): render bk and border, flicker free
 
+			//TODO(fran): this should call urender::draw_text_max_coverage()
 #ifdef UNCAP_GDIPLUS
 			{
 				Gdiplus::Graphics graphics(dc);
@@ -176,7 +177,7 @@ namespace static_oneline {
 				if (state->font.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
 
 				f32 fontsize;
-				if (style & SO_AUTOFONTSIZE) fontsize = (f32)h;
+				if (style & SO_AUTOFONTSIZE) fontsize = urender::appropiate_font_h(state->txt, {w,h}, &graphics, &fontFamily, FontStyle_flags, Gdiplus::UnitPixel);
 				else fontsize = (f32)abs(state->font.lfHeight);//TODO(fran): this isnt correct, this are device units https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta
 				//TODO(fran): use this guy to make sure our fontsize fits horizontally too
 				//graphics.MeasureString(state->txt.str, (INT)(state->txt.sz_char() - 1),...);

@@ -6,15 +6,24 @@
 #include "unCap_Math.h"
 #include <vector>
 
+//------------------"API"------------------:
+//gridview::set_brushes() to set the background and border brushes
+//gridview::set_dimensions() to set all values related to element placement and size
+//gridview::set_elements() to remove existing elements and add new ones
+//gridview::add_elements() to add new elements without removing existing ones
+//gridview::set_render_function() to set the function used for rendering an element
+
 //NOTE: elements' position and sizing is calculated on resize, no calculation of such sort must ever happen on wm_paint
 //NOTE: we will implement scrolling, though I'd really like for a scrollbar to not exist, simply scrolling via scrollbar
 //NOTE: we will not at this stage support moving items, the grid is fixed, one advantage of this is that we could pre render the entire view and when the time comes for scrolling we simply offset the y position of that pre-rendered image
 
-//TODO(fran): User seteable: border_pad.cy , element_dim , inbetween_pad
+//TODO(fran): we could add styles for left alignment and right alignment, apart from the defualt centering
+
+//TODO(fran): add debug_render_elementoutlines so the user can make sure they're drawing inside the required square, the function will draw a red square around the rectangle of each element
 
 namespace gridview {
-	//TODO(fran): we should probably add a user_extra, a single user setteable value, in our case for example I'd put the HWND so I can get_state() and check for things like a font or color
-	typedef void(*gridview_func_renderelement)(HDC dc,rect_i32 r,void* user_data);//NOTE: RECT is stupid better rect_i32
+	//TODO(fran): we should probably add a user_extra and function ::set_user_extra(), a single user setteable value, in our case for example I'd put the HWND so I can get_state() and check for things like a font or color
+	typedef void(*gridview_func_renderelement)(HDC dc,rect_i32 r,void* element);//NOTE: RECT is stupid better rect_i32
 
 	struct ProcState {
 		HWND wnd;
@@ -37,10 +46,11 @@ namespace gridview {
 		std::vector<void*> elements;
 		std::vector<rect_i32> element_placements;
 
-		f32 scroll_percentage;//[0,1]
+		f32 scroll_y;//[0,1]
 	};
+	//NOTE: User seteable: border_pad.cy , element_dim , inbetween_pad
 
-	constexpr cstr wndclass[] = L"unCap_wndclass_static_oneline";
+	constexpr cstr wndclass[] = L"unCap_wndclass_gridview";
 
 
 	ProcState* get_state(HWND wnd) {
@@ -52,23 +62,11 @@ namespace gridview {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
-		ProcState* state = get_state(wnd);
-		if (state) {
-			if (bk)state->brushes.bk = bk;
-			if (border)state->brushes.border = border;
-			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-			if (border_disabled)state->brushes.border_dis = border_disabled;
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
-		}
-	}
-
 	//NOTE: "sz" should be the already precalculated size to cover all the render elements, and maxing out in its w component by the size of the window rectangle (since we allow vertical but not horizontal scrolling)
 	void resize_backbuffer(ProcState* state, SIZE sz) {
 		RECT rc; GetClientRect(state->wnd, &rc);
 		state->backbuffer_dim = { max(sz.cx, RECTW(rc)), max(sz.cy, RECTH(rc)) };
-		HDC dc; GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
 		if (state->backbuffer) DeleteBitmap(state->backbuffer);
 		state->backbuffer = CreateCompatibleBitmap(dc, state->backbuffer_dim.cx, state->backbuffer_dim.cy);
 	}
@@ -78,13 +76,22 @@ namespace gridview {
 		RECT rc; GetClientRect(state->wnd, &rc);
 		int w = max(state->element_dim.cx, RECTW(rc));//NOTE: make w at least be able to hold one element
 		//NOTE: we dont care bout height, we can go as low as we want and simply allow scrolling
-		
-		int elems_per_row = w /state->element_dim.cx;//NOTE: and then you floor() the result, but since this are integers and always positive the division already performs flooring
+		int elems_per_row = min((int)state->elements.size(), safe_ratio1(w,state->element_dim.cx));//NOTE: and then you floor() the result, but since this are integers and always positive the division already performs flooring
+		//NOTE: I use safe_ratio1 instead of the correct safe_ratio0 just to avoid having other divisions fail as well, since the loop inst gonna run this values are meaningless anyway
+
+		//Correction factor for elems_per_row
+		{
+			for (int i=0;i<10 /*safeguard*/;i++) {
+				int pad_cnt = elems_per_row - 1; //TODO(fran): check what happens when there's only one elem per row
+				if ((elems_per_row * state->element_dim.cx + pad_cnt * state->inbetween_pad.cx) <= w) break;
+				else elems_per_row--;
+			}
+		}
 
 		//NOTE: elements are centered with relation to the wnd
-		state->border_pad.cx = (w - elems_per_row * state->element_dim.cx)/2;//border for left and right
+		state->border_pad.cx = (w - (elems_per_row * state->element_dim.cx + (elems_per_row - 1) * state->inbetween_pad.cx))/2;//border for left and right
 
-		int row_cnt = ceilf((f32)state->elements.size() / (f32)elems_per_row);
+		int row_cnt = (int)ceilf((f32)state->elements.size() / (f32)elems_per_row);
 
 		//TODO(fran): perfect centering for the last row, which will most probably have less elements
 		size_t elem_cnt = state->elements.size();
@@ -104,36 +111,125 @@ namespace gridview {
 		res.cx = w;//we always cover the entire width
 		//TODO(fran): not sure if I can replace this with elem_rc
 		if (!state->element_placements.empty()) 
-			res.cy = state->element_placements.back().y /*last elem y*/ + state->border_pad.cy /* plus a little give so it doesnt feel so cramped*/;
+			res.cy = state->element_placements.back().bottom() /*last elem y*/ + state->border_pad.cy /* plus a little give so it doesnt feel so cramped*/;
+		return res;
 	}
 
 	void render_backbuffer(ProcState* state) {
-		HDC __front_dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,__front_dc); };
-		HDC backbuffer_dc = CreateCompatibleDC(__front_dc); defer{ DeleteDC(backbuffer_dc); }; //TODO(fran): we may want to create a dc on WM_NCCREATE and avoid having to recreate it every single time
-		auto oldbmp = SelectBitmap(backbuffer_dc, state->backbuffer); defer{ SelectBitmap(backbuffer_dc,oldbmp); };
+		if (state->backbuffer) {
+			HDC __front_dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,__front_dc); };
+			HDC backbuffer_dc = CreateCompatibleDC(__front_dc); defer{ DeleteDC(backbuffer_dc); }; //TODO(fran): we may want to create a dc on WM_NCCREATE and avoid having to recreate it every single time
+			auto oldbmp = SelectBitmap(backbuffer_dc, state->backbuffer); defer{ SelectBitmap(backbuffer_dc,oldbmp); };
 
-		RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
-		bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
+			RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
+			bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
 
-		//Paint the background
-		HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
-		FillRect(backbuffer_dc, &backbuffer_rc, bk_br);
-		//Paint the border
-		//TODO(fran): we should allow the user to specify border thickness
-		int border_thickness = 1;
-		HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_dis;
-		FillRectBorder(backbuffer_dc, backbuffer_rc, border_thickness, border_br, BORDERALL);
+			//Paint the background
+			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
+			FillRect(backbuffer_dc, &backbuffer_rc, bk_br);
+			//Paint the border
+			//TODO(fran): we should allow the user to specify border thickness
+			int border_thickness = 1;
+			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_dis;
+			FillRectBorder(backbuffer_dc, backbuffer_rc, border_thickness, border_br, BORDERALL);
 
-		//Render the elements
-		if (state->render_element) {
-			Assert(state->element_placements.size() == state->elements.size());
-			for (size_t i = 0; i < state->element_placements.size(); i++)
-				//TODO(fran): we could apply a transform so the user can render as if from {0,0} and we simply send a SIZE obj and they dont have to bother with offsetting by left and top
-				state->render_element(backbuffer_dc, state->element_placements[i], state->elements[i]);
+			//Render the elements
+			if (state->render_element) {
+				Assert(state->element_placements.size() == state->elements.size());
+				for (size_t i = 0; i < state->element_placements.size(); i++)
+					//TODO(fran): we could apply a transform so the user can render as if from {0,0} and we simply send a SIZE obj and they dont have to bother with offsetting by left and top
+					state->render_element(backbuffer_dc, state->element_placements[i], state->elements[i]);
+			}
 		}
 	}
 
-	//TODO(fran): do add_elements as a batch operation, add_elements(void* elems, size_t cnt), that way we avoid pointless recalculation if we did it one by one, same for set_dimensions(border_pad.cy , element_dim , inbetween_pad) we could pre-set them to int max for checking what wants to be changed
+	void full_backbuffer_redo(ProcState* state) {
+		SIZE sz = calc_element_placements(state);
+		resize_backbuffer(state, sz);
+		render_backbuffer(state);
+	}
+
+	//NOTE: since c++ default values for functions is very limited we have to do this for multiple params
+	struct element_dimensions {
+		int border_pad_y = INT32_MAX;
+		SIZE element_dim = { INT32_MAX,INT32_MAX };
+		SIZE inbetween_pad = { INT32_MAX,INT32_MAX };
+		//element_dimensions() : border_pad_y(INT32_MAX), element_dim{ INT32_MAX, INT32_MAX }, inbetween_pad{ INT32_MAX,INT32_MAX } {};
+		element_dimensions& set_border_pad_y(int x) { border_pad_y = x; return *this; }
+		element_dimensions& set_element_dim(SIZE x) { element_dim = x; return *this; }
+		element_dimensions& set_inbetween_pad(SIZE x) { inbetween_pad = x; return *this; }
+	};
+
+	/// <param name="border_pad_y">offset from the top of the wnd from where to start placing elements</param>
+	/// <param name="element_dim">element width and heigth, all elements have the same dimensions</param>
+	/// <param name="inbetween_pad">padding between each element</param>
+	void set_dimensions(HWND wnd, element_dimensions dims) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			bool redo_backbuffer = false;
+			if (dims.border_pad_y != INT32_MAX && dims.border_pad_y != state->border_pad.cy) {
+				state->border_pad.cy = dims.border_pad_y;
+				redo_backbuffer = true;
+			}
+			if (dims.element_dim != SIZE{ INT32_MAX, INT32_MAX } && dims.element_dim != state->element_dim) {
+				state->element_dim = dims.element_dim;
+				redo_backbuffer = true;
+			}
+			if (dims.inbetween_pad != SIZE{ INT32_MAX, INT32_MAX } && dims.inbetween_pad != state->inbetween_pad) {
+				state->inbetween_pad = dims.inbetween_pad;
+				redo_backbuffer = true;
+			}
+			if (redo_backbuffer) {
+				full_backbuffer_redo(state);
+			}
+		}
+	}
+
+	//NOTE: the caller takes care of deleting the brushes, we dont do it
+	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (bk)state->brushes.bk = bk;
+			if (border)state->brushes.border = border;
+			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
+			if (border_disabled)state->brushes.border_dis = border_disabled;
+			if (repaint) {
+				render_backbuffer(state); //re-render with new colors
+				InvalidateRect(state->wnd, NULL, TRUE); //ask for WW_PAINT
+			}
+		}
+	}
+
+	//TODO(fran): do add_elements as a batch operation, add_elements(void* elems, size_t cnt), that way we avoid pointless recalculation if we did it one by one
+
+	//Removes any elements already present and sets the new ones
+	void set_elements(HWND wnd, void** values, size_t count) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->elements.clear();//delete old points
+			for (int i = 0; i < count; i++) state->elements.push_back(values[i]);
+			full_backbuffer_redo(state); //render new elements
+			InvalidateRect(state->wnd, NULL, TRUE);//ask for WW_PAINT
+		}
+	}
+
+	//Adds new elements to the list without removing already present ones
+	void add_elements(HWND wnd, void** values, size_t count) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			for (int i = 0; i < count; i++) state->elements.push_back(values + i);
+			full_backbuffer_redo(state); //render new elements
+			InvalidateRect(state->wnd, NULL, TRUE);//ask for WW_PAINT
+		}
+	}
+
+	void set_render_function(HWND wnd, gridview_func_renderelement render_func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->render_element = render_func;
+			render_backbuffer(state); //re-render with new element rendering function
+		}
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -174,9 +270,7 @@ namespace gridview {
 		case WM_SIZE: //4th
 		{
 			//TODO(fran): this same operations will need to be done on any recalculation really, changes in borders, inbetween, elem cnt can all change the size of the backbuffer
-			SIZE sz = calc_element_placements(state);
-			resize_backbuffer(state, sz);
-			render_backbuffer(state);
+			full_backbuffer_redo(state);
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOVE: //5th, This msg is received _after_ the window was moved
@@ -236,7 +330,7 @@ namespace gridview {
 			HDC dc = BeginPaint(state->wnd, &ps);
 			//TODO(fran): offset by scrollpercetage and render the pre-rendered img
 			int backbuf_x = 0;
-			int backbuf_y = state->scroll_percentage * (f32)state->backbuffer_dim.cy;
+			int backbuf_y = (int)(state->scroll_y * (f32)state->backbuffer_dim.cy);
 			Assert(state->backbuffer_dim.cx == w);
 			int backbuf_w = w;
 			int backbuf_h = h;
@@ -265,6 +359,20 @@ namespace gridview {
 			if (test_pt_rc(mouse, rw))hittest = HTCLIENT;
 
 			return hittest;
+		} break;
+		case WM_SETCURSOR://When the mouse goes over us this is 2nd msg received
+		{
+			//DefWindowProc passes this to its parent to see if it wants to change the cursor settings, we'll make a decision, setting the mouse cursor, and halting proccessing so it stays like that
+			//Sent after getting the result of WM_NCHITTEST, mouse is inside our window and mouse input is not being captured
+
+			/* https://docs.microsoft.com/en-us/windows/win32/learnwin32/setting-the-cursor-image
+				if we pass WM_SETCURSOR to DefWindowProc, the function uses the following algorithm to set the cursor image:
+				1. If the window has a parent, forward the WM_SETCURSOR message to the parent to handle.
+				2. Otherwise, if the window has a class cursor, set the cursor to the class cursor.
+				3. If there is no class cursor, set the cursor to the arrow cursor.
+			*/
+			//NOTE: I think this is good enough for now
+			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOUSEMOVE /*WM_MOUSEFIRST*/://When the mouse goes over us this is 3rd msg received
 		{

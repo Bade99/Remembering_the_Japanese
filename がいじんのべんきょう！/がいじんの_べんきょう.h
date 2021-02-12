@@ -13,7 +13,7 @@
 #include "がいじんの_score.h"
 #include "win32_static_oneline.h"
 #include "win32_graph.h"
-
+#include "win32_gridview.h"
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
 
@@ -33,6 +33,7 @@
 //TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
 //TODO(fran): we may actually want to add a stats page to the landing page (and make it a 2x2 grid) in order to put stuff that's in practice, like "word count" and extra things like a list of last words added
+//TODO(fran): on practice_writing page setfocus to the edit box
 
 //IMPORTANT INFO TODO(fran): datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -248,12 +249,13 @@ struct べんきょうProcState {
 		HBRUSH bk;
 	} brushes;
 
-	enum page { //This wnd will be managed in pages instead of launching separate windows for different tasks, like a browser
+	enum class page { //This wnd will be managed in pages instead of launching separate windows for different tasks, like a browser
 		landing,
 		new_word,
 		practice,
 		practice_writing,//you're given a word in hiragana/kanji/translation and must write the response in hiragana/kanji/translation //TODO(fran)
 		practice_multiplechoice,//TODO(fran)
+		review_practice,
 		search,
 		show_word,
 	} current_page;
@@ -371,19 +373,28 @@ struct べんきょうProcState {
 		multiplechoice,
 	};
 
+	struct practice_header {
+		enum class practice_type {
+			writing,
+			multiplechoice,
+		} type;
+	};
+	struct practice_writing {
+		practice_header header;
+		practice_writing_word* practice;
+		const utf16_str* question;//points to some element inside practice.word
+		utf16_str user_answer;
+		const utf16_str* correct_answer;//points to some element inside practice.word
+		bool answered_correctly;//precalculated value so strcmp is used only once
+	};
+
 	struct {
 
 		//TODO(fran): we need to make the practices also have a type, in order to put them all in the same vector and be able to make a full review afterwards
 		struct practice_review_state {
-			struct practice_data {
-				enum class practice_type {
-					writing,
-					multiplechoice,
-				} type;
-				void* data;
-			};
 
-			std::vector<practice_data> practices;
+			std::vector<practice_header*> practices;
+
 		}practice_review;
 
 		struct practice_writing_state {
@@ -391,6 +402,10 @@ struct べんきょうProcState {
 		}practice_writing;
 
 	} pagestate;
+
+	struct {
+		std::vector<practice_header*> temp_practices;
+	}multipage_mem;
 };
 
 namespace べんきょう { //INFO: Im trying namespaces to see if this is better than having every function with the name of the wndclass
@@ -496,6 +511,60 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
 
+	}
+
+	RECT to_rect(const rect_i32& r) {//TODO(fran): get this out of here
+		RECT res;
+		res.left = r.left;
+		res.top = r.top;
+		res.right = r.right();
+		res.bottom = r.bottom();
+		return res;
+	}
+
+	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd, void* user_extra
+	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element) {
+		ProcState::practice_header* header = (decltype(header))element;
+		//TODO(fran): actually the drawing code could be done at the end, and use the switches to get the string to render and the color of the border
+		switch (header->type) {
+		case decltype(header->type)::writing:
+		{
+			ProcState::practice_writing* data = (decltype(data))header;
+			int w = r.w, h = r.h;
+			RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+
+			//Draw border
+			HBRUSH border_br = data->answered_correctly ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
+			int thickness = 3;
+#if 0
+			FillRectBorder(dc, rc, thickness, border_br,BORDERALL);
+#elif 0
+			{
+				int roundedness = (int)ceilf(min((f32)w * .1f, (f32)h * .1f));
+				//NOTE: border == pen, bk == brush
+				HPEN border_pen = CreatePen(PS_SOLID, thickness, ColorFromBrush(border_br)); defer{ DeletePen(border_pen); };
+				HPEN oldpen = SelectPen(dc, border_pen); defer{ SelectPen(dc,oldpen); };
+				HBRUSH oldbr = SelectBrush(dc, GetStockBrush(HOLLOW_BRUSH)); defer{ SelectBrush(dc,oldbr); };
+				RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+			}
+#else
+			u16 degrees = 20;
+			urender::FillRoundRectangle(dc, border_br, rc, degrees);
+#endif
+			InflateRect(&rc, -thickness, -thickness);
+
+			//Draw text
+			//TODO(fran): idk whether I want to show the question or what the user answered
+#if 0
+			utf16_str txt = *data->question;
+#else
+			utf16_str txt = data->user_answer;//the user will remember better what they wrote rather than what they saw
+#endif
+			urender::draw_text_max_coverage(dc, rc, txt, unCap_fonts.General, unCap_colors.ControlTxt, urender::txt_align::center);
+
+		} break;
+		default: Assert(0);
+		}
 	}
 
 	void add_controls(ProcState* state) {
@@ -702,6 +771,28 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
 			UNCAPBTN_set_brushes(controls.list.button_next, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.arrowSimple_right);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+		}
+
+		//---------------------Review practice----------------------:
+		{
+			auto& controls = state->controls.review_practice;
+
+			controls.list.static_review= CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_review, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			AWT(controls.list.static_review, 450);
+
+			controls.list.gridview_practices = CreateWindowW(gridview::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+//#define TEST_GRIDVIEW
+#ifndef TEST_GRIDVIEW
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);//TODO(fran): add border brushes
+#else
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, unCap_colors.CaptionBk, 0, unCap_colors.CaptionBk_Inactive, 0);
+#endif
+			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -972,6 +1063,38 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			MyMoveWindow(controls.list.button_next, button_next, FALSE);
 
 		} break;
+		case ProcState::page::review_practice:
+		{
+			auto& controls = state->controls.review_practice;
+
+			int wnd_h = 30;
+			int bigwnd_h = wnd_h * 3;
+			int max_w = w - w_pad * 2;
+			int start_y = 0;
+
+			rect_i32 static_review;
+			static_review.y = start_y;
+			static_review.h = wnd_h*2;
+			static_review.w = max_w;
+			static_review.x = (w - static_review.w) / 2;
+
+			rect_i32 gridview_practices;
+			gridview_practices.y = static_review.bottom() + h_pad;
+			gridview_practices.h = h - gridview_practices.y - h_pad;//extends to the bottom of the window, TODO(fran): we may not want that
+			gridview_practices.w = w - w_pad * 2;//extends from side to side //TODO(fran): we may not want that
+			gridview_practices.x = (w - gridview_practices.w) / 2;
+			SIZE gridview_sz; gridview_sz.cx = bigwnd_h; gridview_sz.cy = gridview_sz.cx;
+
+			rect_i32 bottom_most_control = gridview_practices;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			_MyMoveWindow2(controls.list.static_review, static_review, FALSE);
+			gridview::set_dimensions(controls.list.gridview_practices, gridview::element_dimensions().set_element_dim(gridview_sz).set_inbetween_pad({5,5}).set_border_pad_y(3));
+			_MyMoveWindow2(controls.list.gridview_practices, gridview_practices, FALSE);
+
+		} break;
 		case ProcState::page::search: 
 		{
 			auto& controls = state->controls.search;
@@ -1091,6 +1214,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case ProcState::page::practice_writing: for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case ProcState::page::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		default:Assert(0);
 		}
 	}
@@ -1443,6 +1567,18 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 
 		} break;
+		case ProcState::page::review_practice:
+		{
+			std::vector<ProcState::practice_header*>* practices = (decltype(practices))data;
+			auto controls = state->controls.review_practice;
+
+			state->pagestate.practice_review.practices = std::move(*practices);
+			size_t practices_cnt = state->pagestate.practice_review.practices.size(); Assert(practices_cnt != 0);
+			void** practices_data = (void**)malloc(sizeof(void*) * practices_cnt); defer{ free(practices_data); };
+			for (size_t i = 0; i < practices_cnt; i++) practices_data[i] = state->pagestate.practice_review.practices[i];
+			gridview::set_elements(controls.list.gridview_practices, practices_data, practices_cnt);
+
+		} break;
 		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
 		default: Assert(0);
 		}
@@ -1650,8 +1786,6 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
 
-	//TODO(fran): when setting up the practice_... page make sure to settext to null
-
 	//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it chages the color of the edit box
 
 
@@ -1692,10 +1826,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			set_current_page(state, practice.page);//go practice!
 		}
 		else {
-			Assert(0);
-			//TODO(fran)
-			//preload_page(state, ProcState::page::review_practice,state-> whatever we need to store all the practices);
-			//set_current_page(state, ProcState::page::review_practice);
+			preload_page(state, ProcState::page::review_practice,&state->multipage_mem.temp_practices);
+			set_current_page(state, ProcState::page::review_practice);
 		}
 	}
 
@@ -1954,33 +2086,61 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					auto& pagestate = state->pagestate.practice_writing;
 					WORD notif = HIWORD(wparam);
 					if (child == page.list.button_next || (child == page.list.edit_answer && notif == EN_ENTER)) {
-						const utf16_str* correct_answer{0};
-						switch (pagestate.practice->practice_type) {
-						case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
-						case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
-						{
-							correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
-						} break;
-						case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
-						case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
-						{
-							correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
-						} break;
-						default:Assert(0);
-						}
 						utf16_str user_answer; _get_edit_str(page.list.edit_answer, user_answer);
+						if (user_answer.sz_char() != 1) {
+							const utf16_str* correct_answer{ 0 };
+							const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
+							switch (pagestate.practice->practice_type) {
+							case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
+							{
+								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
+								question = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+							} break;
+							case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
+							{
+								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
+								question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
+							} break;
+							case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
+							{
+								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+								question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
 
-						bool success = !StrCmpIW(correct_answer->str, user_answer.str);
+							} break;
+							case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
+							{
+								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+								question = (utf16_str*)&pagestate.practice->word.attributes.translation;
+							} break;
+							default:Assert(0);
+							}
 
-						//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
-						HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
-						EDITONELINE_set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
-						UNCAPBTN_set_brushes(page.list.button_next, TRUE, bk,bk,unCap_colors.ControlTxt, 0, 0);
+							bool success = !StrCmpIW(correct_answer->str, user_answer.str);
 
-						//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
+							//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
+							HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
+							EDITONELINE_set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
+							UNCAPBTN_set_brushes(page.list.button_next, TRUE, bk, bk, unCap_colors.ControlTxt, 0, 0);
 
-						next_practice_level(state);
-						
+							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
+
+							//Add this practice to the list of current completed ones
+							ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));//TODO(fran): free once there's a new review
+							p->header.type = decltype(p->header.type)::writing;
+							p->practice = state->pagestate.practice_writing.practice;
+							state->pagestate.practice_writing.practice = nullptr;//clear the pointer just in case
+							p->user_answer = user_answer;
+							p->correct_answer = correct_answer;
+							p->answered_correctly = success;
+							p->question = question;
+
+							state->multipage_mem.temp_practices.push_back((ProcState::practice_header*)p);
+
+							next_practice_level(state);
+						}
+						else {
+							free_any_str(user_answer.str);
+						}
 					}
 				} break;
 

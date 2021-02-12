@@ -379,6 +379,17 @@ bool operator!=(POINT p1, POINT p2) {
 	return res;
 }
 
+//----------------------SIZE-----------------------:
+bool operator==(SIZE s1, SIZE s2) {
+	bool res = s1.cx == s2.cx && s1.cy == s2.cy;
+	return res;
+}
+
+bool operator!=(SIZE s1, SIZE s2) {
+	bool res = !(s1 == s2);
+	return res;
+}
+
 //----------------------HBRUSH-----------------------:
 
 static COLORREF ColorFromBrush(HBRUSH br) {

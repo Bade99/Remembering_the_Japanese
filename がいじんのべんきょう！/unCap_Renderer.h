@@ -697,8 +697,114 @@ namespace urender {
 		//TODO(fran): try with different bk colors and with a draw_bitmap function that uses AlphaBlend()
 	}
 
+	f32 appropiate_font_h(utf16_str txt,SIZE rc_sz, Gdiplus::Graphics* graphics, Gdiplus::FontFamily* fontFamily, int FontStyle_flags,Gdiplus::Unit unit) {
+		f32 res;
+		f32 fontsize = (f32)rc_sz.cy;
+		Gdiplus::PointF p{0,0};
+		Gdiplus::RectF resulting_rc;
+		for (int i = 0; i < 10; i++) {
+			//TODO(fran): faster algorithm
+			Gdiplus::Font font(fontFamily, fontsize, FontStyle_flags, unit);
+			graphics->MeasureString(txt.str, (INT)(txt.sz_char() - 1), &font, p, &resulting_rc);
+			if ((i32)resulting_rc.Width <= rc_sz.cx && (i32)resulting_rc.Height <= rc_sz.cy) break;
+			else {
+				f32 dw = safe_ratio0((f32)rc_sz.cx, (f32)resulting_rc.Width);
+				f32 dh = safe_ratio0((f32)rc_sz.cy, (f32)resulting_rc.Height);
+				f32 d = min(dw, dh);
+				fontsize *= d;
+				//fontsize *= .9f;
+				//decrease 10 percent, not the best solution, we should probably check the diference between resulting_rc and rc_sz, another idea would be to half by two or increase by 50% depending if the resulting_rc is bigger or smaller than desired
+			}
+		}
 
+		res = fontsize;
+		return res;
+	}
 
+	enum class txt_align{center,left,right};
+	//Renders the text as big as it possibly can in the specified rectangle
+	void draw_text_max_coverage(HDC dc, const RECT& r, utf16_str txt, HFONT f, HBRUSH br, txt_align alignment) {
+		//TODO(fran): we can do this with gdi
+#ifdef UNCAP_GDIPLUS
+		int w = RECTW(r), h = RECTH(r);
+		Gdiplus::Graphics graphics(dc);
+		graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
+
+		LOGFONTW lf;
+		int getobjres = GetObject(f, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
+
+		Gdiplus::FontFamily   fontFamily(lf.lfFaceName);
+
+		int FontStyle_flags = Gdiplus::FontStyle::FontStyleRegular;
+		//TODO(fran): we need our own font renderer, from starters the font weight has a much finer control with logfont
+		if (lf.lfWeight >= FW_BOLD)FontStyle_flags |= Gdiplus::FontStyle::FontStyleBold;
+		if (lf.lfItalic)FontStyle_flags |= Gdiplus::FontStyle::FontStyleItalic;
+		if (lf.lfUnderline)FontStyle_flags |= Gdiplus::FontStyle::FontStyleUnderline;
+		if (lf.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
+
+		f32 fontsize = appropiate_font_h(txt, { w,h }, &graphics, &fontFamily, FontStyle_flags, Gdiplus::UnitPixel);
+
+		Gdiplus::Font         font(&fontFamily, fontsize, FontStyle_flags, Gdiplus::UnitPixel);
+
+		Gdiplus::StringFormat stringFormat;
+		stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);//align vertically always
+
+		Gdiplus::PointF		  pointF;
+		Gdiplus::StringAlignment str_alignment;
+		switch (alignment) {
+		case decltype(alignment)::center:
+		{
+			pointF = { (f32)r.left + (f32)w / 2.f, (f32)r.top + (f32)h / 2.f };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentCenter;
+		} break;
+		case decltype(alignment)::left:
+		{
+			pointF = { (f32)r.left, (f32)r.top + (f32)h / 2.f };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentNear;//TODO(fran): im not sure if this is it
+		} break;
+		case decltype(alignment)::right:
+		{
+			pointF = { (f32)r.right, (f32)r.top + (f32)h / 2.f };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentFar;//TODO(fran): im not sure if this is it
+		} break;
+		}
+
+		stringFormat.SetAlignment(str_alignment);
+
+		COLORREF txt_color = ColorFromBrush(br);
+		Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
+		graphics.DrawString(txt.str, (INT)(txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
+#endif
+	}
+
+	//GDI's RoundRect has no antialiasing
+	void FillRoundRectangle(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
+	{
+		Gdiplus::Graphics graphics(dc);
+
+		graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+		graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+		graphics.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br));
+		auto b = Gdiplus::SolidBrush(c);
+		Gdiplus::Rect rect(r.left,r.top,RECTW(r),RECTH(r));
+
+		Gdiplus::GraphicsPath path;
+
+		path.AddLine(rect.X + radius, rect.Y, rect.X + rect.Width - (radius * 2), rect.Y);
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y, radius * 2, radius * 2, 270, 90);
+		path.AddLine(rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - (radius * 2));
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 0, 90);
+		path.AddLine(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height, rect.X + radius, rect.Y + rect.Height);
+		path.AddArc(rect.X, rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 90, 90);
+		path.AddLine(rect.X, rect.Y + rect.Height - (radius * 2), rect.X, rect.Y + radius);
+		path.AddArc(rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+		path.CloseFigure();
+
+		graphics.FillPath(&b, &path);
+	}
 
 	static ULONG_PTR gdiplusToken;//HACK, gdi+ shouldnt need it in the first place but the devs had no idea what they were doing
 	void init() {
