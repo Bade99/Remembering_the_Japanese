@@ -55,13 +55,21 @@ static i32 clamp(i32 min, i32 n, i32 max) { //clamps between [min,max]
 	return res;
 }
 
-#include <ctime>//time()
-static i32 random_between(i32 min, i32 max) {
-	//TODO(fran): better random function
-	srand((u32)time(NULL));
-	i32 res = min + (i32)( ((f64)rand() / (f64)RAND_MAX) * (f64)(max - min) );
+#include <ctime>//time() //TODO(fran):remove
+#include <random>//TODO(fran):remove
+static i32 random_between(i32 min, i32 max) { //NOTE: random integer between user specified range [min,max]
+	i32 res;
+	static std::mt19937 generator((u32)time(NULL));
+	std::uniform_int_distribution<> distribution{ min,max };
+	res = distribution(generator);
 	return res;
 }
+//static i32 random_between(i32 min, i32 max) {
+//	//TODO(fran): better random function
+//	srand((u32)time(NULL));
+//	i32 res = min + (i32)( ((f64)rand() / (f64)RAND_MAX) * (f64)(max - min) );
+//	return res;
+//}
 
 //f32
 static f32 safe_ratioN(f32 dividend, f32 divisor, f32 n) {

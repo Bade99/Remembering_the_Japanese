@@ -13,6 +13,7 @@
 //IMPORTANT NOTE: 0x00000020L was the only style bit left unused by windows' static control
 
 //TODO(fran): draw border and bk
+//TODO(fran): we need a better font size calculation, for one it currently doesnt contemplate letters like "g" with go below the usual height and will usually get truncated
 
 namespace static_oneline {
 	struct ProcState {
@@ -298,19 +299,21 @@ namespace static_oneline {
 			//TODO(fran): we should check the text doesnt have any \n
 			BOOL res = FALSE;
 			cstr* buf = (cstr*)lparam;//null terminated
-			if (buf) {
-				size_t char_sz = cstr_len(buf);//not including null terminator
 
-				size_t char_sz_with_null = char_sz + 1;
+			cstr empty = 0;//INFO: compiler doesnt allow you to set it to L''
+			if (!buf) buf = &empty;
 
-				if (state->txt.str)free_any_str(state->txt.str);
-				state->txt = (utf16_str)alloc_any_str(char_sz_with_null * sizeof(*state->txt.str));
+			size_t char_sz = cstr_len(buf);//not including null terminator
 
-				StrCpyNW(state->txt.str, buf, (int)char_sz_with_null);
+			size_t char_sz_with_null = char_sz + 1;
 
-				res = TRUE;
-				InvalidateRect(state->wnd, NULL, TRUE);
-			}
+			if (state->txt.str)free_any_str(state->txt.str);
+			state->txt = (utf16_str)alloc_any_str(char_sz_with_null * sizeof(*state->txt.str));
+
+			StrCpyNW(state->txt.str, buf, (int)char_sz_with_null);
+
+			res = TRUE;
+			InvalidateRect(state->wnd, NULL, TRUE);
 			return res;
 		}break;
 		default:

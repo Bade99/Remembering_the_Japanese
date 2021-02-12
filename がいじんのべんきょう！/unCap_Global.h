@@ -43,6 +43,8 @@ union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 		op(HBRUSH,hiragana,CreateSolidBrush(RGB(84, 55, 93))) \
 		op(HBRUSH,kanji,CreateSolidBrush(RGB(204, 206, 205))) \
 		op(HBRUSH,translation,CreateSolidBrush(RGB(142, 79, 88))) \
+		op(HBRUSH,Bk_right_answer,CreateSolidBrush(RGB(23, 206, 44))) \
+		op(HBRUSH,Bk_wrong_answer,CreateSolidBrush(RGB(206, 23, 44))) \
 		
 		//TODO(fran): not sure which color to choose for kanji, I use black on my studies but that wont be too visible while we keep the gray bk
 

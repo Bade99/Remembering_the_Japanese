@@ -36,9 +36,15 @@
 
 //IMPORTANT INFO TODO(fran): datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
+//INFO: the hiragana aid on top of kanji is called furigana
+
+//INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
+
 #define _SQL(x) (#x)
 //IMPORTANT: careful when using this, by design it allows for macros to expand so you better not redefine sql keywords, eg microsoft defines NULL as 0 so you should write something like NuLL instead
 #define SQL(x) _SQL(x)
+
+#define TIMER_next_practice_level 0x5
 
 struct べんきょうSettings {
 
@@ -227,6 +233,11 @@ struct practice_writing_word {
 				_snwprintf((utf16*)w.attributes.lexical_category.str, sz_char, L"%d", lex_categ); \
 			}
 
+#define _clear_combo_sel(cb) SendMessageW(cb, CB_SETCURSEL, -1, 0)
+
+#define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
+
+#define _clear_edit(edit) SendMessageW(edit, WM_SETTEXT, 0, 0)
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -1366,6 +1377,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		} break;
 		case ProcState::page::practice_writing:
 		{
+			//TODO(fran): shouldnt preload_page also call clear_page?
 			practice_writing_word* practice = (decltype(practice))data;
 			auto controls = state->controls.practice_writing;
 			//store data for future proof checking
@@ -1629,6 +1641,61 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
 
+	//TODO(fran): when setting up the practice_... page make sure to settext to null
+
+	//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it chages the color of the edit box
+
+
+	void reset_page(ProcState* state, ProcState::page page) {
+		//NOTE: one solution here would be to destroy all the controls remove_controls(page) and then call add_controls(page)
+		switch (page) {
+		case decltype(page)::new_word:
+		{
+			//NOTE: the problem here is that its not enough to settext to null to everyone, that can be done fairly easily implementing some WM_RESET msg, but there are some controls that shouldnt be reset like the buttons, we'd need to implement a .reseteable() or somehow via union magic or smth that gives us only the controls that should be reset
+			auto& controls = state->controls.new_word;
+			_clear_combo_sel(controls.list.combo_lexical_category);
+			_clear_edit(controls.list.edit_hiragana);
+			_clear_edit(controls.list.edit_kanji);
+			_clear_edit(controls.list.edit_mnemonic);
+			_clear_edit(controls.list.edit_translation);
+		} break;
+		case decltype(page)::practice_writing:
+		{
+			auto& controls = state->controls.practice_writing;
+
+			_clear_static(controls.list.static_test_word);
+			_clear_edit(controls.list.edit_answer);
+			//TODO(fran): I really need to destroy the controls and call add_controls, I cant be restoring colors here when that's already done there
+		} break;
+		default:Assert(0);
+		}
+	}
+
+	void _next_practice_level(HWND hwnd, UINT /*msg*/, UINT_PTR anim_id, DWORD /*sys_elapsed*/) {
+		ProcState* state = get_state(hwnd);
+		KillTimer(state->wnd, anim_id);
+
+		state->practice_cnt--;
+		if (state->practice_cnt > 0) {
+			practice_data practice = prepare_practice(state);//get a random practice
+			reset_page(state, practice.page);
+			preload_page(state, practice.page, practice.data);//load the practice
+			set_current_page(state, practice.page);//go practice!
+		}
+		else {
+			Assert(0);
+			//TODO(fran)
+			//preload_page(state, ProcState::page::review_practice,state-> whatever we need to store all the practices);
+			//set_current_page(state, ProcState::page::review_practice);
+		}
+	}
+
+	//decreases the practice counter and loads/sets a new practice level or goes to the review page if the practice is over
+	void next_practice_level(ProcState* state, u32 ms_delay = USER_TIMER_MAXIMUM) {
+		u32 delay = ms_delay != USER_TIMER_MAXIMUM ? ms_delay : 500;
+		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
@@ -1689,6 +1756,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					auto& page = state->controls.landingpage;
 					if (child == page.list.button_new) {
 						store_previous_page(state, state->current_page);
+						reset_page(state, ProcState::page::new_word);
 						set_current_page(state, ProcState::page::new_word);
 					}
 					else if (child == page.list.button_practice) {
@@ -1721,12 +1789,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						
 						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
 						if (word_cnt > 0) {
-							constexpr int practice_cnt = 15;
+							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
 							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
-							practice_data practice = prepare_practice(state);//get a random practice
-							preload_page(state, practice.page, practice.data);//load the practice
-							store_previous_page(state, state->current_page);//TODO(fran): any time the user presses the back button while on a practice they'll be prompted to confirm and then sent to the main practice page
-							set_current_page(state, practice.page);//go practice!
+							store_previous_page(state, state->current_page);
+							next_practice_level(state, USER_TIMER_MINIMUM);
 						}
 						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
 					}
@@ -1877,13 +1943,36 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				{
 					auto& page = state->controls.practice_writing;
 					auto& pagestate = state->pagestate.practice_writing;
-					if (child == page.list.button_next) {
+					WORD notif = HIWORD(wparam);
+					if (child == page.list.button_next || (child == page.list.edit_answer && notif == EN_ENTER)) {
+						const utf16_str* correct_answer{0};
 						switch (pagestate.practice->practice_type) {
-							//TODO(fran): check if the answer was correct
+						case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
+						case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
+						{
+							correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
+						} break;
+						case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
+						case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
+						{
+							correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+						} break;
 						default:Assert(0);
 						}
+						utf16_str user_answer; _get_edit_str(page.list.edit_answer, user_answer);
+
+						bool success = !StrCmpIW(correct_answer->str, user_answer.str);
+
+						//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
+						HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
+						EDITONELINE_set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
+						UNCAPBTN_set_brushes(page.list.button_next, TRUE, bk,bk,unCap_colors.ControlTxt, 0, 0);
+
+						//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
+
+						next_practice_level(state);
+						
 					}
-					//TODO(fran): the user can also press enter on the edit control
 				} break;
 
 				}
@@ -2036,6 +2125,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case WM_INPUTLANGCHANGE:
 		{
 			return 1;
+		} break;
+		case WM_KEYUP://HACK: because of using Sleep some msgs seem to go to the wrong place
+		{
+			return 0;
 		} break;
 		default:
 #ifdef _DEBUG

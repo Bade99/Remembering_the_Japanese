@@ -389,7 +389,7 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 		if (creation_nfo->style & ES_CENTER) {
 			//NOTE: ES_CENTER needs the pad to be recalculated all the time
 
-			st->char_pad_x = abs(creation_nfo->cx / 2);//HACK
+			st->char_pad_x = abs(creation_nfo->cx / 2);//HACK //TODO(fran): this should be calculated on resize since the first size of the wnd is probably not the one that's gonna be used
 		}
 		else {//we are either left or right
 			st->char_pad_x = 3;
@@ -435,6 +435,14 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 	} break;
 	case WM_SIZE: {//4th, strange, I though this was sent only if you didnt handle windowposchanging (or a similar one)
 		//NOTE: neat, here you resize your render target, if I had one or cared to resize windows' https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-size
+		//This msg is received _after_ the window was resized
+		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+
+		if (style & ES_CENTER && state->char_text.empty()) {//When the control is empty it's possible for the pad to not be set correctly since no msgs update it, I've seen this happen only on startup
+			RECT rc; GetClientRect(state->wnd, &rc);
+			state->char_pad_x = RECTW(rc) / 2;
+		}
+
 		return DefWindowProc(hwnd, msg, wparam, lparam);
 	} break;
 	case WM_MOVE: //5th. Sent on startup after WM_SIZE, although possibly sent by DefWindowProc after I let it process WM_SIZE, not sure
@@ -948,7 +956,7 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 				state->caret.pos = EDITONELINE_calc_caret_p(state);
 				SetCaretPos(state->caret.pos);
 
-				wprintf(L"%s\n", state->char_text.c_str());
+				//wprintf(L"%s\n", state->char_text.c_str());
 				en_change = true;
 			}
 
@@ -1005,27 +1013,30 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 
 		BOOL res = FALSE;
 		cstr* buf = (cstr*)lparam;//null terminated
-		if (buf) {
-			size_t char_sz = cstr_len(buf);//not including null terminator
-			if (char_sz <= (size_t)state->char_max_sz) {
-				state->char_text = buf;
+		cstr empty = 0;//INFO: compiler doesnt allow you to set it to L''
+		if (!buf) buf = &empty; //NOTE: this is the standard default behaviour
+		size_t char_sz = cstr_len(buf);//not including null terminator
+		if (char_sz <= (size_t)state->char_max_sz) {
+			state->char_text = buf;
 
-				for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x + i, EDITONELINE_calc_char_dim(state, buf[i]).cx);
-				state->char_cur_sel.x = (int)char_sz;
+			state->char_dims.clear();//Reset dims since we now have new text
+			state->char_cur_sel = { 0,0 };//Reset cursor
 
-				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-				if (style & ES_CENTER) {
-					//Recalc pad_x
-					RECT rc; GetClientRect(state->wnd, &rc);
-					state->char_pad_x = (RECTWIDTH(rc) - EDITONELINE_calc_text_dim(state).cx) / 2;
+			for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x + i, EDITONELINE_calc_char_dim(state, buf[i]).cx);
+			state->char_cur_sel.x = (int)char_sz;
 
-				}
-				state->caret.pos = EDITONELINE_calc_caret_p(state);
-				SetCaretPos(state->caret.pos);
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			if (style & ES_CENTER) {
+				//Recalc pad_x
+				RECT rc; GetClientRect(state->wnd, &rc);
+				state->char_pad_x = (RECTWIDTH(rc) - EDITONELINE_calc_text_dim(state).cx) / 2;
 
-				res = TRUE;
-				InvalidateRect(state->wnd, NULL, TRUE);
 			}
+			state->caret.pos = EDITONELINE_calc_caret_p(state);
+			SetCaretPos(state->caret.pos);
+
+			res = TRUE;
+			InvalidateRect(state->wnd, NULL, TRUE);
 		}
 		en_change = res;
 		if (en_change) EDITONELINE_notify_parent(state, EN_CHANGE); //There was a change in the text
