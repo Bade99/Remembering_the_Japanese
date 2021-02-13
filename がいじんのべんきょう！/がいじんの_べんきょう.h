@@ -34,6 +34,9 @@
 //TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
 //TODO(fran): we may actually want to add a stats page to the landing page (and make it a 2x2 grid) in order to put stuff that's in practice, like "word count" and extra things like a list of last words added
 //TODO(fran): on practice_writing page setfocus to the edit box
+//TODO(fran): I should precalculate the entire array of practice leves from the start, that way I avoid duplicates
+//TODO(fran): can I automatically change the keyboard when I need the user to type in japanese?
+//TODO(fran): chrome style IME, the text is written directly on the control while you write
 
 //IMPORTANT INFO TODO(fran): datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
 
@@ -42,7 +45,9 @@
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
 
 #define _SQL(x) (#x)
-//IMPORTANT: careful when using this, by design it allows for macros to expand so you better not redefine sql keywords, eg microsoft defines NULL as 0 so you should write something like NuLL instead
+//IMPORTANT: careful when using this, by design it allows for macros to expand so you better not redefine sql keywords, eg microsoft defines NULL as 0 so you should write something like NuLL instead, same for DELETE use smth like DeLETE
+//IMPORTANT: do not use "," instead use comma
+#define comma ,
 #define SQL(x) _SQL(x)
 
 #define TIMER_next_practice_level 0x5
@@ -67,6 +72,7 @@ _add_struct_to_serialization_namespace(べんきょうSettings)
 
 constexpr char べんきょう_table_words[] = "words";
 #define _べんきょう_table_words words
+#define __べんきょう_table_words "words"
 #define べんきょう_table_words_structure \
 	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
@@ -92,10 +98,12 @@ constexpr char べんきょう_table_words[] = "words";
 #define べんきょう_table_user "user" //This table will simply contain one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also that will prevent that corruption of one user affects another
 #define _べんきょう_table_user user
 #define べんきょう_table_user_structure \
-	word_cnt			INTEGER DEFAULT 0,\
+	word_cnt		INTEGER DEFAULT 0,\
 	times_practiced	INTEGER DEFAULT 0,\
 	times_shown		INTEGER DEFAULT 0,\
 	times_right		INTEGER DEFAULT 0\
+
+//NOTE: the columns 'word_cnt', 'times_shown', 'times_right' of the "user" table are automatically calculated via triggers
 
 #define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
 
@@ -341,6 +349,7 @@ struct べんきょうProcState {
 			struct {
 				type static_review;
 				type gridview_practices;
+				type button_continue;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		}review_practice;
@@ -433,7 +442,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	i64 get_table_rowcount(sqlite3* db, std::string table) {
 		i64 res;
-		std::string count = "SELECT COUNT(*) FROM " + table;
+		std::string count = "SELECT COUNT(*) FROM " + table + ";";
 		sqlite3_stmt* stmt;
 		int errcode;
 		errcode = sqlite3_prepare_v2(db, count.c_str(), (int)((count.length() + 1) * sizeof(decltype(count)::value_type)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
@@ -451,11 +460,13 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 	user_stats get_user_stats(sqlite3* db) {
 		user_stats res;
-		std::string stats = " SELECT " " word_cnt, times_practiced, times_shown, times_right " " FROM " べんきょう_table_user;
+		utf8 stats[] = SQL(
+			SELECT word_cnt comma times_practiced comma times_shown comma times_right FROM _べんきょう_table_user;
+		);
 
 		sqlite3_stmt* stmt;
 		int errcode;
-		errcode = sqlite3_prepare_v2(db, stats.c_str(), (int)((stats.length() + 1) * sizeof(decltype(stats)::value_type)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
+		errcode = sqlite3_prepare_v2(db, stats, (int)(ARRAYSIZE(stats)) * sizeof(decltype(*stats)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
 		sqliteok_runtime_assert(errcode, db);
 
 		errcode = sqlite3_step(stmt);
@@ -472,7 +483,6 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 	}
 
 	void startup(sqlite3* db) {
-		using namespace std::string_literals;
 		utf8 create_word_table[] = SQL(
 			CREATE TABLE IF NOT EXISTS _べんきょう_table_words( べんきょう_table_words_structure) WITHOUT ROWID;
 		);
@@ -492,7 +502,9 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 		else {
 			//Entry isnt there, create it
-			utf8 insert_user[] = SQL(INSERT INTO _べんきょう_table_user DEFAULT VALUES;);
+			utf8 insert_user[] = SQL(
+				INSERT INTO _べんきょう_table_user DEFAULT VALUES;
+			);
 			sqlite3_exec(db, insert_user, 0, 0, &errmsg);
 			sqlite_exec_runtime_assert(errmsg);
 
@@ -509,6 +521,38 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			END;
 		);
 		sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
+		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+		utf8 create_trigger_decrement_word_cnt[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
+			BEGIN
+				UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
+			END;
+		);
+		sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
+		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+		utf8 create_trigger_increment_times_shown[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS increment_times_shown
+			AFTER UPDATE OF times_shown ON _べんきょう_table_words
+			BEGIN
+				UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
+			END;
+		);
+		sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
+		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+		utf8 create_trigger_increment_times_right[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS increment_times_right
+			AFTER UPDATE OF times_right ON _べんきょう_table_words
+			BEGIN
+			UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
+		END;
+		);
+		sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
 
 	}
@@ -549,6 +593,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			}
 #else
 			u16 degrees = 20;
+			//TODO(fran): I dont quite love how this looks
 			urender::FillRoundRectangle(dc, border_br, rc, degrees);
 #endif
 			InflateRect(&rc, -thickness, -thickness);
@@ -793,6 +838,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			gridview::set_brushes(controls.list.gridview_practices, TRUE, unCap_colors.CaptionBk, 0, unCap_colors.CaptionBk_Inactive, 0);
 #endif
 			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
+
+			controls.list.button_continue = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_continue, 451);
+			UNCAPBTN_set_brushes(controls.list.button_continue, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -1080,19 +1130,48 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			rect_i32 gridview_practices;
 			gridview_practices.y = static_review.bottom() + h_pad;
-			gridview_practices.h = h - gridview_practices.y - h_pad;//extends to the bottom of the window, TODO(fran): we may not want that
-			gridview_practices.w = w - w_pad * 2;//extends from side to side //TODO(fran): we may not want that
-			gridview_practices.x = (w - gridview_practices.w) / 2;
-			SIZE gridview_sz; gridview_sz.cx = bigwnd_h; gridview_sz.cy = gridview_sz.cx;
 
-			rect_i32 bottom_most_control = gridview_practices;
+			gridview::element_dimensions gridview_practices_dims;
+			gridview_practices_dims.border_pad_y = 3;
+			gridview_practices_dims.inbetween_pad = { 5,5 };
+			gridview_practices_dims.element_dim = { bigwnd_h,bigwnd_h };
+			gridview::set_dimensions(controls.list.gridview_practices, gridview_practices_dims);
+
+			SIZE gridview_practices_wh;
+			{
+				//TODO(fran): this is the worst code I've written in quite a while, this and the gridview code that was needed need a revision
+				const size_t elems_per_row = 5;
+				size_t curr_elem_cnt = gridview::get_elem_cnt(controls.list.gridview_practices);
+				i32 full_w = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, curr_elem_cnt, elems_per_row).cx;
+
+				i32 real_w = min(w - w_pad * 2, full_w);
+
+				i32 max_h = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, elems_per_row*4, elems_per_row).cy;//4 rows
+
+				i32 full_h = gridview::get_dim_for_elemcnt_w(controls.list.gridview_practices,curr_elem_cnt, real_w).cy;
+
+				//SIZE full_dim = gridview::get_dim_for(controls.list.gridview_practices, row_cnt, elems_per_row);
+				gridview_practices_wh = { real_w,min(full_h,max_h)};
+			}
+
+			gridview_practices.h = gridview_practices_wh.cy;//TODO(fran): should get smaller if the controls below it cant fit, as small as to only allow 1 row to be visible
+			gridview_practices.w = gridview_practices_wh.cx;
+			gridview_practices.x = (w - gridview_practices.w) / 2;
+
+			rect_i32 button_continue;
+			button_continue.h = wnd_h;
+			button_continue.w = 70;
+			button_continue.x = (w - button_continue.w) / 2;
+			button_continue.y = gridview_practices.bottom() + h_pad;
+
+			rect_i32 bottom_most_control = button_continue;
 
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
 			_MyMoveWindow2(controls.list.static_review, static_review, FALSE);
-			gridview::set_dimensions(controls.list.gridview_practices, gridview::element_dimensions().set_element_dim(gridview_sz).set_inbetween_pad({5,5}).set_border_pad_y(3));
 			_MyMoveWindow2(controls.list.gridview_practices, gridview_practices, FALSE);
+			_MyMoveWindow2(controls.list.button_continue, button_continue, FALSE);
 
 		} break;
 		case ProcState::page::search: 
@@ -1224,6 +1303,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		state->current_page = new_page;
 		resize_controls(state);
 		show_page(state, state->current_page,SW_SHOW);
+
+		switch (new_page) {
+		case decltype(new_page)::practice_writing:
+		{
+			//TODO(fran): idk where to put this, I'd put it in preload but preload doesnt guarantee we're switching pages, even though it's mostly true currently
+			auto& controls = state->controls.practice_writing;
+			//SetFocus(controls.list.edit_answer);//TODO(fran): problem is now we cant see in which lang we have to write, we have two options, either give the edit control an extra flag of show placeholder even if cursor is visible; option 2 setfocus to us (main wnd) wait for the user to press something, redirect the msg to the edit box and setfocus. INFO: wanikani shows the placeholder and the caret at the same time, lets do that
+		} break;
+		}
 	}
 
 	void goto_previous_page(ProcState* state) {
@@ -1684,25 +1772,25 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		//TODO(fran): we probably want to speed up this searches via adding indexes to times_shown and last_shown_date
 
 		std::string select_practice_word =
-			std::string(" SELECT ") + "*" " FROM "
+			" SELECT * FROM "
 			"("
 				//1. least shown: use times_shown and pick the 30 of lowest value, then reduce that at random down to 10.
-				" SELECT " "*" " FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
+				" SELECT * FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
 				"("
-					" SELECT "  "*" " FROM "
-						"(" + " SELECT " + columns + " FROM " + べんきょう_table_words + " ORDER BY times_shown ASC LIMIT 30" ")"
+					" SELECT * FROM "
+						"(" " SELECT " + columns + " FROM " __べんきょう_table_words " ORDER BY times_shown ASC LIMIT 30" ")"
 					"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
 				")"
 				" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
 				//2. least recently shown: use last_shown_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
-				" SELECT " + "*" " FROM "
+				" SELECT * FROM "
 				"("
-					" SELECT " "*" " FROM "
-						"(" + " SELECT " + columns + " FROM " + べんきょう_table_words + +" ORDER BY last_shown_date ASC LIMIT 30" + ")"
+					" SELECT * FROM "
+						"(" " SELECT " + columns + " FROM " __べんきょう_table_words " ORDER BY last_shown_date ASC LIMIT 30"  ")"
 					"ORDER BY RANDOM() LIMIT 5"
 				")"
 			")"
-			"ORDER BY RANDOM() LIMIT 1"
+			"ORDER BY RANDOM() LIMIT 1;"
 		;//Now that's why sql is a piece of garbage, look at the size of that query!! for such a stupid two select + union operation, if they had given you the obvious option of storing the select on a variable, then store the other select on a variable and then union both this would be so much more readable, comprehensible and easier to write
 
 		auto parse_select_practice_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -1814,6 +1902,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		}
 	}
 
+	void user_stats_increment_times_practiced(sqlite3* db) {
+		utf8 update_increment_times_practiced[] = SQL(
+			UPDATE _べんきょう_table_user SET times_practiced = times_practiced + 1;
+		);
+		utf8* errmsg;
+		sqlite3_exec(db, update_increment_times_practiced, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+	}
+
 	void _next_practice_level(HWND hwnd, UINT /*msg*/, UINT_PTR anim_id, DWORD /*sys_elapsed*/) {
 		ProcState* state = get_state(hwnd);
 		KillTimer(state->wnd, anim_id);
@@ -1826,6 +1923,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			set_current_page(state, practice.page);//go practice!
 		}
 		else {
+			//TODO(fran): increase the practice counter on the db
+			user_stats_increment_times_practiced(state->settings->db);
 			preload_page(state, ProcState::page::review_practice,&state->multipage_mem.temp_practices);
 			set_current_page(state, ProcState::page::review_practice);
 		}
@@ -1836,6 +1935,50 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		u32 delay = ms_delay != USER_TIMER_MAXIMUM ? ms_delay : 500;
 		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
 	}
+
+	//NOTE word should be in utf16
+	void word_update_last_shown_date(sqlite3* db,const learnt_word& word) {
+		using namespace std::string_literals;
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+
+		std::string update_last_shown_date = SQL(
+			UPDATE _べんきょう_table_words SET last_shown_date = CURRENT_TIMESTAMP WHERE hiragana =
+		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+
+		utf8* errmsg;
+		sqlite3_exec(db, update_last_shown_date.c_str(), 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+	}
+
+	//NOTE word should be in utf16
+	void word_increment_times_shown(sqlite3* db, const learnt_word& word) {
+		using namespace std::string_literals;
+		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+
+		std::string increment_times_shown = SQL(
+			UPDATE _べんきょう_table_words SET times_shown = times_shown + 1 WHERE hiragana =
+		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+
+		utf8* errmsg;
+		sqlite3_exec(db, increment_times_shown.c_str(), 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+	}
+
+	void word_increment_times_right(sqlite3* db, const learnt_word& word) {
+		using namespace std::string_literals;
+		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+
+		std::string increment_times_right = SQL(
+			UPDATE _べんきょう_table_words SET times_right = times_right + 1 WHERE hiragana =
+		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+
+		utf8* errmsg;
+		sqlite3_exec(db, increment_times_right.c_str(), 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+	}
+
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -1930,7 +2073,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						
 						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
 						if (word_cnt > 0) {
+#define TEST_REVIEWPAGE
+#ifndef TEST_REVIEWPAGE
 							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
+#else
+							constexpr int practice_cnt = 2 + 1;
+#endif
 							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 							store_previous_page(state, state->current_page);
 							next_practice_level(state, USER_TIMER_MINIMUM);
@@ -2124,6 +2272,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
 
+							//Update word stats
+							//TODO(fran): if we knew had the old values in the word object we could simply update those and batch update the whole word
+							word_update_last_shown_date(state->settings->db,pagestate.practice->word);
+							word_increment_times_shown(state->settings->db,pagestate.practice->word);
+							if(success) word_increment_times_right(state->settings->db,pagestate.practice->word);
+
 							//Add this practice to the list of current completed ones
 							ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));//TODO(fran): free once there's a new review
 							p->header.type = decltype(p->header.type)::writing;
@@ -2136,10 +2290,34 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 							state->multipage_mem.temp_practices.push_back((ProcState::practice_header*)p);
 
+							//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
+
 							next_practice_level(state);
 						}
 						else {
 							free_any_str(user_answer.str);
+						}
+					}
+				} break;
+				case ProcState::page::review_practice:
+				{
+					auto& page = state->controls.review_practice;
+					if (child == page.list.button_continue) {
+						store_previous_page(state, state->current_page);
+						user_stats stats = get_user_stats(state->settings->db);
+						preload_page(state, ProcState::page::practice, &stats);
+						set_current_page(state, ProcState::page::practice);
+					} 
+					else if (child == page.list.gridview_practices) {
+						//The user clicked an element
+						void* data = (void*)wparam;
+						ProcState::practice_header* header = (decltype(header))data;
+						switch (header->type) {
+						case decltype(header->type)::writing:
+						{
+							ProcState::practice_writing* pagedata;
+							//TODO(fran): set up and switch pages
+						} break;
 						}
 					}
 				} break;
@@ -2233,6 +2411,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		case WM_BACK:
 		{
 			goto_previous_page(state);
+			//TODO(fran): going back is a bit of a problem, eg the user finishes a practice and presses back, then they'll see outdated values, we could live with that saying well yeah you went back, or we could do preloading, for specific pages or have a flag that says for each page if it needs preloading
 			return 0;
 		} break;
 		case WM_PAINT:
@@ -2295,10 +2474,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			return 1;
 		} break;
-		case WM_KEYUP://HACK: because of using Sleep some msgs seem to go to the wrong place
-		{
-			return 0;
-		} break;
+		//case WM_KEYUP://HACK: because of using Sleep some msgs seem to go to the wrong place
+		//{
+		//	return 0;
+		//} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);

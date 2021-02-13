@@ -46,6 +46,7 @@ struct any_str {
 	void* str;
 	size_t sz;/*bytes*/
 	operator utf16_str() const { return{ (utf16*)str,sz }; }//TODO(fran): this is terrible, this cast should be free
+	operator utf8_str() const { return{ (utf8*)str,sz }; }//TODO(fran): this is terrible, this cast should be free
 };
 //NOTE: we want only one allocation and dealocation strategy that makes sense for the current project, in this case strings arent expected to ever be too large, therefore malloc and free is good enough
 static any_str alloc_any_str(size_t sz) {

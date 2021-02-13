@@ -166,19 +166,6 @@ static f64 distance(f64 a, f64 b) {
 	return abs(a - b);
 }
 
-//Rectangle
-union rect_i32 {
-	struct { i32 x, y, w, h; };
-	struct { i32 left, top, w, h; };
-	struct { v2_i32 xy, wh; };
-
-	i32 right() const { return left + w; }
-	i32 bottom() const { return top + h; }
-	i32 center_x() const { return left + w / 2; }
-	i32 center_y() const { return top + h / 2; }
-};
-
-
 //size_t
 static size_t distance(size_t a, size_t b) {
 	size_t res;

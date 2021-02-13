@@ -780,6 +780,8 @@ namespace urender {
 	//GDI's RoundRect has no antialiasing
 	void FillRoundRectangle(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
 	{
+		//thanks http://codewee.com/view.php?idx=60
+		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
 		Gdiplus::Graphics graphics(dc);
 
 		graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);

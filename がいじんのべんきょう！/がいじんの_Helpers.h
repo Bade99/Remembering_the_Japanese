@@ -229,6 +229,31 @@ static f64 EndCounter(i64 CounterStart, f64 PCFreq = GetPCFrequency())
 	return double(li.QuadPart - CounterStart) / PCFreq;
 }
 
+//----------------------RECT_i32-----------------------:
+#include "unCap_Vector.h"
+union rect_i32 {
+	struct { i32 x, y, w, h; };
+	struct { i32 left, top, w, h; };
+	struct { v2_i32 xy, wh; };
+
+	i32 right() const { return left + w; }
+	i32 bottom() const { return top + h; }
+	i32 center_x() const { return left + w / 2; }
+	i32 center_y() const { return top + h / 2; }
+};
+
+static bool test_pt_rc(POINT p, const rect_i32& r) {
+	bool res = false;
+	if (p.y >= r.top &&//top
+		p.y < r.bottom() &&//bottom
+		p.x >= r.left &&//left
+		p.x < r.right())//right
+	{
+		res = true;
+	}
+	return res;
+}
+
 //----------------------RECT-----------------------:
 
 #define RECTWIDTH(r) (r.right >= r.left ? r.right - r.left : r.left - r.right )
@@ -308,6 +333,8 @@ static bool test_pt_rc(POINT p, RECT r) {
 	}
 	return res;
 }
+
+
 
 static bool rcs_overlap(RECT r1, RECT r2) {
 	bool res = (r1.left < r2.right&& r1.right > r2.left && r1.top < r2.bottom&& r1.bottom > r2.top);

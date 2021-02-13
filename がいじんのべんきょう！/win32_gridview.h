@@ -9,9 +9,16 @@
 //------------------"API"------------------:
 //gridview::set_brushes() to set the background and border brushes
 //gridview::set_dimensions() to set all values related to element placement and size
+//gridview::get_dimensions()
 //gridview::set_elements() to remove existing elements and add new ones
 //gridview::add_elements() to add new elements without removing existing ones
 //gridview::set_render_function() to set the function used for rendering an element
+//gridview::get_row_cnt() get the current number of rows necessary to display all the elements
+//gridview::get_dim_for_...() calculates the required dimensions of the wnd based on different parameters
+//gridview::get_elem_cnt() current number of elements
+
+//--------------Extra Messages-------------:
+//Sends WM_COMMAND to the parent when the user clicks an element wparam=void* (elem data); lparam=HWND (ctrl wnd)
 
 //NOTE: elements' position and sizing is calculated on resize, no calculation of such sort must ever happen on wm_paint
 //NOTE: we will implement scrolling, though I'd really like for a scrollbar to not exist, simply scrolling via scrollbar
@@ -42,6 +49,8 @@ namespace gridview {
 		SIZE inbetween_pad;//in between two elements
 
 		SIZE element_dim;//NOTE: all elements are of the same size
+
+		size_t row_cnt;//value requesteable by the user
 
 		std::vector<void*> elements;
 		std::vector<rect_i32> element_placements;
@@ -93,6 +102,8 @@ namespace gridview {
 
 		int row_cnt = (int)ceilf((f32)state->elements.size() / (f32)elems_per_row);
 
+		state->row_cnt = row_cnt;
+
 		//TODO(fran): perfect centering for the last row, which will most probably have less elements
 		size_t elem_cnt = state->elements.size();
 		state->element_placements.clear();
@@ -127,11 +138,8 @@ namespace gridview {
 			//Paint the background
 			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
 			FillRect(backbuffer_dc, &backbuffer_rc, bk_br);
-			//Paint the border
-			//TODO(fran): we should allow the user to specify border thickness
-			int border_thickness = 1;
-			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_dis;
-			FillRectBorder(backbuffer_dc, backbuffer_rc, border_thickness, border_br, BORDERALL);
+
+			//NOTE: do _not_ paint the border here, since it should fit the real size of the wnd
 
 			//Render the elements
 			if (state->render_element) {
@@ -183,6 +191,67 @@ namespace gridview {
 				full_backbuffer_redo(state);
 			}
 		}
+	}
+
+	size_t get_row_cnt(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		size_t res;
+		if (state) {
+			res = state->row_cnt;
+		}
+		return res;
+	}
+
+	element_dimensions get_dimensions(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		element_dimensions res{0};
+		if (state) {
+			res.border_pad_y = state->border_pad.cy;
+			res.element_dim = state->element_dim;
+			res.inbetween_pad = state->inbetween_pad;
+		}
+		return res;
+	}
+
+	SIZE get_dim_for_elemcnt_elemperrow(HWND wnd, size_t elem_cnt, size_t elems_per_row) {
+		SIZE res{0};
+		ProcState* state = get_state(wnd);
+		if (state) {
+			i32 rows = (i32)ceilf((f32)elem_cnt / (f32)elems_per_row);
+			res.cx = (i32)elems_per_row * state->element_dim.cx + (i32)(elems_per_row - 1) * state->inbetween_pad.cx + 2 * max(3,state->border_pad.cx)/*HACK*/;
+			res.cy = rows * state->element_dim.cy + (rows - 1) * state->inbetween_pad.cy + 2 * state->border_pad.cy;
+		}
+		return res;
+	}
+
+	SIZE get_dim_for_elemcnt_w(HWND wnd, size_t elem_cnt, size_t w) {
+		SIZE res{ 0 };
+		ProcState* state = get_state(wnd);
+		if (state) {
+			int elems_per_row = min((int)elem_cnt, safe_ratio1((i32)w, state->element_dim.cx));
+			//Correction factor for elems_per_row
+			{
+				for (int i = 0; i < 10 /*safeguard*/; i++) {
+					int pad_cnt = elems_per_row - 1;
+					if ((elems_per_row * state->element_dim.cx + pad_cnt * state->inbetween_pad.cx) <= w) break;
+					else elems_per_row--;
+				}
+			}
+			i32 border_padx = ((i32)w - (elems_per_row * state->element_dim.cx + (elems_per_row - 1) * state->inbetween_pad.cx)) / 2;
+
+			i32 row_cnt = (i32)ceilf((f32)elem_cnt / (f32)elems_per_row);
+
+			res.cx = elems_per_row * state->element_dim.cx + (elems_per_row - 1) * state->inbetween_pad.cx + 2 * max(3, border_padx)/*HACK*/;
+			res.cy = row_cnt * state->element_dim.cy + (row_cnt - 1) * state->inbetween_pad.cy + 2 * state->border_pad.cy;
+		}
+		return res;
+	}
+
+	size_t get_elem_cnt(HWND wnd) {
+		size_t res = 0;
+		ProcState* state = get_state(wnd);
+		if (state) res = state->elements.size();
+		return res;
 	}
 
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
@@ -340,6 +409,14 @@ namespace gridview {
 			auto oldbmp = SelectBitmap(backbuffer_dc, state->backbuffer); defer{ SelectBitmap(backbuffer_dc,oldbmp); };
 
 			BitBlt(dc, 0, 0, w, h, backbuffer_dc, backbuf_x, backbuf_y, SRCCOPY);
+
+			//Paint the border
+			//TODO(fran): we should allow the user to specify border thickness
+			bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
+			int border_thickness = 1;
+			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_dis;
+			FillRectBorder(dc, rc, border_thickness, border_br, BORDERALL);
+
 			EndPaint(hwnd, &ps);
 			return 0;
 		} break;
@@ -357,6 +434,8 @@ namespace gridview {
 
 			// Determine if the point is inside the window
 			if (test_pt_rc(mouse, rw))hittest = HTCLIENT;
+
+			//TODO(fran): maybe we should change the mouse arrow to the hand when the user hovers on top of an element
 
 			return hittest;
 		} break;
@@ -392,7 +471,16 @@ namespace gridview {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
-			//TODO(fran): here we'll use our precalculated data to find out which element the user drew and notify the parent, or even better we could add a msg WM_NOTIFYTO and allow the user to chose whoever they want notified
+			//TODO(fran): here we'll use our precalculated data to find out which element the user pressed and notify the parent, or even better we could add a msg WM_NOTIFYTO and allow the user to chose whoever they want notified
+
+			//TODO(fran): take into account scrolling
+			for (int i = 0; i < state->element_placements.size(); i++) {
+				if (test_pt_rc(mouse, state->element_placements[i])) {
+					SendMessage(state->parent, WM_COMMAND, (WPARAM)state->elements[i], (LPARAM)state->wnd);//TODO(fran): PostMessage?
+					//TODO(fran): there's no good win32 msg that is a notif that allows you to sent some extra info, you got WM_COMMAND, WM_NOTIFY and WM_PARENTNOTIFY each with its limitations, we may want to make our own msg that could work for all controls
+				}
+			}
+
 			return 0;
 		} break;
 		case WM_LBUTTONUP:

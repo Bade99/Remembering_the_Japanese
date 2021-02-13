@@ -98,6 +98,7 @@ constexpr static utf16 lang_english_entries[] =
 
 
 	lang_entry(450,"Review")
+	lang_entry(451,"Continue")
 ;
 
 constexpr static utf16 lang_español_entries[] =
