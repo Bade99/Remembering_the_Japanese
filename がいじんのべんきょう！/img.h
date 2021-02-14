@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "がいじんの_Platform.h"
+#include "win32_Platform.h"
 
 //INFO: ways of embedding additional files at compile time http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p1040r6.html
 

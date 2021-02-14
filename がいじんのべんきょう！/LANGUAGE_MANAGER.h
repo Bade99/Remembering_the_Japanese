@@ -1,9 +1,9 @@
 ﻿#pragma once
 #include "windows_sdk.h"
-#include "がいじんの_Platform.h"
+#include "win32_Platform.h"
 #include <map>
 #include <vector>
-#include "がいじんの_Helpers.h"
+#include "win32_Helpers.h"
 #include "unCap_Reflection.h"
 #include "unCap_Serialization.h"
 #include "lang.h"

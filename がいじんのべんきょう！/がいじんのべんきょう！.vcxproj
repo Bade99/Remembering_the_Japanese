@@ -185,14 +185,14 @@
     <ClInclude Include="LANGUAGE_MANAGER.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="sqlite3.h" />
-    <ClInclude Include="unCap_button.h" />
-    <ClInclude Include="unCap_combobox.h" />
-    <ClInclude Include="unCap_edit_oneline.h" />
+    <ClInclude Include="win32_button.h" />
+    <ClInclude Include="win32_combobox.h" />
+    <ClInclude Include="win32_edit_oneline.h" />
     <ClInclude Include="unCap_Global.h" />
     <ClInclude Include="unCap_Math.h" />
-    <ClInclude Include="unCap_nonclient.h" />
+    <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
-    <ClInclude Include="unCap_Renderer.h" />
+    <ClInclude Include="win32_Renderer.h" />
     <ClInclude Include="unCap_Serialization.h" />
     <ClInclude Include="unCap_Vector.h" />
     <ClInclude Include="win32_graph.h" />
@@ -200,9 +200,9 @@
     <ClInclude Include="win32_static_oneline.h" />
     <ClInclude Include="windows_msg_mapper.h" />
     <ClInclude Include="windows_sdk.h" />
-    <ClInclude Include="がいじんの_Helpers.h" />
-    <ClInclude Include="がいじんの_Platform.h" />
-    <ClInclude Include="がいじんの_score.h" />
+    <ClInclude Include="win32_Helpers.h" />
+    <ClInclude Include="win32_Platform.h" />
+    <ClInclude Include="win32_score.h" />
     <ClInclude Include="がいじんの_べんきょう.h" />
   </ItemGroup>
   <ItemGroup>

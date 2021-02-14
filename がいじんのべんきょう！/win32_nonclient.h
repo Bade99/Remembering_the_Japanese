@@ -2,11 +2,11 @@
 
 #include "windows_sdk.h"
 #include <windowsx.h>
-#include "がいじんの_Helpers.h"
+#include "win32_Helpers.h"
 #include "unCap_Math.h"
 #include "unCap_Global.h"
-#include "unCap_Renderer.h"
-#include "unCap_button.h"
+#include "win32_Renderer.h"
+#include "win32_button.h"
 #include "resource.h" //TODO(fran): everything that we take from the resources must be parameterized
 #include "unCap_Serialization.h"
 #include "unCap_Reflection.h"

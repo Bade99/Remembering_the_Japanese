@@ -1,10 +1,10 @@
 ﻿#pragma once
-#include "がいじんの_Platform.h"
-#include "がいじんの_Helpers.h"
-#include <string>
 #include "windows_sdk.h"
-#include <Shlobj.h>//SHGetKnownFolderPath
 #include "unCap_Reflection.h"
+#include "win32_Platform.h"
+#include "win32_Helpers.h"
+#include <string>
+#include <Shlobj.h>//SHGetKnownFolderPath
 
 //--------------------------------------------------------
 //Defines serialization and deserialization for every type

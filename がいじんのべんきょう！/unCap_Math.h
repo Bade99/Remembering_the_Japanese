@@ -1,7 +1,7 @@
 ﻿#pragma once
-#include "がいじんの_Platform.h"
+#include "win32_Platform.h"
 #include "unCap_Vector.h"
-#include "がいじんの_Helpers.h" //Only for testing
+#include "win32_Helpers.h" //Only for testing
 
 //i32
 static i32 distance(i32 a, i32 b) {

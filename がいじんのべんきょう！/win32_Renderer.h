@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "windows_sdk.h"
-#include "がいじんの_Helpers.h"
+#include "win32_Platform.h"
+#include "win32_Helpers.h"
 #include "unCap_Math.h"
 
 #define UNCAP_GDIPLUS /*For lazy bilinear filtered drawing*/

@@ -23,16 +23,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="unCap_nonclient.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="windows_sdk.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="がいじんの_Helpers.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="がいじんの_Platform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="unCap_Math.h">
@@ -42,12 +33,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="windows_msg_mapper.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_button.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="unCap_Global.h">
@@ -77,15 +62,6 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="unCap_edit_oneline.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_combobox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="がいじんの_score.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_static_oneline.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -93,6 +69,30 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="win32_gridview.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_button.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_combobox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_edit_oneline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_nonclient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_score.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

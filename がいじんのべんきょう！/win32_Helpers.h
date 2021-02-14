@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 #include "windows_sdk.h"
-#include "がいじんの_Platform.h"
+#include "win32_Platform.h"
 
 //---------------------ASSERTION----------------------:
 

@@ -40,8 +40,8 @@
 #include "windows_sdk.h"
 #include <Shlwapi.h> //StrCpyNW
 
-#include "がいじんの_Helpers.h"
-#include "unCap_Renderer.h"
+#include "win32_Helpers.h"
+#include "win32_Renderer.h"
 #include "unCap_Global.h"
 #include "lang.h"
 #include "img.h"
@@ -49,7 +49,7 @@
 
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
 
-#include "unCap_nonclient.h"
+#include "win32_nonclient.h"
 #include "がいじんの_べんきょう.h"
 
 //----------------------Linker-----------------------:

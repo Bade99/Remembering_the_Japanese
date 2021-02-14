@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "がいじんの_Platform.h"
+#include "win32_Platform.h"
 //NOTE: by default the vectors are to represent f32 values
 
 //V2 (F32)

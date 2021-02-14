@@ -2,8 +2,8 @@
 #include "windows_sdk.h"
 #include <windowsx.h>
 #include "unCap_Global.h"
-#include "がいじんの_Helpers.h"
-#include "unCap_Renderer.h"
+#include "win32_Helpers.h"
+#include "win32_Renderer.h"
 
 //TODO(fran): new class btn_text_or_img: if the text fits then draw it, otherwise render the img, great for cool resizing that allows for the same control to take different shapes but maintain all functionality
 

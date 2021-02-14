@@ -1,7 +1,7 @@
 ﻿#pragma once
 
-#include "がいじんの_Platform.h"
-#include "がいじんの_Helpers.h"
+#include "win32_Platform.h"
+#include "win32_Helpers.h"
 #include <filesystem>
 #include <vector>
 #include <map>

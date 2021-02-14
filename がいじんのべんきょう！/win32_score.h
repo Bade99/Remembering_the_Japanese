@@ -1,8 +1,8 @@
 ﻿#pragma once
 #include "windows_sdk.h"
-#include "がいじんの_Platform.h"
-#include "がいじんの_Helpers.h"
-#include "unCap_Renderer.h"
+#include "win32_Platform.h"
+#include "win32_Helpers.h"
+#include "win32_Renderer.h"
 #include "unCap_Math.h"
 
 //------------------"API"------------------:
