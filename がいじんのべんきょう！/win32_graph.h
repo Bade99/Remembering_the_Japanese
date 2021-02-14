@@ -463,6 +463,9 @@ namespace graph {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+
+			//TODO(fran): identify over which point the user is hovering at and notify our parent
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received

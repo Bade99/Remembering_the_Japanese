@@ -15,87 +15,71 @@
 #include "win32_graph.h"
 #include "win32_gridview.h"
 
+
+//TODO(fran): BUG (nonclient?): there are still some maximize-restore problems, where controls disappear
+//TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
+//TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
+//TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
+//TODO(fran): all pages: chrome style IME, the text is written directly on the control while you write
+//TODO(fran): all pages: I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
+//TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
+//TODO(fran): page landing: make it a 2x2 grid and add a stats button and page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
+//TODO(fran): page new_word: pressing enter should map to the add button
+//TODO(fran): page new_word: tabstop for comboboxes doesnt seem to work
+//TODO(fran): page new_word: check that no kanji is written to the hiragana box
+//TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
+//TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
+//TODO(fran): page search: pressing enter in the edit control of the searchbox should trigger searching
+//TODO(fran): page show_word: format dates to only show up to the day, not including hours,min,sec
+//TODO(fran): page show_word: datetimes are stored in GMT, convert creation_date to user timezone before showing in the UI
+//TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
+//TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
+//TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
+//TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
+//TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji
+
+
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
-
-//TODO(fran): it'd be nice to have a scrolling background with jp text going in all directions
-//TODO(fran): pressing enter on new_word page should map to the add button
-//TODO(fran): tabstop for comboboxes doesnt seem to work
-//TODO(fran): there are still some maximize-restore problems, where controls disappear
-//TODO(fran): check that no kanji is written to the hiragana box
-//TODO(fran): fix new_word edit control not showing the caret in the right place! im sure I already did this for some other project
-//TODO(fran): add extra control on new_word called "Notes" where the user can write anything eg make a clarification
-//TODO(fran): hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
-//TODO(fran): pressing enter in the edit control of the searchbox should trigger searching
-//TODO(fran): when querying for dates to show to the user format them to show up to the day, not including hours,min,sec
-//TODO(fran): extra page "Stats" or "Your progress" so the user can see how they are doing, we can put there a total percentage of accuracy in a nice circular control that animates from 0% to whatever the user's got. also word count, accuracy, number of practices, ...
-//TODO(fran): the add buton in new_word should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
-//TODO(fran): at the end of each practice I image a review page were not only do you get your score, but also a grid of buttons (green if you guessed correctly, red for incorrect) with each one having the hiragana of each word in the practice, and you being able to press that button like object and going to the show_word page
-//TODO(fran): I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
-//TODO(fran): we may want everything in the "practice" page to be animated, otherwise it feels like you're waiting for the score to fill, though maybe making that go a lot faster solves the issue, right now it's slow cause of performance
-//TODO(fran): we may actually want to add a stats page to the landing page (and make it a 2x2 grid) in order to put stuff that's in practice, like "word count" and extra things like a list of last words added
-//TODO(fran): on practice_writing page setfocus to the edit box
-//TODO(fran): I should precalculate the entire array of practice leves from the start, that way I avoid duplicates
-//TODO(fran): can I automatically change the keyboard when I need the user to type in japanese?
-//TODO(fran): chrome style IME, the text is written directly on the control while you write
-
-//IMPORTANT INFO TODO(fran): datetimes are stored in GMT in order to be generic and have the ability to convert to the user's timestamp whenever needed, the catch now is we gotta REMEMBER that, we must convert creation_date to "localtime" before showing it to the user
-
+//INFO: this window is made up of many separate ones, as if they were in different tabs, in the sense only one is shown at any single time, and there isn't any relationship between them
 //INFO: the hiragana aid on top of kanji is called furigana
-
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
+//INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
+
 
 #define _SQL(x) (#x)
 //IMPORTANT: careful when using this, by design it allows for macros to expand so you better not redefine sql keywords, eg microsoft defines NULL as 0 so you should write something like NuLL instead, same for DELETE use smth like DeLETE
-//IMPORTANT: do not use "," instead use comma
-#define comma ,
 #define SQL(x) _SQL(x)
+//IMPORTANT: do not use "," in macros, instead use comma
+#define comma ,
+
 
 #define TIMER_next_practice_level 0x5
 
-struct べんきょうSettings {
 
-#define foreach_べんきょうSettings_member(op) \
-		op(RECT, rc,200,200,600,800 ) \
-
-	foreach_べんきょうSettings_member(_generate_member);
-
-	sqlite3* db;
-
-	_generate_default_struct_serialize(foreach_べんきょうSettings_member);
-
-	_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
-
-};
-_add_struct_to_serialization_namespace(べんきょうSettings)
-
-//This window will comprise of 4 main separate ones, as if they were in a tab control, in the sense only one will be shown at any single time, and there wont be any relationships between them
-
-constexpr char べんきょう_table_words[] = "words";
+#define べんきょう_table_words "words"
 #define _べんきょう_table_words words
-#define __べんきょう_table_words "words"
 #define べんきょう_table_words_structure \
 	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
 	translation			TEXT NOT NuLL COLLATE NOCASE,\
 	mnemonic			TEXT,\
 	lexical_category	INTEGER,\
-	creation_date		TEXT DEFAULT CURRENT_TIMESTAMP,\
-	last_shown_date	INTEGER DEFAULT 0,\
-	times_shown		INTEGER DEFAULT 0,\
-	times_right		INTEGER DEFAULT 0\
+	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
+	last_shown_date		INTEGER DEFAULT 0,\
+	times_shown			INTEGER DEFAULT 0,\
+	times_right			INTEGER DEFAULT 0\
 
-
-//NOTE: hiragana: hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
-//NOTE: user modifiable values first, application defined after
-//NOTE: creation_date: sqlite dates use ISO8601 string ("YYYY-MM-DD HH:MM:SS.SSS")
-//NOTE: last_shown_date: in Unix Time, used for sorting, TODO(fran): I should actually put a negative value since 0 maps to 1970 but unix time can go much further back than that
+//INFO about べんきょう_table_words_structure:
+//	hiragana: hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
+//	general: user modifiable values first, application defined last
+//	creation_date: in Unix time
+//	last_shown_date: in Unix Time, used for sorting, TODO(fran): I should actually default to a negative value since 0 maps to 1970 but unix time can go much further back than that
 
 //TODO(fran): hiragana, kanji and translation should actually be lists
 
-;//INFO: a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
-//INFO: the last line cant have a "," REMEMBER to put it or take it off
+;//INFO: ROWID: in sqlite a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 
-#define べんきょう_table_user "user" //This table will simply contain one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also that will prevent that corruption of one user affects another
+#define べんきょう_table_user "user" 
 #define _べんきょう_table_user user
 #define べんきょう_table_user_structure \
 	word_cnt		INTEGER DEFAULT 0,\
@@ -103,23 +87,29 @@ constexpr char べんきょう_table_words[] = "words";
 	times_shown		INTEGER DEFAULT 0,\
 	times_right		INTEGER DEFAULT 0\
 
-//NOTE: the columns 'word_cnt', 'times_shown', 'times_right' of the "user" table are automatically calculated via triggers
+//INFO about べんきょう_table_user:
+//	a table with only one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also prevents that corruption of one user affects another
+//	word_cnt, times_shown, times_right are automatically calculated via triggers
 
 #define _べんきょう_table_accuracy_timeline accuracy_timeline
 #define べんきょう_table_accuracy_timeline_structure \
 	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
 	accuracy			INTEGER NOT NuLL\
 
-//NOTE: accuracy is stored as a value between [0,100]
-//TODO(fran): the accuracy_timeline table should have indexing or default ordering via creation_date
+//INFO about _べんきょう_table_accuracy_timeline:
+//	accuracy: value between [0,100]
+
+//TODO(fran): add indexing (or default ordering, is that a thing?) by creation_date
 
 #define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
 
 #define べんきょう_table_version_structure \
 	"v					INTEGER"\
-//NOTE: lets keep it simple, versions are just a number, also the db wont be changing too often
 
-struct user_stats {//TODO(fran): some of this stuff is easier to update via a trigger, eg word count
+//INFO about べんきょう_table_version_structure:
+//	v: stores the db/program version, to make it simpler versions are just a number, the db wont be changing too often
+
+struct user_stats {
 	i64 word_cnt;			//Count for words added
 	i64 times_practiced;	//Count for completed practice runs
 	i64 times_shown;		//Count for words shown in practice runs
@@ -137,7 +127,7 @@ struct user_stats {//TODO(fran): some of this stuff is easier to update via a tr
 };
 
 //NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
-enum lexical_category { //The value of this enums is what will be stored on the db, we'll map them to their correct language string
+enum lexical_category { //this value is stored on the db
 	dont_care = -1, //I tend to annotate the different adjectives, but not much else
 	noun,
 	verb,
@@ -148,16 +138,15 @@ enum lexical_category { //The value of this enums is what will be stored on the 
 	pronoun,
 	counter,
 };
-
 str lexical_category_to_str(lexical_category cat) {
 	return RS(200 + cat); //NOTE: dont_care should never be shown
 }
+//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
 u32 lexical_category_str_lang_id(lexical_category cat) {
 	return 200 + cat; //NOTE: dont_care should never be shown
 }
 void lexical_category_setup_combobox(HWND cb) {
-	//IMPORTANT INFO: the first element to add to a combobox _must_ be at index 0, it does not support adding any index, amazingly enough, conclusion: the windows' combobox is terrible
-	//So thanks to the huge limitation of comboboxes we have to subtract one from everything, and at the time of consulting the cb we'll need to add one, this is simply stupid //TODO(fran): find a fix
+	//INFO: the first element to add to a combobox _must_ be at index 0, it does not support starting at any index, conclusion: windows' combobox is terrible
 	ACT(cb, lexical_category::noun, lexical_category_str_lang_id(lexical_category::noun));
 	ACT(cb, lexical_category::verb, lexical_category_str_lang_id(lexical_category::verb));
 	ACT(cb, lexical_category::adj_い, lexical_category_str_lang_id(lexical_category::adj_い));
@@ -167,7 +156,8 @@ void lexical_category_setup_combobox(HWND cb) {
 	ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
 	ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
 }
-union learnt_word { //will contain utf16* when getting data from the UI, and utf8* to send requests to the db
+
+union learnt_word { //contains utf16 when getting data from the UI, and utf8 when sending requests to the db
 	using type = any_str;
 	struct {
 #define _foreach_learnt_word_member(op) \
@@ -178,13 +168,13 @@ union learnt_word { //will contain utf16* when getting data from the UI, and utf
 		op(type,lexical_category) \
 
 		_foreach_learnt_word_member(_generate_member_no_default_init);
-		//NOTE: the ones that map to primary keys must be the first on the list, that way they are easily filtered out when updating their values
+		//IMPORTANT: members that map to primary keys must be first on the list (that way they are easily filtered out when updating their values), and UPDATE pk_count when you add a new primary key
 
 	} attributes;
 	type all[sizeof(attributes) / sizeof(type)];
 
+	static constexpr int pk_count = 1;//number of primary keys, primary keys are the first members in the attributes list
 };
-constexpr int learnt_word_pk_count = 1;//
 
 union extra_word {
 	using type = any_str;
@@ -208,7 +198,7 @@ struct stored_word {
 	extra_word application_defined;
 };
 
-//Structures used by different practices
+//Structures for different practice levels
 struct practice_writing_word {
 	learnt_word word;
 	enum class type {
@@ -223,19 +213,19 @@ struct practice_writing_word {
 //---------------------Macros-------------------------:
 
 #define _sqlite3_generate_columns(type,name,...) "" + #name + ","
-//NOTE: you'll have to remove the last comma since sql doesnt accept trailing commas
+//IMPORTANT: you'll have to remove the last comma since sql doesnt accept trailing commas
 
 #define _sqlite3_generate_columns_array(type,name,...) #name,
 
 #define _sqlite3_generate_values(type,name,...) "'" + (utf8*)word->attributes.name.str + "'"","
-//NOTE: you'll have to remove the last comma since sql doesnt accept trailing commas
+//IMPORTANT: you'll have to remove the last comma since sql doesnt accept trailing commas
 
 #define _sqlite3_generate_values_array(type,name,...) std::string("'") + (utf8*)word->attributes.name.str + "'",
 
 
-//Data retrieval from UI (UI string contents are always utf16)
+//-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 
-/*NOTE: edit control or similar that uses WM_GETTEXT, eg static control, button, ...*/
+// use for controls whose value is obtained via WM_GETTEXT, eg static, button, edit, ...
 #define _get_edit_str(edit,any_str) \
 			{ \
 				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
@@ -253,9 +243,24 @@ struct practice_writing_word {
 
 #define _clear_combo_sel(cb) SendMessageW(cb, CB_SETCURSEL, -1, 0)
 
+#define _clear_edit(edit) SendMessageW(edit, WM_SETTEXT, 0, 0)
+
 #define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
 
-#define _clear_edit(edit) SendMessageW(edit, WM_SETTEXT, 0, 0)
+
+struct べんきょうSettings {
+
+#define foreach_べんきょうSettings_member(op) \
+		op(RECT, rc,200,200,600,800 ) \
+
+	foreach_べんきょうSettings_member(_generate_member);
+	sqlite3* db;
+
+	_generate_default_struct_serialize(foreach_べんきょうSettings_member);
+	_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
+
+};
+_add_struct_to_serialization_namespace(べんきょうSettings);
 
 struct べんきょうProcState {
 	HWND wnd;
@@ -266,11 +271,11 @@ struct べんきょうProcState {
 		HBRUSH bk;
 	} brushes;
 
-	enum class page { //This wnd will be managed in pages instead of launching separate windows for different tasks, like a browser
+	enum class page {
 		landing,
 		new_word,
 		practice,
-		practice_writing,//you're given a word in hiragana/kanji/translation and must write the response in hiragana/kanji/translation //TODO(fran)
+		practice_writing,
 		practice_multiplechoice,//TODO(fran)
 		review_practice,
 		search,
@@ -299,12 +304,13 @@ struct べんきょうProcState {
 		union new_word_controls {
 			using type = HWND;
 			struct {
-				type edit_hiragana;//or katakana
+				type edit_hiragana;
 				type edit_kanji;
 				type edit_translation;
-				type combo_lexical_category;//verb,noun,...
+				type combo_lexical_category;
 				type edit_mnemonic;//create a story/phrase around the word
 				//TODO(fran): here you should be able to add more than one translation
+				//TODO(fran): type edit_notes
 				type button_save;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
@@ -322,12 +328,10 @@ struct べんきょうProcState {
 				type static_accuracy_title;
 				type score_accuracy;
 
-				type static_accuracy_timeline_title; //TODO(fran): we may want to add this, or smth else
+				type static_accuracy_timeline_title;
 				type graph_accuracy_timeline;
 
 				type button_start;
-				//type edit_question;
-				//type edit_answer;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} practice;
@@ -337,7 +341,7 @@ struct べんきょうProcState {
 			struct {
 				type static_test_word;
 
-				type edit_answer;//pressing enter on it will trigger checking
+				type edit_answer;
 
 				type button_next;//TODO(fran): not the best name
 			}list;
@@ -366,17 +370,16 @@ struct べんきょうProcState {
 		union show_word_controls {
 			using type = HWND;
 			struct {
-				type static_hiragana;//or katakana
+				type static_hiragana;
 				type edit_kanji;
 				type edit_translation;
-				type combo_lexical_category;//verb,noun,...
+				type combo_lexical_category;
 				type edit_mnemonic;
 				//TODO(fran): here you should be able to add more than one translation
 
 				type static_creation_date;
 				type static_last_shown_date;
 				type static_score; //eg Score: 4/5 - 80%
-				//TODO(fran): store on the db: times_shown and times_correct
 
 				type button_modify;
 				type button_delete;
@@ -392,23 +395,19 @@ struct べんきょうProcState {
 	};
 
 	struct practice_header {
-		enum class practice_type {
-			writing,
-			multiplechoice,
-		} type;
+		available_practices type;
 	};
 	struct practice_writing {
 		practice_header header;
-		practice_writing_word* practice;
+		practice_writing_word* practice;//#free
 		const utf16_str* question;//points to some element inside practice.word
-		utf16_str user_answer;
+		utf16_str user_answer;//#free
 		const utf16_str* correct_answer;//points to some element inside practice.word
 		bool answered_correctly;//precalculated value so strcmp is used only once
 	};
 
 	struct {
 
-		//TODO(fran): we need to make the practices also have a type, in order to put them all in the same vector and be able to make a full review afterwards
 		struct practice_review_state {
 
 			std::vector<practice_header*> practices;
@@ -417,16 +416,16 @@ struct べんきょうProcState {
 
 		struct practice_writing_state {
 			practice_writing_word* practice;
-		}practice_writing;
+		}practice_writing;//TODO(fran): if we already had the entire practices array from the start we could simplify this to a simple size_t idx and the multipage_mem.temp_practices[pagestate.practice_writing.idx]
 
 	} pagestate;
 
 	struct {
 		std::vector<practice_header*> temp_practices;
-	}multipage_mem;
+	}multipagestate;
 };
 
-namespace べんきょう { //INFO: Im trying namespaces to see if this is better than having every function with the name of the wndclass
+namespace べんきょう {
 	using ProcState = べんきょうProcState;
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_べんきょう";
@@ -440,7 +439,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);
 	}
 
-	//NOTE: any NULL HBRUSH remains unchanged
+	//NOTE: a null HBRUSH means dont change the current one
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk) {
 		ProcState* state = get_state(wnd);
 		if (state) {
@@ -491,7 +490,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return res;
 	}
 
-	//NOTE: afterwards you must .free() the accuracy_timeline member variable
+	//NOTE: afterwards you must .free() the accuracy_timeline member
 	//retrieves the last cnt timepoints in order of oldest to newest
 	void get_user_stats_accuracy_timeline(sqlite3* db, user_stats* stats, size_t cnt) {
 		using namespace std::string_literals;
@@ -528,7 +527,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
 			sqlite_exec_runtime_assert(errmsg);
 		}
-		//TODO(fran): we should also implement update table for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any bennefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
+		//TODO(fran): we should also implement UPDATE TABLE for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any benefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
 		{
 			utf8 create_user_table[] = SQL(
 				CREATE TABLE IF NOT EXISTS _べんきょう_table_user(べんきょう_table_user_structure);
@@ -539,6 +538,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			if (get_table_rowcount(db, べんきょう_table_user) > 0) {
 				//The entry is already there, here we can set new values on future updates for example
+				//TODO(fran)
 			}
 			else {
 				//Entry isnt there, create it
@@ -547,7 +547,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				);
 				sqlite3_exec(db, insert_user, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
-
+				//TODO(fran): we should check for existing words and compute the values of the user table, idk if this case can happen
 			}
 		}
 		{
@@ -560,49 +560,52 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 		//Triggers 
 		//TODO(fran): here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean the should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
-
-		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-		utf8 create_trigger_increment_word_cnt[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
-			BEGIN
-				UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
-			END;
-		);
-		sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-
-		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-		utf8 create_trigger_decrement_word_cnt[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
-			BEGIN
-				UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
-			END;
-		);
-		sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-
-		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-		utf8 create_trigger_increment_times_shown[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS increment_times_shown
-			AFTER UPDATE OF times_shown ON _べんきょう_table_words
-			BEGIN
-				UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
-			END;
-		);
-		sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-
-		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-		utf8 create_trigger_increment_times_right[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS increment_times_right
-			AFTER UPDATE OF times_right ON _べんきょう_table_words
-			BEGIN
-				UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
-			END;
-		);
-		sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-
+		{
+			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+			utf8 create_trigger_increment_word_cnt[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
+				BEGIN
+					UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
+				END;
+			);
+			sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+		{
+			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+			utf8 create_trigger_decrement_word_cnt[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
+				BEGIN
+					UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
+				END;
+			);
+			sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+		{
+			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+			utf8 create_trigger_increment_times_shown[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS increment_times_shown
+				AFTER UPDATE OF times_shown ON _べんきょう_table_words
+				BEGIN
+					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
+				END;
+			);
+			sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+		{
+			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+			utf8 create_trigger_increment_times_right[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS increment_times_right
+				AFTER UPDATE OF times_right ON _べんきょう_table_words
+				BEGIN
+					UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
+				END;
+			);
+			sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
 		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 		/*
 		utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
@@ -625,35 +628,37 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			END;
 		);
 		*/
+		{
+			//IMPORTANT: this depends on times_shown being updated _before_ times_right
+			utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
+				AFTER UPDATE OF times_shown ON _べんきょう_table_user
+				BEGIN
+					INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
+					VALUES(CAST((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL) * 100.0) AS INTEGER));
+				END;
+			);
 
-		//IMPORTANT: this depends on times_shown being updated _before_ times_right
-		utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
-			AFTER UPDATE OF times_shown ON _べんきょう_table_user
-			BEGIN
-				INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
-				VALUES(CAST((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL) * 100.0) AS INTEGER));
-			END;
-		);
-		utf8 create_trigger_update_accuracy_timepoint[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
-			AFTER UPDATE OF times_right ON _べんきょう_table_user
-			BEGIN
-				UPDATE _べんきょう_table_accuracy_timeline
-				SET accuracy = CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER)
-				WHERE creation_date = (SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline);
-			END;
-		);
+			utf8 create_trigger_update_accuracy_timepoint[] = SQL(
+				CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
+				AFTER UPDATE OF times_right ON _べんきょう_table_user
+				BEGIN
+					UPDATE _べんきょう_table_accuracy_timeline
+					SET accuracy = CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER)
+					WHERE creation_date = (SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline);
+				END;
+			);
 
-		//IDEA: another way is to always insert on times_shown and update on times_rigth
-		//TODO(fran): this two triggers are really dumb, and we depend on the operation happening in less than N seconds (timinig dependency), if we could make this be one trigger at least but sqlite doenst have if-else on triggers
-		//TODO(fran): make sure that update of triggers for any of the columns names and not only if both are SET in a single query
-		//IMPORTANT INFO: since times_shown and times_right can be updated at different times we gotta be a little more clever at the time of adding a new timepoint
-		sqlite3_exec(db, create_trigger_insert_accuracy_timepoint, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
+			//IDEA: another way is to always insert on times_shown and update on times_rigth
+			//TODO(fran): this two triggers are really dumb, and we depend on the operation happening in less than N seconds (timinig dependency), if we could make this be one trigger at least but sqlite doenst have if-else on triggers
+			//TODO(fran): make sure that update of triggers for any of the columns names and not only if both are SET in a single query
+			//IMPORTANT INFO: since times_shown and times_right can be updated at different times we gotta be a little more clever at the time of adding a new timepoint
+			sqlite3_exec(db, create_trigger_insert_accuracy_timepoint, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
 
-		sqlite3_exec(db, create_trigger_update_accuracy_timepoint, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
+			sqlite3_exec(db, create_trigger_update_accuracy_timepoint, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
 
 //#define TEST_WORDS
 #if defined(TEST_WORDS) && defined(_DEBUG)
@@ -683,7 +688,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return res;
 	}
 
-	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd, void* user_extra
+	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
 	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element) {
 		ProcState::practice_header* header = (decltype(header))element;
 		//TODO(fran): actually the drawing code could be done at the end, and use the switches to get the string to render and the color of the border
@@ -743,13 +748,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			controls.list.button_practice = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_practice, 101);
-			//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 			UNCAPBTN_set_brushes(controls.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			controls.list.button_search = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_search, 102);
-			//TODO(fran): more brushes, fore_push,... , border_mouseover,...
 			UNCAPBTN_set_brushes(controls.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -793,8 +796,6 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
-		//TODO(fran): create the other "tabs"
-
 		//---------------------Search----------------------:
 		{
 			auto& controls = state->controls.search;
@@ -818,8 +819,9 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			auto& controls = state->controls.show_word;
 
-			controls.list.static_hiragana = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.list.static_hiragana = CreateWindowW( static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -863,7 +865,6 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			AWT(controls.list.button_modify, 273);
 			UNCAPBTN_set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.bin);
-			//TODO(fran): use an img of a trash can for this one, so it's smaller and square and we can put it to the side of the modify button which is the important one and should remain centered
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -966,17 +967,17 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 	}
 
 	void resize_controls(ProcState* state) {
-		//TODO(fran): should I resize everyone or just the ones from the current page, I feel like just resizing the necessary ones is better and when there's a page change we call resize there just in case
 		RECT r; GetClientRect(state->wnd, &r);
 		int w = RECTWIDTH(r);
 		int h = RECTHEIGHT(r);
-		int w_pad = (int)((float)w * .05f);
+		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 		int h_pad = (int)((float)h * .05f);
 		
-#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
+//#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
 #define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
 
 #define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
+#define MyMoveWindow_offset _MyMoveWindow2
 
 		switch (state->current_page) {
 		case ProcState::page::landing: 
@@ -994,24 +995,27 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int wnd_x = (w - wnd_w) / 2;
 			int h_step = (h - (wnd_h*wnd_cnt)) / pad_cnt;
 
-			int button_new_x = wnd_x;
-			int button_new_y = h_step;
-			int button_new_w = wnd_h;
-			int button_new_h = wnd_h;
+			rect_i32 button_new;
+			button_new.x = wnd_x;
+			button_new.y = h_step;
+			button_new.w = wnd_h;
+			button_new.h = wnd_h;
 
-			int button_practice_x = wnd_x;
-			int button_practice_y = button_new_y + button_new_h + h_step;
-			int button_practice_w= wnd_h;
-			int button_practice_h= wnd_h;
+			rect_i32 button_practice;
+			button_practice.x = wnd_x;
+			button_practice.y = button_new.bottom() + h_step;
+			button_practice.w= wnd_h;
+			button_practice.h= wnd_h;
 
-			int button_search_x = wnd_x;
-			int button_search_y = button_practice_y + button_practice_h + h_step;
-			int button_search_w= wnd_h;
-			int button_search_h= wnd_h;
+			rect_i32 button_search;
+			button_search.x = wnd_x;
+			button_search.y = button_practice.bottom() + h_step;
+			button_search.w= wnd_h;
+			button_search.h= wnd_h;
 
-			_MyMoveWindow(controls.list.button_new, button_new,FALSE);
-			_MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
-			_MyMoveWindow(controls.list.button_search, button_search,FALSE);
+			MyMoveWindow(controls.list.button_new, button_new,FALSE);
+			MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
+			MyMoveWindow(controls.list.button_search, button_search,FALSE);
 		} break;
 		case ProcState::page::new_word:
 		{
@@ -1022,45 +1026,59 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
+#if 0
 			int start_y = (h - (pad_cnt-1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
+#else
+			int start_y = 0;
+#endif
 
-			int edit_hiragana_x = w_pad;
-			int edit_hiragana_y = start_y;
-			int edit_hiragana_h = wnd_h;
-			int edit_hiragana_w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+			rect_i32 edit_hiragana;
+			edit_hiragana.x = w_pad;
+			edit_hiragana.y = start_y;
+			edit_hiragana.h = wnd_h;
+			edit_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
 
-			int cb_lex_categ_w = max_w / 3;
-			int cb_lex_categ_x = w - w_pad - cb_lex_categ_w;
-			int cb_lex_categ_y = edit_hiragana_y + edit_hiragana_h + h_pad/2;
-			int cb_lex_categ_h = edit_hiragana_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
+			rect_i32 cb_lex_categ;
+			cb_lex_categ.w = max_w / 3;
+			cb_lex_categ.x = w - w_pad - cb_lex_categ.w;
+			cb_lex_categ.y = edit_hiragana.bottom() + h_pad/2;
+			cb_lex_categ.h = edit_hiragana.h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
 			
+			rect_i32 edit_kanji;
+			edit_kanji.x = edit_hiragana.x;
+			edit_kanji.y = cb_lex_categ.bottom() + h_pad/2;
+			edit_kanji.w = max_w;
+			edit_kanji.h = wnd_h;
 
-			int edit_kanji_x = edit_hiragana_x;
-			int edit_kanji_y = cb_lex_categ_y + cb_lex_categ_h + h_pad/2;
-			int edit_kanji_w = max_w;
-			int edit_kanji_h = wnd_h;
+			rect_i32 edit_translation;
+			edit_translation.x = edit_hiragana.x;
+			edit_translation.y = edit_kanji.bottom() + h_pad;
+			edit_translation.w = max_w;
+			edit_translation.h = wnd_h;
 
-			int edit_translation_x = edit_hiragana_x;
-			int edit_translation_y = edit_kanji_y + edit_kanji_h + h_pad;
-			int edit_translation_w = max_w;
-			int edit_translation_h = wnd_h;
+			rect_i32 edit_mnemonic;
+			edit_mnemonic.x = edit_hiragana.x;
+			edit_mnemonic.y = edit_translation.bottom() + h_pad;
+			edit_mnemonic.w = max_w;
+			edit_mnemonic.h = wnd_h;
 
-			int edit_mnemonic_x = edit_hiragana_x;
-			int edit_mnemonic_y = edit_translation_y + edit_translation_h + h_pad;
-			int edit_mnemonic_w = max_w;
-			int edit_mnemonic_h = wnd_h;
+			rect_i32 btn_save;
+			btn_save.w = 70;
+			btn_save.h = wnd_h;
+			btn_save.y = edit_mnemonic.bottom() + h_pad;
+			btn_save.x = (w - btn_save.w) / 2;
 
-			int btn_save_w = 70;
-			int btn_save_h = wnd_h;
-			int btn_save_y = edit_mnemonic_y + edit_mnemonic_h + h_pad;
-			int btn_save_x = (w - btn_save_w) / 2;
+			rect_i32 bottom_most_control = btn_save;
 
-			_MyMoveWindow(controls.list.edit_hiragana, edit_hiragana, FALSE);
-			_MyMoveWindow(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
-			_MyMoveWindow(controls.list.edit_kanji, edit_kanji, FALSE);
-			_MyMoveWindow(controls.list.edit_translation, edit_translation, FALSE);
-			_MyMoveWindow(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
-			_MyMoveWindow(controls.list.button_save, btn_save, FALSE);
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.list.edit_hiragana, edit_hiragana, FALSE);
+			MyMoveWindow_offset(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
+			MyMoveWindow_offset(controls.list.edit_kanji, edit_kanji, FALSE);
+			MyMoveWindow_offset(controls.list.edit_translation, edit_translation, FALSE);
+			MyMoveWindow_offset(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
+			MyMoveWindow_offset(controls.list.button_save, btn_save, FALSE);
 
 		} break;
 		case ProcState::page::practice: 
@@ -1181,15 +1199,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 			
-			_MyMoveWindow2(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
-			_MyMoveWindow2(controls.list.static_word_cnt, static_word_cnt, FALSE);
-			_MyMoveWindow2(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
-			_MyMoveWindow2(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
-			_MyMoveWindow2(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
-			_MyMoveWindow2(controls.list.score_accuracy, score_accuracy, FALSE);
-			_MyMoveWindow2(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
-			_MyMoveWindow2(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
-			_MyMoveWindow2(controls.list.button_start, button_start, FALSE);
+			MyMoveWindow_offset(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_word_cnt, static_word_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
+			MyMoveWindow_offset(controls.list.score_accuracy, score_accuracy, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
+			MyMoveWindow_offset(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
+			MyMoveWindow_offset(controls.list.button_start, button_start, FALSE);
 
 		} break;
 		case ProcState::page::practice_writing:
@@ -1214,19 +1232,17 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			edit_answer.x = (w - edit_answer.w) / 2;
 
 			rect_i32 button_next;//child inside edit_answer
-			button_next.y = 1; //we want the button to be inside the edit control so we gotta make it a little smaller to avoid covering the border //TODO(fran): we should ask the parent for its border size
+			button_next.y = 1; //the button is inside the edit box (and past the border) //TODO(fran): we should ask the parent for its border size
 			button_next.h = edit_answer.h - 2;
 			button_next.w = min(button_next.h, edit_answer.w);
 			button_next.x = edit_answer.w - button_next.w - 1;
-
-			//button_next.y += 40;//HACK: I just want to see the button first, then I can try to put it above the edit control
 
 			rect_i32 bottom_most_control = edit_answer;
 
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-			_MyMoveWindow2(controls.list.static_test_word, static_test_word, FALSE);
-			_MyMoveWindow2(controls.list.edit_answer, edit_answer, FALSE);
+			MyMoveWindow_offset(controls.list.static_test_word, static_test_word, FALSE);
+			MyMoveWindow_offset(controls.list.edit_answer, edit_answer, FALSE);
 			MyMoveWindow(controls.list.button_next, button_next, FALSE);
 
 		} break;
@@ -1286,9 +1302,9 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
-			_MyMoveWindow2(controls.list.static_review, static_review, FALSE);
-			_MyMoveWindow2(controls.list.gridview_practices, gridview_practices, FALSE);
-			_MyMoveWindow2(controls.list.button_continue, button_continue, FALSE);
+			MyMoveWindow_offset(controls.list.static_review, static_review, FALSE);
+			MyMoveWindow_offset(controls.list.gridview_practices, gridview_practices, FALSE);
+			MyMoveWindow_offset(controls.list.button_continue, button_continue, FALSE);
 
 		} break;
 		case ProcState::page::search: 
@@ -1296,12 +1312,14 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			auto& controls = state->controls.search;
 
 			int max_w = w - w_pad * 2;
-			int cb_search_x = w_pad;
-			int cb_search_y = h_pad;
-			int cb_search_h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
-			int cb_search_w = max_w;
 
-			_MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
+			rect_i32 cb_search;
+			cb_search.x = w_pad;
+			cb_search.y = h_pad;
+			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
+			cb_search.w = max_w;
+
+			MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
 
 		} break;
 		case ProcState::page::show_word: 
@@ -1314,83 +1332,99 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
+			int bigwnd_h = wnd_h * 4;
+#if 0
 			int start_y = (h - (pad_cnt - 1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
+#else
+			int start_y = 0;
+#endif
 
-			int static_hiragana_x = w_pad;
-			int static_hiragana_y = start_y;
-			int static_hiragana_h = wnd_h;
-			int static_hiragana_w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+			rect_i32 static_hiragana;
+			static_hiragana.x = w_pad;
+			static_hiragana.y = start_y;
+			static_hiragana.h = bigwnd_h;
+			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
 
-			int cb_lex_categ_w = max_w / 3;
-			int cb_lex_categ_x = w - w_pad - cb_lex_categ_w;
-			int cb_lex_categ_y = static_hiragana_y + static_hiragana_h + h_pad / 2;
-			int cb_lex_categ_h = static_hiragana_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
+			rect_i32 cb_lex_categ;
+			cb_lex_categ.w = max_w / 3;
+			cb_lex_categ.x = w - w_pad - cb_lex_categ.w;
+			cb_lex_categ.y = static_hiragana.bottom() + h_pad / 2;
+			cb_lex_categ.h = wnd_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
 
+			rect_i32 edit_kanji;
+			edit_kanji.x = static_hiragana.x;
+			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
+			edit_kanji.w = max_w;
+			edit_kanji.h = wnd_h;
 
-			int edit_kanji_x = static_hiragana_x;
-			int edit_kanji_y = cb_lex_categ_y + cb_lex_categ_h + h_pad / 2;
-			int edit_kanji_w = max_w;
-			int edit_kanji_h = wnd_h;
+			rect_i32 edit_translation;
+			edit_translation.x = static_hiragana.x;
+			edit_translation.y = edit_kanji.bottom() + h_pad;
+			edit_translation.w = max_w;
+			edit_translation.h = wnd_h;
 
-			int edit_translation_x = static_hiragana_x;
-			int edit_translation_y = edit_kanji_y + edit_kanji_h + h_pad;
-			int edit_translation_w = max_w;
-			int edit_translation_h = wnd_h;
+			rect_i32 edit_mnemonic;
+			edit_mnemonic.x = static_hiragana.x;
+			edit_mnemonic.y = edit_translation.bottom() + h_pad;
+			edit_mnemonic.w = max_w;
+			edit_mnemonic.h = wnd_h;
 
-			int edit_mnemonic_x = static_hiragana_x;
-			int edit_mnemonic_y = edit_translation_y + edit_translation_h + h_pad;
-			int edit_mnemonic_w = max_w;
-			int edit_mnemonic_h = wnd_h;
-
-			int last_user_x = edit_mnemonic_x;
-			int last_user_y = edit_mnemonic_y;
-			int last_user_w = edit_mnemonic_w;
-			int last_user_h = edit_mnemonic_h;
+			rect_i32 last_user = edit_mnemonic;
 
 			int dual_w = (max_w-w_pad)/2;
 
-			int static_creation_date_x = w_pad;
-			int static_creation_date_y = last_user_y + last_user_h + h_pad;
-			int static_creation_date_w = dual_w;
-			int static_creation_date_h = wnd_h;
+			rect_i32 static_creation_date;
+			static_creation_date.x = w_pad;
+			static_creation_date.y = last_user.bottom() + h_pad;
+			static_creation_date.w = dual_w;
+			static_creation_date.h = wnd_h;
 
-			int static_last_shown_date_x = static_creation_date_x + static_creation_date_w + w_pad;
-			int static_last_shown_date_y = static_creation_date_y;
-			int static_last_shown_date_w = dual_w;
-			int static_last_shown_date_h = wnd_h;
+			rect_i32 static_last_shown_date;
+			static_last_shown_date.x = static_creation_date.right() + w_pad;
+			static_last_shown_date.y = static_creation_date.y;
+			static_last_shown_date.w = dual_w;
+			static_last_shown_date.h = wnd_h;
 
-			int static_score_x = w_pad;
-			int static_score_y = static_last_shown_date_y + static_last_shown_date_h + h_pad;
-			int static_score_w = max_w;
-			int static_score_h = wnd_h;
+			rect_i32 static_score;
+			static_score.x = w_pad;
+			static_score.y = static_last_shown_date.bottom() + h_pad;
+			static_score.w = max_w;
+			static_score.h = wnd_h;
 
-			int btn_modify_w = 70;
-			int btn_modify_h = wnd_h;
-			int btn_modify_y = static_score_y + static_score_h + h_pad;
-			int btn_modify_x = (w - btn_modify_w) / 2;
+			rect_i32 btn_modify;
+			btn_modify.w = 70;
+			btn_modify.h = wnd_h;
+			btn_modify.y = static_score.bottom() + h_pad;
+			btn_modify.x = (w - btn_modify.w) / 2;
 
-			int btn_delete_h = wnd_h;
-			int btn_delete_w = btn_delete_h;
+			rect_i32 btn_delete;
+			btn_delete.h = wnd_h;
+			btn_delete.w = btn_delete.h;
 #if 0 //TODO(fran): which one to go with?
-			int btn_delete_x = btn_modify_x + btn_modify_w + w_pad*;/*TODO(fran): clamp to not go beyond w*/
-			int btn_delete_y = btn_modify_y;
+			btn_delete.x = btn_modify.right() + w_pad*;/*TODO(fran): clamp to not go beyond w*/
+			btn_delete.y = btn_modify_y;
 #else
-			int btn_delete_x = (w - btn_delete_w)/2;
-			int btn_delete_y = btn_modify_y + btn_modify_h + h_pad;
+			btn_delete.x = (w - btn_delete.w)/2;
+			btn_delete.y = btn_modify.bottom() + h_pad;
 #endif
 
-			_MyMoveWindow(controls.list.static_hiragana, static_hiragana, FALSE);
-			_MyMoveWindow(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
-			_MyMoveWindow(controls.list.edit_kanji, edit_kanji, FALSE);
-			_MyMoveWindow(controls.list.edit_translation, edit_translation, FALSE);
-			_MyMoveWindow(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
+			rect_i32 bottom_most_control = btn_delete;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.list.static_hiragana, static_hiragana, FALSE);
+			MyMoveWindow_offset(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
+			MyMoveWindow_offset(controls.list.edit_kanji, edit_kanji, FALSE);
+			MyMoveWindow_offset(controls.list.edit_translation, edit_translation, FALSE);
+			MyMoveWindow_offset(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
 
 			//Dates one next to the other, the same for times_... related objs
-			_MyMoveWindow(controls.list.static_creation_date, static_creation_date, FALSE);
-			_MyMoveWindow(controls.list.static_last_shown_date, static_last_shown_date, FALSE);
-			_MyMoveWindow(controls.list.static_score, static_score, FALSE);
-			_MyMoveWindow(controls.list.button_modify, btn_modify, FALSE);
-			_MyMoveWindow(controls.list.button_delete, btn_delete, FALSE);
+			MyMoveWindow_offset(controls.list.static_creation_date, static_creation_date, FALSE);
+			MyMoveWindow_offset(controls.list.static_last_shown_date, static_last_shown_date, FALSE);
+			MyMoveWindow_offset(controls.list.static_score, static_score, FALSE);
+			MyMoveWindow_offset(controls.list.button_modify, btn_modify, FALSE);
+			MyMoveWindow_offset(controls.list.button_delete, btn_delete, FALSE);
 
 		} break;
 		default:Assert(0);
@@ -1607,10 +1641,21 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				}
 				else {
 					std::time_t temp = unixtime;
-					std::tm* time = std::localtime(&temp);//IMPORTANT: not multithreading safe, returns a pointer to an internal unique object
+					std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
 					res->word.application_defined.attributes.last_shown_date = alloc_any_str(30 * sizeof(utf16));
 					wcsftime((utf16*)res->word.application_defined.attributes.last_shown_date.str, 30, L"%Y-%m-%d", time);
 				}
+			}
+			catch (...) {}
+
+			try {//Format created_date (this would be easier to do in the query but I'd have to remove the macros)
+				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.creation_date.str, nullptr, 10);
+				free_any_str(res->word.application_defined.attributes.creation_date.str);
+				
+			   	std::time_t temp = unixtime;
+			   	std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to aninternal unique object
+			   	res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
+			   	wcsftime((utf16*)res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
 			}
 			catch (...) {}
 
@@ -1624,6 +1669,23 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		sqlite3_exec(db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);
 		return std::move(res);
+	}
+
+	void clear_practices_vector(decltype(decltype(ProcState::pagestate)::practice_review_state::practices)& practices) {
+		for (auto p : practices) {
+			switch (p->type) {
+			case decltype(p->type)::writing:
+			{
+				ProcState::practice_writing* data = (decltype(data))p;
+				if (data->user_answer.str) { free_any_str(data->user_answer.str); data->user_answer.sz = 0; }
+				for (auto& _ : data->practice->word.all)free_any_str(_.str);
+				free(data->practice);
+			} break;
+			default: Assert(0);
+			}
+			free(p);//the object, no matter what type, can always be freed the same way since p is the ptr returned by the allocator
+		}
+		practices.clear();
 	}
 
 	//Sets the items in the corresponding page to the values on *data
@@ -1786,7 +1848,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			std::vector<ProcState::practice_header*>* practices = (decltype(practices))data;
 			auto controls = state->controls.review_practice;
 
-			//TODO(fran): free current elements before switching, I think this is the best place to do it
+			//free current elements before switching, I think this is the best place to do it
+			clear_practices_vector(state->pagestate.practice_review.practices);
 
 			state->pagestate.practice_review.practices = std::move(*practices);
 			size_t practices_cnt = state->pagestate.practice_review.practices.size(); Assert(practices_cnt != 0);
@@ -1811,12 +1874,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		std::string values[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) };
 
 		std::string update_word = std::string(" UPDATE ") + べんきょう_table_words + " SET ";
-		for (int i = learnt_word_pk_count/*dont update pk columns*/; i < ARRAYSIZE(columns); i++)
+		for (int i = word->pk_count/*dont update pk columns*/; i < ARRAYSIZE(columns); i++)
 			update_word += columns[i] + "=" + values[i] + ",";
 		update_word.pop_back();//you probably need to remove the trailing comma as always
 		update_word += " WHERE ";
-		for (int i = 0/*match by pk columns*/; i < learnt_word_pk_count; i++)
-			update_word += columns[i] + " LIKE " + values[i] + (((i+1) != learnt_word_pk_count)? "AND" : "");
+		for (int i = 0/*match by pk columns*/; i < word->pk_count; i++)
+			update_word += columns[i] + " LIKE " + values[i] + (((i+1) != word->pk_count)? "AND" : "");
 		//TODO(fran): should I use "like" or "="  or "==" ?
 
 		char* update_errmsg;
@@ -1906,7 +1969,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				" SELECT * FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
 				"("
 					" SELECT * FROM "
-						"(" " SELECT " + columns + " FROM " __べんきょう_table_words " ORDER BY times_shown ASC LIMIT 30" ")"
+						"(" " SELECT " + columns + " FROM " べんきょう_table_words " ORDER BY times_shown ASC LIMIT 30" ")"
 					"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
 				")"
 				" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
@@ -1914,7 +1977,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 				" SELECT * FROM "
 				"("
 					" SELECT * FROM "
-						"(" " SELECT " + columns + " FROM " __べんきょう_table_words " ORDER BY last_shown_date ASC LIMIT 30"  ")"
+						"(" " SELECT " + columns + " FROM " べんきょう_table_words " ORDER BY last_shown_date ASC LIMIT 30"  ")"
 					"ORDER BY RANDOM() LIMIT 5"
 				")"
 			")"
@@ -2053,7 +2116,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		else {
 			//TODO(fran): increase the practice counter on the db
 			user_stats_increment_times_practiced(state->settings->db);
-			preload_page(state, ProcState::page::review_practice,&state->multipage_mem.temp_practices);
+			preload_page(state, ProcState::page::review_practice,&state->multipagestate.temp_practices);
 			set_current_page(state, ProcState::page::review_practice);
 		}
 	}
@@ -2210,6 +2273,10 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 #endif
 							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 							store_previous_page(state, state->current_page);
+
+							//Clear previous practice data:
+							clear_practices_vector(state->multipagestate.temp_practices);
+
 							next_practice_level(state, USER_TIMER_MINIMUM);
 						}
 						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
@@ -2417,7 +2484,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 							p->answered_correctly = success;
 							p->question = question;
 
-							state->multipage_mem.temp_practices.push_back((ProcState::practice_header*)p);
+							state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
 
 							//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
 
