@@ -58,3 +58,25 @@ static void free_any_str(void* str) { free(str); };
 //TODO(fran):
 //https://stackoverflow.com/questions/42293192/making-a-dynamic-array-that-accepts-any-type-in-c
 //https://stackoverflow.com/questions/9804371/syntax-and-sample-usage-of-generic-in-c11
+
+
+template<typename T>
+struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
+	T* mem{0};
+	size_t cnt{ 0 };//NOTE: you can change the cnt in case you alloc more elems than necessary
+	//TODO(fran): differentiate between alloc-ed cnt and used cnt
+	static constexpr size_t type_sz = sizeof(*mem);//TODO(fran): this may be a stupid idea, also it seems to be fully supported as of c++17 before there were some stupid surprises https://stackoverflow.com/questions/22867654/enum-vs-constexpr-for-actual-static-constants-inside-classes
+
+	using value_type = T;
+
+	size_t sz() const { return cnt * type_sz; }
+
+	void free() { if (mem) { ::free(mem); cnt = 0; } }
+	//NOTE: also frees any previous allocation
+	void alloc(size_t cnt) { free(); this->cnt = cnt; mem = (T*)malloc(cnt * type_sz); }//TODO(fran): dont know how good the free idea is, say the user mallocs a ptr<> then mem and sz will be !=0 but not valid values and we crash
+
+	//void operator[](size_t i) const { return mem[i]; }
+
+	T& operator[](size_t i) { return mem[i]; }
+};
+//TODO(fran): it may be easier to read if we asked for the pointer directly, eg ptr<i32*> may be nicer than ptr<i32> as is now

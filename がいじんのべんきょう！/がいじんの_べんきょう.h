@@ -105,6 +105,14 @@ constexpr char べんきょう_table_words[] = "words";
 
 //NOTE: the columns 'word_cnt', 'times_shown', 'times_right' of the "user" table are automatically calculated via triggers
 
+#define _べんきょう_table_accuracy_timeline accuracy_timeline
+#define べんきょう_table_accuracy_timeline_structure \
+	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
+	accuracy			INTEGER NOT NuLL\
+
+//NOTE: accuracy is stored as a value between [0,100]
+//TODO(fran): the accuracy_timeline table should have indexing or default ordering via creation_date
+
 #define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
 
 #define べんきょう_table_version_structure \
@@ -116,7 +124,8 @@ struct user_stats {//TODO(fran): some of this stuff is easier to update via a tr
 	i64 times_practiced;	//Count for completed practice runs
 	i64 times_shown;		//Count for words shown in practice runs
 	i64 times_right;		//Count for correct word guessings in practice runs
-
+	ptr<u8> accuracy_timeline;	//Accuracy changes in some window of time, uses a separate query to obtain them, #free
+	
 	f32 accuracy() { // from 0 to 1
 		f32 res = safe_ratio1((f32)times_right, (f32)times_shown);
 		return res;
@@ -482,32 +491,71 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		return res;
 	}
 
-	void startup(sqlite3* db) {
-		utf8 create_word_table[] = SQL(
-			CREATE TABLE IF NOT EXISTS _べんきょう_table_words( べんきょう_table_words_structure) WITHOUT ROWID;
-		);
-		utf8* errmsg;
-		sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-		//TODO(fran): we should also implement update table for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any bennefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
+	//NOTE: afterwards you must .free() the accuracy_timeline member variable
+	//retrieves the last cnt timepoints in order of oldest to newest
+	void get_user_stats_accuracy_timeline(sqlite3* db, user_stats* stats, size_t cnt) {
+		using namespace std::string_literals;
+		std::string timeline =
+			SQL(SELECT accuracy FROM) 
+			+ "("s +
+				SQL(SELECT accuracy comma creation_date FROM _べんきょう_table_accuracy_timeline ORDER BY creation_date DESC LIMIT) + " "s + std::to_string(cnt)
+			+ ")" + 
+			SQL(ORDER BY creation_date ASC;);
 
-		utf8 create_user_table[] = SQL(
-			CREATE TABLE IF NOT EXISTS _べんきょう_table_user(べんきょう_table_user_structure);
-		);
-		sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
+		sqlite3_stmt* stmt;
+		int errcode;
+		errcode = sqlite3_prepare_v2(db, timeline.c_str(), (int)(timeline.size()+1) * sizeof(decltype(timeline)::value_type), &stmt, nullptr);
+		sqliteok_runtime_assert(errcode, db);
 
-		if (get_table_rowcount(db, べんきょう_table_user) > 0) {
-			//The entry is already there, here we can set new values on future updates for example
+		stats->accuracy_timeline.alloc(cnt);
+
+		int i = 0;
+		while (sqlite3_step(stmt) == SQLITE_ROW) {
+			stats->accuracy_timeline[i] = (decltype(stats->accuracy_timeline)::value_type)sqlite3_column_int(stmt, 0);
+			i++;
 		}
-		else {
-			//Entry isnt there, create it
-			utf8 insert_user[] = SQL(
-				INSERT INTO _べんきょう_table_user DEFAULT VALUES;
-			);
-			sqlite3_exec(db, insert_user, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
+		stats->accuracy_timeline.cnt = i;
 
+		sqlite3_finalize(stmt);
+	}
+
+	void startup(sqlite3* db) {
+		utf8* errmsg;
+		{
+			utf8 create_word_table[] = SQL(
+				CREATE TABLE IF NOT EXISTS _べんきょう_table_words(べんきょう_table_words_structure) WITHOUT ROWID;
+			);
+			sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+		//TODO(fran): we should also implement update table for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any bennefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
+		{
+			utf8 create_user_table[] = SQL(
+				CREATE TABLE IF NOT EXISTS _べんきょう_table_user(べんきょう_table_user_structure);
+			);
+			sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+		{
+			if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+				//The entry is already there, here we can set new values on future updates for example
+			}
+			else {
+				//Entry isnt there, create it
+				utf8 insert_user[] = SQL(
+					INSERT INTO _べんきょう_table_user DEFAULT VALUES;
+				);
+				sqlite3_exec(db, insert_user, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+
+			}
+		}
+		{
+			utf8 create_accuracy_timeline_table[] = SQL(
+				CREATE TABLE IF NOT EXISTS _べんきょう_table_accuracy_timeline(べんきょう_table_accuracy_timeline_structure);
+			);
+			sqlite3_exec(db, create_accuracy_timeline_table, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
 		}
 
 		//Triggers 
@@ -549,11 +597,80 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			CREATE TRIGGER IF NOT EXISTS increment_times_right
 			AFTER UPDATE OF times_right ON _べんきょう_table_words
 			BEGIN
-			UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
-		END;
+				UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
+			END;
 		);
 		sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
+
+		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+		/*
+		utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
+			AFTER UPDATE OF times_shown comma times_right ON _べんきょう_table_user
+			WHEN (ABS(strftime('%s', 'now') - COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline),0)) > 2)
+			BEGIN
+			INSERT INTO _べんきょう_table_accuracy_timeline(accuracy) 
+				VALUES((NEW.times_right / COALESCE(NULLIF(NEW.times_shown, 0), NULLIF(NEW.times_right, 0), 1))*100);
+			END;
+		);
+		utf8 create_trigger_update_accuracy_timepoint[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
+			AFTER UPDATE OF times_shown comma times_right ON _べんきょう_table_user
+			WHEN(ABS(strftime('%s', 'now') - COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline), 0)) <= 2)
+			BEGIN
+			UPDATE _べんきょう_table_accuracy_timeline
+				SET accuracy = (NEW.times_right / COALESCE(NULLIF(NEW.times_shown, 0), NULLIF(NEW.times_right, 0), 1))*100
+			WHERE creation_date = COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline), 0);
+			END;
+		);
+		*/
+
+		//IMPORTANT: this depends on times_shown being updated _before_ times_right
+		utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
+			AFTER UPDATE OF times_shown ON _べんきょう_table_user
+			BEGIN
+				INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
+				VALUES(CAST((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL) * 100.0) AS INTEGER));
+			END;
+		);
+		utf8 create_trigger_update_accuracy_timepoint[] = SQL(
+			CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
+			AFTER UPDATE OF times_right ON _べんきょう_table_user
+			BEGIN
+				UPDATE _べんきょう_table_accuracy_timeline
+				SET accuracy = CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER)
+				WHERE creation_date = (SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline);
+			END;
+		);
+
+		//IDEA: another way is to always insert on times_shown and update on times_rigth
+		//TODO(fran): this two triggers are really dumb, and we depend on the operation happening in less than N seconds (timinig dependency), if we could make this be one trigger at least but sqlite doenst have if-else on triggers
+		//TODO(fran): make sure that update of triggers for any of the columns names and not only if both are SET in a single query
+		//IMPORTANT INFO: since times_shown and times_right can be updated at different times we gotta be a little more clever at the time of adding a new timepoint
+		sqlite3_exec(db, create_trigger_insert_accuracy_timepoint, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
+		sqlite3_exec(db, create_trigger_update_accuracy_timepoint, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+
+//#define TEST_WORDS
+#if defined(TEST_WORDS) && defined(_DEBUG)
+		{
+			utf8 test_insert_words[] = SQL(
+				INSERT INTO _べんきょう_table_words(hiragana,kanji,translation,mnemonic,lexical_category)
+				VALUES
+					('ha','ha','ha','a',-1)comma
+					('he','he','he','a',-1)comma
+					('hi','hi','hi','a',-1)comma
+					('ho','ho','ho','a',-1)comma
+					('hu','hu','hu','a',-1);
+			);
+			sqlite3_exec(db, test_insert_words, 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		}
+#endif
 
 	}
 
@@ -1583,6 +1700,15 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
 			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
 			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
+			graph::set_points(controls.list.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt);
+			graph::graph_dimensions grid_dims;
+			grid_dims.set_top_point(100);
+			grid_dims.set_bottom_point(0);
+			grid_dims.set_viewable_points_range(0, stats->accuracy_timeline.cnt);
+			graph::set_dimensions(controls.list.graph_accuracy_timeline, grid_dims);
+			//graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
+			//graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
+			//graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, stats->accuracy_timeline.cnt);
 #else
 			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
 			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
@@ -1659,6 +1785,8 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		{
 			std::vector<ProcState::practice_header*>* practices = (decltype(practices))data;
 			auto controls = state->controls.review_practice;
+
+			//TODO(fran): free current elements before switching, I think this is the best place to do it
 
 			state->pagestate.practice_review.practices = std::move(*practices);
 			size_t practices_cnt = state->pagestate.practice_review.practices.size(); Assert(practices_cnt != 0);
@@ -1942,7 +2070,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
 		std::string update_last_shown_date = SQL(
-			UPDATE _べんきょう_table_words SET last_shown_date = CURRENT_TIMESTAMP WHERE hiragana =
+			UPDATE _べんきょう_table_words SET last_shown_date = strftime('%s', 'now') WHERE hiragana =
 		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
 
 		utf8* errmsg;
@@ -2046,6 +2174,7 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					else if (child == page.list.button_practice) {
 						store_previous_page(state, state->current_page);
 						user_stats stats = get_user_stats(state->settings->db);
+						get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
 						preload_page(state, ProcState::page::practice, &stats);
 						set_current_page(state, ProcState::page::practice);
 					}
@@ -2304,9 +2433,11 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 					auto& page = state->controls.review_practice;
 					if (child == page.list.button_continue) {
 						store_previous_page(state, state->current_page);
-						user_stats stats = get_user_stats(state->settings->db);
-						preload_page(state, ProcState::page::practice, &stats);
-						set_current_page(state, ProcState::page::practice);
+						//user_stats stats = get_user_stats(state->settings->db);
+						//get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };//TODO(fran): this things should be joined into a function, I've already got to do this same code twice
+						//preload_page(state, ProcState::page::practice, &stats);
+						//set_current_page(state, ProcState::page::practice);
+						set_current_page(state, ProcState::page::landing);//TODO(fran): this isnt best, it'd be nice if we went back to the practice page but from here it'd require a goto_previous_page and the fact that we know prev page is practice and that we should preload cause it's values have changed
 					} 
 					else if (child == page.list.gridview_practices) {
 						//The user clicked an element
@@ -2316,7 +2447,12 @@ namespace べんきょう { //INFO: Im trying namespaces to see if this is bette
 						case decltype(header->type)::writing:
 						{
 							ProcState::practice_writing* pagedata;
+							Assert(0);
 							//TODO(fran): set up and switch pages
+
+							//IDEA: implement ocarina of time's concept of a scene flag, the same page can be loaded in different scenes, eg on a practice page we'd have the default scene where we'd setup default colors, then the wrong_answer scene where we show a button or smth to allow the user to see the correct answer, also here we no longer accept new keyboard input beyond WM_ENTER, we also have the right_answer scene where we simply change colors and disable all user input since a timer will automatically change page. 
+							//IMPORTANT IDEA: we want individual/independent pages in the case we do reviews and similar things where we simply want to show the data but dont care about user input, eg the user presses an element in the gridview and we create a new wnd, create the corresponding controls, set them up (colors, disabled, etc) and show that window as a separate entity, that's what we want, to call add_controls on a different window and simply give it to the user, whenever the user's done they can close the window, meanwhile they can still interact with the main window, I think this is really good, the user could for example open all the words they got wrong at the same time, instead of having to open one, go back to the grid, open another; the one problem with this is where to show the new window, say we have 5 windows open, how do we choose where to show the sixth
+
 						} break;
 						}
 					}
