@@ -77,22 +77,22 @@ namespace edit_oneline{
 
 
 	void init_wndclass(HINSTANCE instance) {
-		WNDCLASSEXW edit_oneline;
+		WNDCLASSEXW cl;
 
-		edit_oneline.cbSize = sizeof(edit_oneline);
-		edit_oneline.style = CS_HREDRAW | CS_VREDRAW;
-		edit_oneline.lpfnWndProc = EditOnelineProc;
-		edit_oneline.cbClsExtra = 0;
-		edit_oneline.cbWndExtra = sizeof(ProcState*);
-		edit_oneline.hInstance = instance;
-		edit_oneline.hIcon = NULL;
-		edit_oneline.hCursor = LoadCursor(nullptr, IDC_IBEAM);
-		edit_oneline.hbrBackground = NULL;
-		edit_oneline.lpszMenuName = NULL;
-		edit_oneline.lpszClassName = wndclass;
-		edit_oneline.hIconSm = NULL;
+		cl.cbSize = sizeof(cl);
+		cl.style = CS_HREDRAW | CS_VREDRAW;
+		cl.lpfnWndProc = EditOnelineProc;
+		cl.cbClsExtra = 0;
+		cl.cbWndExtra = sizeof(ProcState*);
+		cl.hInstance = instance;
+		cl.hIcon = NULL;
+		cl.hCursor = LoadCursor(nullptr, IDC_IBEAM);
+		cl.hbrBackground = NULL;
+		cl.lpszMenuName = NULL;
+		cl.lpszClassName = wndclass;
+		cl.hIconSm = NULL;
 
-		ATOM class_atom = RegisterClassExW(&edit_oneline);
+		ATOM class_atom = RegisterClassExW(&cl);
 		Assert(class_atom);
 	}
 

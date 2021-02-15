@@ -810,6 +810,7 @@ namespace urender {
 	}
 
 	//doesnt look too good really, gdiplus dissapoints again
+	//TODO(fran): improve this guy, we need it for big controls, small ones can use RoundRect, I can try rendering the arcs with a smaller pen, or reduce the addarc w and h
 	void RoundRectangleBorder(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/,f32 thickness)
 	{
 		//thanks http://codewee.com/view.php?idx=60

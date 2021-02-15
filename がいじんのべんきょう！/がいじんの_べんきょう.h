@@ -737,25 +737,27 @@ namespace べんきょう {
 	}
 
 	void add_controls(ProcState* state) {
+		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT;
+		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT | BS_BITMAP;
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
 
-			controls.list.button_new = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_new, 100);
 			//TODO(fran): more brushes, fore_push,... , border_mouseover,...
-			UNCAPBTN_set_brushes(controls.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-			controls.list.button_practice = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_practice, 101);
-			UNCAPBTN_set_brushes(controls.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-			controls.list.button_search = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_search, 102);
-			UNCAPBTN_set_brushes(controls.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -768,7 +770,7 @@ namespace べんきょう {
 			EDITONELINE_set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));//TODO(fran): lang mgr
 
-			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP
+			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
 			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
@@ -791,10 +793,10 @@ namespace べんきょう {
 			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
 
-			controls.list.button_save = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_save, 124);
-			UNCAPBTN_set_brushes(controls.list.button_save, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_save, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -802,7 +804,7 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.search;
 
-			controls.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP /*TODO(fran):is CBS_HASSTRINGS necessary?*/
+			controls.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP | CBS_ROUNDRECT /*TODO(fran):is CBS_HASSTRINGS necessary?*/
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			ACC(controls.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
 			SetWindowSubclass(controls.list.combo_search, TESTComboProc, 0, 0);
@@ -835,7 +837,7 @@ namespace べんきょう {
 			EDITONELINE_set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
 
-			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP
+			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
 			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
@@ -860,15 +862,15 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.list.static_score, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
-			controls.list.button_modify = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			UNCAPBTN_set_brushes(controls.list.button_modify, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_modify, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-			controls.list.button_delete = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP | BS_BITMAP
+			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			UNCAPBTN_set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.bin);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -902,10 +904,10 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			score::set_brushes(controls.list.score_accuracy, FALSE, unCap_colors.ControlBk, unCap_colors.Score_RingBk, unCap_colors.Score_RingFull, unCap_colors.Score_RingEmpty, unCap_colors.Score_InnerCircle);
 
-			controls.list.button_start = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
-			UNCAPBTN_set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			
 			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -935,9 +937,9 @@ namespace べんきょう {
 			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
-			controls.list.button_next = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP | BS_BITMAP
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
-			UNCAPBTN_set_brushes(controls.list.button_next, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_next, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.arrowSimple_right);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -962,10 +964,10 @@ namespace べんきょう {
 #endif
 			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
 
-			controls.list.button_continue = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
+			controls.list.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_continue, 451);
-			UNCAPBTN_set_brushes(controls.list.button_continue, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_continue, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -2471,7 +2473,7 @@ namespace べんきょう {
 							//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
 							HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
 							EDITONELINE_set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
-							UNCAPBTN_set_brushes(page.list.button_next, TRUE, bk, bk, unCap_colors.ControlTxt, 0, 0);
+							button::set_brushes(page.list.button_next, TRUE, bk, bk, unCap_colors.ControlTxt, 0, 0);
 
 							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
 

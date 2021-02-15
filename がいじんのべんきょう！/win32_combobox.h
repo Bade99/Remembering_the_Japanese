@@ -1,8 +1,12 @@
 ﻿#pragma once
 #include "windows_sdk.h"
+#include <windowsx.h>
 #include <CommCtrl.h> //DefSubclassProc
 #include "win32_Helpers.h"
 #include "unCap_Global.h"
+
+//-------------Additional Styles-------------:
+#define CBS_ROUNDRECT 0x8000L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
 
 struct ComboProcState {
 	HWND wnd;
@@ -95,46 +99,63 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 	//case CBN_DROPDOWN://lets us now that the list is about to be show, therefore the user clicked us
 	case WM_PAINT:
 	{
-		DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
-		if (!(style & CBS_DROPDOWNLIST))
-			break;
+		PAINTSTRUCT ps;
+		HDC dc = BeginPaint(hwnd, &ps); defer{ EndPaint(hwnd, &ps); };
 
 		RECT rc; GetClientRect(hwnd, &rc);
-
-		PAINTSTRUCT ps;
-		HDC hdc = BeginPaint(hwnd, &ps);
+		int w = RECTW(rc), h = RECTH(rc);
+		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE); Assert(style & CBS_DROPDOWNLIST);
+		int border_thickness_pen = 0;//means 1px when creating pens
+		int border_thickness = 1;
 
 		BOOL ButtonState = (BOOL)SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0);
+		HBRUSH bk_br, border_br = unCap_colors.Img;
 		if (ButtonState) {
-			SetBkColor(hdc, ColorFromBrush(unCap_colors.ControlBkPush));
-			FillRect(hdc, &rc, unCap_colors.ControlBkPush);
+			bk_br = unCap_colors.ControlBkPush;
 		}
 		else if (state->on_mouseover) {
-			SetBkColor(hdc, ColorFromBrush(unCap_colors.ControlBkMouseOver));
-			FillRect(hdc, &rc, unCap_colors.ControlBkMouseOver);
+			bk_br = unCap_colors.ControlBkMouseOver;
 		}
 		else {
-			SetBkColor(hdc, ColorFromBrush(unCap_colors.ControlBk));
-			FillRect(hdc, &rc, unCap_colors.ControlBk);
+			bk_br = unCap_colors.ControlBk;
+		}
+		SetBkColor(dc, ColorFromBrush(bk_br));
+
+		//TODO(fran): this code is structured horribly
+
+		HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br));
+
+		HBRUSH oldbrush = SelectBrush(dc, (HBRUSH)GetStockObject(HOLLOW_BRUSH)); defer{ SelectObject(dc, oldbrush); };
+		HPEN oldpen = SelectPen(dc, pen);
+
+		SelectFont(dc, (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0));
+		//SetBkColor(hdc, bkcolor);
+		SetTextColor(dc, ColorFromBrush(unCap_colors.ControlTxt));
+
+		//Border and Bk
+		{
+			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+			if (style & CBS_ROUNDRECT) {
+				i32 extent = min(w, h);
+				bool is_small = extent < 50;
+				i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+				if (is_small) {
+					RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+				}
+				else {
+					//Bk
+					urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+					//Border
+					urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+				}
+			}
+			else {
+				Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
+			}
 		}
 
-		RECT client_rec;
-		GetClientRect(hwnd, &client_rec);
-
-		HPEN pen = CreatePen(PS_SOLID, max(1, (int)((RECTHEIGHT(client_rec))*.01f)), ColorFromBrush(unCap_colors.Img)); //para el borde
-
-		HBRUSH oldbrush = (HBRUSH)SelectObject(hdc, (HBRUSH)GetStockObject(HOLLOW_BRUSH));//para lo de adentro
-		HPEN oldpen = (HPEN)SelectObject(hdc, pen);
-
-		SelectObject(hdc, (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0));
-		//SetBkColor(hdc, bkcolor);
-		SetTextColor(hdc, ColorFromBrush(unCap_colors.ControlTxt));
-
-		//Border
-		Rectangle(hdc, 0, 0, rc.right, rc.bottom);
-
-		SelectObject(hdc, oldpen);
-		DeleteObject(pen);
+		SelectObject(dc, oldpen);
+		DeletePen(pen);
 
 		/*
 		if (GetFocus() == hwnd)
@@ -168,11 +189,11 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 				txt_rc.left += DISTANCE_TO_SIDE;
 				COLORREF prev_txt_clr;
 				if (cuebanner) {//TODO(fran): this double if is horrible
-					prev_txt_clr = SetTextColor(hdc, ColorFromBrush(unCap_colors.ControlTxt_Disabled));
+					prev_txt_clr = SetTextColor(dc, ColorFromBrush(unCap_colors.ControlTxt_Disabled));
 				}
-				DrawText(hdc, buf, -1, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+				DrawText(dc, buf, -1, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 				if (cuebanner) {
-					SetTextColor(hdc, prev_txt_clr);
+					SetTextColor(dc, prev_txt_clr);
 				}
 				free(buf);
 			}
@@ -190,14 +211,10 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 				int bmp_width = bmp_height;
 				int bmp_align_width = RECTWIDTH(rc) - bmp_width - DISTANCE_TO_SIDE;
 				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
-				urender::draw_mask(hdc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, unCap_colors.Img);//TODO(fran): parametric color
+				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, unCap_colors.Img);//TODO(fran): parametric color
 			}
 		}
-
-
-		SelectObject(hdc, oldbrush);
-
-		EndPaint(hwnd, &ps);
+		
 		return 0;
 	} break;
 	case WM_ERASEBKGND:

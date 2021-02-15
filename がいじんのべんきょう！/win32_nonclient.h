@@ -378,10 +378,10 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				btn_bk_push = unCap_colors.ControlBkPush;
 				btn_bk_mouseover = unCap_colors.ControlBkMouseOver;
 			}
-			UNCAPBTN_set_brushes(state->btn_close, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			UNCAPBTN_set_brushes(state->btn_min, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			UNCAPBTN_set_brushes(state->btn_max, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			UNCAPBTN_set_brushes(state->btn_back, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			button::set_brushes(state->btn_close, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			button::set_brushes(state->btn_min, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			button::set_brushes(state->btn_max, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			button::set_brushes(state->btn_back, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
 		}
 
 		//TODO(fran): move the menu up to get more screen real state, visual studio differentiates the menu items from the window title by rendering a darker square around the latter
@@ -482,19 +482,19 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 		SetWindowText(state->wnd, createnfo->lpszName); //NOTE: for handmade classes you have to manually call setwindowtext
 
-		state->btn_min = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+		state->btn_min = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MINIMIZE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_min, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver); //NOTE: now I do this on WM_PAINT, commenting this actually introduces a bug for the first ms of execution where the button might draw with no brushes first and then be asked to redraw with the brushes loaded, introducing at least one frame of flicker
 
-		state->btn_max = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+		state->btn_max = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MAXIMIZE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_max, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		state->btn_close = CreateWindow(unCap_wndclass_button, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
+		state->btn_close = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_CLOSE, 0, 0);
 		//UNCAPBTN_set_brushes(state->btn_close, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
-		state->btn_back = CreateWindow(unCap_wndclass_button, NULL, WS_CHILD | BS_BITMAP 
+		state->btn_back = CreateWindow(button::wndclass, NULL, WS_CHILD | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_BACK, 0, 0);
 
 		HBITMAP bCross = unCap_bmps.close;//TODO(fran): let the user set this guys
