@@ -530,7 +530,9 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 			WINDOWPLACEMENT p{ sizeof(p) }; GetWindowPlacement(state->wnd, &p);
 
-			if (p.showCmd == SW_SHOWMAXIMIZED) ShowWindow(state->wnd, SW_RESTORE);
+			if (p.showCmd == SW_SHOWMAXIMIZED) {
+				SendMessage(state->wnd, WM_COMMAND, MAKELONG(UNCAPNC_RESTORE, 0), 0);
+			}
 			else {
 #if 1
 				//LONG_PTR  dwStyle = GetWindowLongPtr(state->wnd, GWL_STYLE);
@@ -1008,6 +1010,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		case UNCAPNC_RESTORE:
 		{
 			ShowWindow(state->wnd, SW_RESTORE);
+			InvalidateRect(state->client, nullptr, TRUE);//INFO: for some reason we need to explicitly ask for client repaint when restoring, different to when maximizing who apparently does it automatically
 			return 0;
 		} break;
 		case UNCAPNC_MINIMIZE: //TODO(fran): move away from WM_COMMAND and start using WM_SYSCOMMAND, that probably means getting rid of the individual nc buttons and handling all myself like with the menubar
@@ -1019,7 +1022,9 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		{
 			WINDOWPLACEMENT p{ sizeof(p) }; GetWindowPlacement(state->wnd, &p);
 
-			if (p.showCmd == SW_SHOWMAXIMIZED) ShowWindow(state->wnd, SW_RESTORE);
+			if (p.showCmd == SW_SHOWMAXIMIZED) { 
+				SendMessage(state->wnd, WM_COMMAND, MAKELONG(UNCAPNC_RESTORE, 0), 0);
+			}
 			else ShowWindow(state->wnd, SW_MAXIMIZE); //TODO(fran): maximize covers the whole screen, I dont want that, I want to leave the navbar visible. For this to be done automatically by windows we need the WS_MAXIMIZEBOX style, which decides to draw a maximize box when pressed, if we can hide that we are all set
 			return 0;
 		} break;

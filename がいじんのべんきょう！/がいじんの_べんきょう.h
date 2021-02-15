@@ -16,7 +16,6 @@
 #include "win32_gridview.h"
 
 
-//TODO(fran): BUG (nonclient?): there are still some maximize-restore problems, where controls disappear
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?

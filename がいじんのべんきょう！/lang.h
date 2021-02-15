@@ -87,8 +87,8 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(300,"Word not found, would you like to add it?") /*Nicer than "do you want to add it?" I think*/
 
 	lang_entry(350,"Start")
-	lang_entry(351,"Word count") //or "Total Word count", or smth else, Im not sure this is clear whether it's for words added or practiced
-	lang_entry(352,"Practice runs")
+	lang_entry(351,"Word Count") //or "Total Word count", or smth else, Im not sure this is clear whether it's for words added or practiced
+	lang_entry(352,"Practice Runs")
 	lang_entry(353,"Accuracy")//or "Score" / "Lifetime score"
 	lang_entry(354,"Progress")//maybe something clearer
 
