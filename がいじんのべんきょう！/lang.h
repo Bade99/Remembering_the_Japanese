@@ -77,7 +77,7 @@ constexpr static utf16 lang_english_entries[] =
 
 
 	lang_entry(270,"Created:")
-	lang_entry(271,"Last practiced:")
+	lang_entry(271,"Practiced:")
 	lang_entry(272,"Score:")
 	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
 	lang_entry(274,"Never")

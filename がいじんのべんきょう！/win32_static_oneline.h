@@ -160,6 +160,7 @@ namespace static_oneline {
 			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE); //SS_CENTER, SS_RIGHT or default to SS_LEFT
 
 			//TODO(fran): render bk and border, flicker free
+			FillRect(dc, &rc, state->brushes.bk);
 
 			//TODO(fran): this should call urender::draw_text_max_coverage()
 #ifdef UNCAP_GDIPLUS

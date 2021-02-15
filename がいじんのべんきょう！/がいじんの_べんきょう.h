@@ -3,7 +3,6 @@
 #include "win32_Platform.h"
 #include "unCap_Serialization.h"
 #include "sqlite3.h"
-#include <string>
 #include "win32_Helpers.h"
 #include "win32_button.h"
 #include "LANGUAGE_MANAGER.h"
@@ -15,7 +14,10 @@
 #include "win32_graph.h"
 #include "win32_gridview.h"
 
+#include <string>
+#include <array> //create_grid_2x2
 
+//TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
@@ -29,6 +31,7 @@
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): page search: pressing enter in the edit control of the searchbox should trigger searching
+//TODO(fran): page search: window's combobox is too broken and useless, create one from scratch
 //TODO(fran): page show_word: format dates to only show up to the day, not including hours,min,sec
 //TODO(fran): page show_word: datetimes are stored in GMT, convert creation_date to user timezone before showing in the UI
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
@@ -845,14 +848,17 @@ namespace べんきょう {
 			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
 
-			controls.list.static_creation_date = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE
+			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_creation_date, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
-			controls.list.static_last_shown_date = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE
+			controls.list.static_last_shown_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_last_shown_date, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
-			controls.list.static_score = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE
+			controls.list.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_score, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
 			controls.list.button_modify = CreateWindowW(unCap_wndclass_button, NULL, WS_CHILD | WS_TABSTOP
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -965,6 +971,33 @@ namespace べんきょう {
 		}
 	}
 
+	//returns a 2x2 configuration or 1x4 if there isnt enough max_w
+	//w is used for horizontal centering only
+	//grid_h and grid_w identify the size of one cell //TODO(fran): why dont I call it cell_w and _h?
+	//TODO(fran): maybe creating a struct with 4 rect_i32 is less compiler expensive and less c++isy
+	std::array<std::array<rect_i32,2>,2> create_grid_2x2(i32 grid_h, i32 grid_w, i32 grid_y, i32 grid_w_pad, i32 grid_h_pad, i32 max_w, i32 w) {
+		std::array<std::array<rect_i32, 2>, 2> res;
+		for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { res[i][j].w = grid_w; res[i][j].h = grid_h; }
+		bool two_by_two = (grid_w * 2 + grid_w_pad) <= max_w;
+
+		if (two_by_two) {
+			res[0][0].left = w / 2 - grid_w_pad / 2 - res[0][0].w;	res[0][0].top = grid_y;
+			res[0][1].left = w / 2 + grid_w_pad / 2;					res[0][1].top = res[0][0].top;
+
+			res[1][0].left = res[0][0].left;						res[1][0].top = res[0][0].bottom() + grid_h_pad;
+			res[1][1].left = res[0][1].left;						res[1][1].top = res[1][0].top;
+		}
+		else {
+			for (int next_y = grid_y, i = 0; i < 2; i++)
+				for (int j = 0; j < 2; j++) {
+					res[i][j].left = (w - res[i][j].w) / 2;
+					res[i][j].top = next_y;
+					next_y = res[i][j].bottom() + grid_h_pad;
+				}
+		}
+		return res;
+	}
+
 	void resize_controls(ProcState* state) {
 		RECT r; GetClientRect(state->wnd, &r);
 		int w = RECTWIDTH(r);
@@ -1032,34 +1065,34 @@ namespace べんきょう {
 #endif
 
 			rect_i32 edit_hiragana;
-			edit_hiragana.x = w_pad;
 			edit_hiragana.y = start_y;
 			edit_hiragana.h = wnd_h;
-			edit_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+			edit_hiragana.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0), 30).cx);
+			edit_hiragana.x = (w- edit_hiragana.w)/2;
 
 			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = max_w / 3;
-			cb_lex_categ.x = w - w_pad - cb_lex_categ.w;
+			cb_lex_categ.w = (i32)((f32)edit_hiragana.w * .7f);
+			cb_lex_categ.x = (w- cb_lex_categ.w)/2;//TODO(fran): placement doesnt look too natural nor good; maybe if I centered the text of the cb?
 			cb_lex_categ.y = edit_hiragana.bottom() + h_pad/2;
 			cb_lex_categ.h = edit_hiragana.h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
 			
 			rect_i32 edit_kanji;
-			edit_kanji.x = edit_hiragana.x;
 			edit_kanji.y = cb_lex_categ.bottom() + h_pad/2;
-			edit_kanji.w = max_w;
+			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
 			edit_kanji.h = wnd_h;
+			edit_kanji.x = (w- edit_kanji.w)/2;
 
 			rect_i32 edit_translation;
-			edit_translation.x = edit_hiragana.x;
 			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = max_w;
+			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_translation, WM_GETFONT, 0, 0), 30).cx);
 			edit_translation.h = wnd_h;
+			edit_translation.x = (w- edit_translation.w)/2;
 
 			rect_i32 edit_mnemonic;
-			edit_mnemonic.x = edit_hiragana.x;
 			edit_mnemonic.y = edit_translation.bottom() + h_pad;
 			edit_mnemonic.w = max_w;
 			edit_mnemonic.h = wnd_h;
+			edit_mnemonic.x = (w- edit_mnemonic.w)/2;
 
 			rect_i32 btn_save;
 			btn_save.w = 70;
@@ -1345,55 +1378,51 @@ namespace べんきょう {
 			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
 
 			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = max_w / 3;
-			cb_lex_categ.x = w - w_pad - cb_lex_categ.w;
+			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
+#if 0
+			cb_lex_categ.x = min( w - w_pad - cb_lex_categ.w, w/2 + cb_lex_categ.w);//TODO(fran): doesnt look good, maybe just center it
+#else
+			cb_lex_categ.x = (w - cb_lex_categ.w) / 2;
+#endif
 			cb_lex_categ.y = static_hiragana.bottom() + h_pad / 2;
 			cb_lex_categ.h = wnd_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
 
 			rect_i32 edit_kanji;
-			edit_kanji.x = static_hiragana.x;
 			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
-			edit_kanji.w = max_w;
+			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
+			edit_kanji.x = (w- edit_kanji.w)/2;
 			edit_kanji.h = wnd_h;
 
 			rect_i32 edit_translation;
-			edit_translation.x = static_hiragana.x;
 			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = max_w;
+			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_translation, WM_GETFONT, 0, 0), 30).cx);
+			edit_translation.x = (w - edit_translation.w) / 2;
 			edit_translation.h = wnd_h;
 
 			rect_i32 edit_mnemonic;
-			edit_mnemonic.x = static_hiragana.x;
-			edit_mnemonic.y = edit_translation.bottom() + h_pad;
 			edit_mnemonic.w = max_w;
+			edit_mnemonic.x = (w- edit_mnemonic.w)/2;
+			edit_mnemonic.y = edit_translation.bottom() + h_pad;
 			edit_mnemonic.h = wnd_h;
 
 			rect_i32 last_user = edit_mnemonic;
 
-			int dual_w = (max_w-w_pad)/2;
+			auto stats_grid = create_grid_2x2(
+				wnd_h, avg_str_dim((HFONT)SendMessage(controls.list.static_creation_date, WM_GETFONT, 0, 0), 25).cx
+				, last_user.bottom() + h_pad, w_pad/2, h_pad/2, max_w, w);
 
-			rect_i32 static_creation_date;
-			static_creation_date.x = w_pad;
-			static_creation_date.y = last_user.bottom() + h_pad;
-			static_creation_date.w = dual_w;
-			static_creation_date.h = wnd_h;
+			rect_i32 static_creation_date = stats_grid[0][0];
 
-			rect_i32 static_last_shown_date;
-			static_last_shown_date.x = static_creation_date.right() + w_pad;
-			static_last_shown_date.y = static_creation_date.y;
-			static_last_shown_date.w = dual_w;
-			static_last_shown_date.h = wnd_h;
+			rect_i32 static_last_shown_date = stats_grid[0][1];
 
-			rect_i32 static_score;
-			static_score.x = w_pad;
-			static_score.y = static_last_shown_date.bottom() + h_pad;
-			static_score.w = max_w;
-			static_score.h = wnd_h;
+			rect_i32 static_score = stats_grid[1][0];
+
+			rect_i32 last_cell = static_score;//TODO(fran): we still got one more space at [1][1]
 
 			rect_i32 btn_modify;
 			btn_modify.w = 70;
 			btn_modify.h = wnd_h;
-			btn_modify.y = static_score.bottom() + h_pad;
+			btn_modify.y = last_cell.bottom() + h_pad;
 			btn_modify.x = (w - btn_modify.w) / 2;
 
 			rect_i32 btn_delete;
@@ -2414,7 +2443,7 @@ namespace べんきょう {
 					}
 					if (child == page.list.button_delete) {
 
-						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL);
+						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
 						if (ret == IDYES) {
 							if (remove_word(state)) {
 								goto_previous_page(state);
