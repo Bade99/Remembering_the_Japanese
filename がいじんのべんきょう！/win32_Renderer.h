@@ -779,7 +779,7 @@ namespace urender {
 	}
 
 	//GDI's RoundRect has no antialiasing
-	void FillRoundRectangle(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
+	void RoundRectangleFill(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
 	{
 		//thanks http://codewee.com/view.php?idx=60
 		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
@@ -807,6 +807,37 @@ namespace urender {
 		path.CloseFigure();
 
 		graphics.FillPath(&b, &path);
+	}
+
+	//doesnt look too good really, gdiplus dissapoints again
+	void RoundRectangleBorder(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/,f32 thickness)
+	{
+		//thanks http://codewee.com/view.php?idx=60
+		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
+		Gdiplus::Graphics graphics(dc);
+
+		graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+		graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+		graphics.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br));
+		auto p = Gdiplus::Pen(c, thickness);
+		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r));
+
+		Gdiplus::GraphicsPath path;
+
+		path.AddLine(rect.X + radius, rect.Y, rect.X + rect.Width - (radius * 2), rect.Y);
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y, radius * 2, radius * 2, 270, 90);
+		path.AddLine(rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - (radius * 2));
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 0, 90);
+		path.AddLine(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height, rect.X + radius, rect.Y + rect.Height);
+		path.AddArc(rect.X, rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 90, 90);
+		path.AddLine(rect.X, rect.Y + rect.Height - (radius * 2), rect.X, rect.Y + radius);
+		path.AddArc(rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+		path.CloseFigure();
+		
+		graphics.DrawPath(&p, &path);
 	}
 
 	static ULONG_PTR gdiplusToken;//HACK, gdi+ shouldnt need it in the first place but the devs had no idea what they were doing

@@ -22,6 +22,8 @@
 #define EN_ENTER (_editoneline_notif_base_msg+1) /*User has pressed the enter key*/
 #define EN_ESCAPE (_editoneline_notif_base_msg+2) /*User has pressed the escape key*/
 
+//-------------Additional Styles-------------:
+#define ES_ROUNDRECT 0x0200L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
 
 #define EDITONELINE_default_tooltip_duration 3000 /*ms*/
 #define EDITONELINE_tooltip_timer_id 0xf1
@@ -506,8 +508,11 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 	{
 		PAINTSTRUCT ps;
 		RECT rc; GetClientRect(state->wnd, &rc);
+		int w = RECTW(rc), h = RECTH(rc);
+		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 		//ps.rcPaint
 		HDC dc = BeginPaint(state->wnd, &ps);
+		int border_thickness_pen = 0;//means 1px when creating pens
 		int border_thickness = 1;
 		HBRUSH bk_br, txt_br, border_br;
 		bool show_default_text = *state->default_text && (GetFocus() != state->wnd) && (state->char_text.length()==0);
@@ -524,9 +529,27 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 		if (show_default_text) {
 			txt_br = state->brushes.txt_dis;
 		}
-		FillRectBorder(dc, rc, border_thickness, border_br, BORDERLEFT | BORDERTOP | BORDERRIGHT | BORDERBOTTOM);
 
-		{
+		if (style & ES_ROUNDRECT) {
+#if 1
+			//Border and Bk
+			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+			HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
+			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+			i32 roundedness = max(1, (i32)roundf((f32)min(w, h) * .2f));
+			RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+#else
+			//Bk
+			FillRect(dc, &rc, bk_br);
+			//Border
+			urender::RoundRectangleBorder(dc, border_br, rc, 5, 1);
+#endif
+		} 
+		else {
+			//Border
+			FillRectBorder(dc, rc, border_thickness, border_br, BORDERLEFT | BORDERTOP | BORDERRIGHT | BORDERBOTTOM);
+
+			//Bk
 			//Clip the drawing region to avoid overriding the border
 			HRGN restoreRegion = CreateRectRgn(0, 0, 0, 0); if (GetClipRgn(dc, restoreRegion) != 1) { DeleteObject(restoreRegion); restoreRegion = NULL; } defer{ SelectClipRgn(dc, restoreRegion); if (restoreRegion != NULL) DeleteObject(restoreRegion); };
 			{
@@ -540,53 +563,52 @@ LRESULT CALLBACK EditOnelineProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 				ExcludeClipRect(dc, bottom.left, bottom.top, bottom.right, bottom.bottom);
 				//TODO(fran): this aint too clever, it'd be easier to set the clipping region to the deflated rect
 			}
-			//Draw
-
 			RECT bk_rc = rc; InflateRect(&bk_rc, -border_thickness, -border_thickness);
 			FillRect(dc, &bk_rc, bk_br);//TODO(fran): we need to clip this where the text was already drawn, this will be the last thing we paint
 
-			{
-				HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
-				UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
+		}
 
-				COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
-				COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
+		{
+			HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+			UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
 
-				TEXTMETRIC tm;
-				GetTextMetrics(dc, &tm);
-				// Calculate vertical position for the string so that it will be vertically centered
-				// We are single line so we want vertical alignment always
-				int yPos = (rc.bottom + rc.top - tm.tmHeight) / 2;
-				int xPos;
-				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-				//ES_LEFT ES_CENTER ES_RIGHT
-				//TODO(fran): store char positions in the vector
-				if (style & ES_CENTER) {
-					SetTextAlign(dc, TA_CENTER);
-					xPos = (rc.right - rc.left) / 2;
-				}
-				else if (style & ES_RIGHT) {
-					SetTextAlign(dc, TA_RIGHT);
-					xPos = rc.right - state->char_pad_x;
-				}
-				else /*ES_LEFT*/ {//NOTE: ES_LEFT==0, that was their way of defaulting to left
-					SetTextAlign(dc, TA_LEFT);
-					xPos = rc.left + state->char_pad_x;
-				}
+			COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
+			COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
 
-				if (show_default_text) {
-					TextOut(dc, xPos, yPos, state->default_text, (int)cstr_len(state->default_text));
-				}
-				else if (style & ES_PASSWORD) {
-					//TODO(fran): what's faster, full allocation or for loop drawing one by one
-					cstr* pass_text = (cstr*)malloc(state->char_text.length() * sizeof(cstr));
-					for (size_t i = 0; i < state->char_text.length(); i++)pass_text[i] = password_char;
+			TEXTMETRIC tm;
+			GetTextMetrics(dc, &tm);
+			// Calculate vertical position for the string so that it will be vertically centered
+			// We are single line so we want vertical alignment always
+			int yPos = (rc.bottom + rc.top - tm.tmHeight) / 2;
+			int xPos;
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			//ES_LEFT ES_CENTER ES_RIGHT
+			//TODO(fran): store char positions in the vector
+			if (style & ES_CENTER) {
+				SetTextAlign(dc, TA_CENTER);
+				xPos = (rc.right - rc.left) / 2;
+			}
+			else if (style & ES_RIGHT) {
+				SetTextAlign(dc, TA_RIGHT);
+				xPos = rc.right - state->char_pad_x;
+			}
+			else /*ES_LEFT*/ {//NOTE: ES_LEFT==0, that was their way of defaulting to left
+				SetTextAlign(dc, TA_LEFT);
+				xPos = rc.left + state->char_pad_x;
+			}
 
-					TextOut(dc, xPos, yPos, pass_text, (int)state->char_text.length());
-				}
-				else {
-					TextOut(dc, xPos, yPos, state->char_text.c_str(), (int)state->char_text.length());
-				}
+			if (show_default_text) {
+				TextOut(dc, xPos, yPos, state->default_text, (int)cstr_len(state->default_text));
+			}
+			else if (style & ES_PASSWORD) {
+				//TODO(fran): what's faster, full allocation or for loop drawing one by one
+				cstr* pass_text = (cstr*)malloc(state->char_text.length() * sizeof(cstr));
+				for (size_t i = 0; i < state->char_text.length(); i++)pass_text[i] = password_char;
+
+				TextOut(dc, xPos, yPos, pass_text, (int)state->char_text.length());
+			}
+			else {
+				TextOut(dc, xPos, yPos, state->char_text.c_str(), (int)state->char_text.length());
 			}
 		}
 		EndPaint(hwnd, &ps);

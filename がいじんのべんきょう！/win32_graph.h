@@ -113,7 +113,7 @@ namespace graph {
 				{
 					points[pt_count] = { points[pt_count - 1].x,h };
 					points[pt_count + 1] = { points[0].x,h };
-					HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line));
+					HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line)); defer{ DeletePen(pen); };
 					HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
 					HBRUSH oldbr = SelectBrush(backbuffer_dc, state->brushes.bk_under_line); defer{ SelectBrush(backbuffer_dc,oldbr); };
 #ifdef GRAPH_DRAW_LINE
@@ -127,14 +127,14 @@ namespace graph {
 					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.bk_under_line));
 					auto b = Gdiplus::SolidBrush(c);
 					g.FillClosedCurve(&b, (Gdiplus::Point*)points, (INT)(pt_count+2));//yep, looks terrible, what we need is a FillCurve that understands that after the curve we want straight lines to connect it
-					//TODO(fran): how can we draw this stuff correctly to match DrawCurve?
+					//TODO(fran): how can we draw this stuff correctly to match DrawCurve? use a path and path.AddCurve, path.addlines para cerrarlo
 #endif
 				}
 
 				constexpr int line_thickness = 1;
 
 #if 0
-				HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line));
+				HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line)); defer{ DeletePen(pen); };
 				HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
 				MoveToEx(backbuffer_dc, points[0].x, points[0].y, nullptr);
 				if (pt_count == 1) {

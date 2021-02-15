@@ -31,7 +31,7 @@
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): page search: pressing enter in the edit control of the searchbox should trigger searching
-//TODO(fran): page search: window's combobox is too broken and useless, create one from scratch
+//TODO(fran): page search: window's combobox is too broken and useless, create one from scratch (search_box)
 //TODO(fran): page show_word: format dates to only show up to the day, not including hours,min,sec
 //TODO(fran): page show_word: datetimes are stored in GMT, convert creation_date to user timezone before showing in the UI
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
@@ -718,7 +718,7 @@ namespace べんきょう {
 #else
 			u16 degrees = 20;
 			//TODO(fran): I dont quite love how this looks
-			urender::FillRoundRectangle(dc, border_br, rc, degrees);
+			urender::RoundRectangleFill(dc, border_br, rc, degrees);
 #endif
 			InflateRect(&rc, -thickness, -thickness);
 
@@ -763,7 +763,7 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.new_word;
 
-			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));//TODO(fran): lang mgr
@@ -776,17 +776,17 @@ namespace べんきょう {
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
 
-			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
 
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
 
-			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP
+			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
@@ -825,12 +825,12 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
 
-			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
 
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP
+			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
@@ -843,7 +843,7 @@ namespace べんきょう {
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
 
-			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP
+			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
@@ -930,7 +930,7 @@ namespace べんきょう {
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, unCap_colors.ControlBk, 0, 0, unCap_colors.ControlBk_Disabled, 0);
 			//NOTE: text color will be set according to the type of word being shown
 
-			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN
+			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
@@ -975,6 +975,7 @@ namespace べんきょう {
 	//w is used for horizontal centering only
 	//grid_h and grid_w identify the size of one cell //TODO(fran): why dont I call it cell_w and _h?
 	//TODO(fran): maybe creating a struct with 4 rect_i32 is less compiler expensive and less c++isy
+	//NOTE: we dont handle the case when there's not enough height since it'll look too long if all the things are next to each other and you probably wont have the space anyway
 	std::array<std::array<rect_i32,2>,2> create_grid_2x2(i32 grid_h, i32 grid_w, i32 grid_y, i32 grid_w_pad, i32 grid_h_pad, i32 max_w, i32 w) {
 		std::array<std::array<rect_i32, 2>, 2> res;
 		for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { res[i][j].w = grid_w; res[i][j].h = grid_h; }
@@ -1134,30 +1135,8 @@ namespace べんきょう {
 
 			int grid_h = wnd_h * 4;
 			int grid_w = grid_h * 16 / 9;
-			int grid_start_y = start_y;
-			rect_i32 grid[2][2];
-			for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { grid[i][j].w = grid_w; grid[i][j].h = grid_h; }
-			int grid_w_pad = w_pad / 2;
-			int grid_h_pad = h_pad / 2;
-			bool two_by_two = (grid_w * 2 + grid_w_pad) <= max_w;
-
-			if (two_by_two) {
-				grid[0][0].left = w/2 - grid_w_pad/2 - grid[0][0].w;	grid[0][0].top = grid_start_y;
-				grid[0][1].left = w/2 + grid_w_pad/2;					grid[0][1].top = grid[0][0].top;
-
-				grid[1][0].left = grid[0][0].left;						grid[1][0].top = grid[0][0].bottom() + grid_h_pad;
-				grid[1][1].left = grid[0][1].left;						grid[1][1].top = grid[1][0].top;
-			}
-			else {
-				for (int next_y = grid_start_y, i = 0; i < 2; i++) 
-					for (int j = 0; j < 2; j++) { 
-						grid[i][j].left = (w - grid[i][j].w) / 2; 
-						grid[i][j].top = next_y; 
-						next_y = grid[i][j].bottom() + grid_h_pad; 
-					}
-			}
-			//NOTE: we dont handle the case when there's not enough height since it'll look too long if all the things are next to each other and you probably wont have the space anyway
-
+			auto grid = create_grid_2x2(grid_h, grid_w, start_y, w_pad / 2, h_pad / 2, max_w, w);
+			
 			rect_i32 cell;
 
 			//First cell
@@ -1266,8 +1245,8 @@ namespace べんきょう {
 			rect_i32 button_next;//child inside edit_answer
 			button_next.y = 1; //the button is inside the edit box (and past the border) //TODO(fran): we should ask the parent for its border size
 			button_next.h = edit_answer.h - 2;
-			button_next.w = min(button_next.h, edit_answer.w);
-			button_next.x = edit_answer.w - button_next.w - 1;
+			button_next.w = min(button_next.h, max(0, edit_answer.w-4/*avoid covering rounded borders*/));
+			button_next.x = edit_answer.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
 
 			rect_i32 bottom_most_control = edit_answer;
 
