@@ -809,11 +809,89 @@ namespace urender {
 		graphics.FillPath(&b, &path);
 	}
 
+	void RoundRectangleCornerFill(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
+	{
+		//thanks http://codewee.com/view.php?idx=60
+		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
+		Gdiplus::Graphics graphics(dc);
+
+		graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+		graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+		graphics.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br));
+		auto b = Gdiplus::SolidBrush(c);
+		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r));
+
+		Gdiplus::GraphicsPath path;
+
+		//path.AddLine(rect.X + radius, rect.Y, rect.X + rect.Width - (radius * 2), rect.Y);
+		path.StartFigure();
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y, radius * 2, radius * 2, 270, 90);
+		//path.AddLine(rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - (radius * 2));
+		path.StartFigure();
+		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 0, 90);
+		//path.AddLine(rect.X + rect.Width - (radius * 2), rect.Y + rect.Height, rect.X + radius, rect.Y + rect.Height);
+		path.StartFigure();
+		path.AddArc(rect.X, rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 90, 90);
+		//path.AddLine(rect.X, rect.Y + rect.Height - (radius * 2), rect.X, rect.Y + radius);
+		path.StartFigure();
+		path.AddArc(rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+		path.CloseAllFigures();
+		path.CloseFigure();
+
+		graphics.FillPath(&b, &path);
+	}
+
+	void RoundRectangleArcs(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/, f32 thickness)
+	{
+		//thanks http://codewee.com/view.php?idx=60
+		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
+		Gdiplus::Graphics g(dc);
+
+		g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+		g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+		g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br));
+		auto p = Gdiplus::Pen(c, thickness);
+		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r));
+		
+		g.DrawArc(&p,rect.X + rect.Width - (radius * 2), rect.Y, radius * 2, radius * 2, 270, 90);
+		g.DrawArc(&p,rect.X + rect.Width - (radius * 2), rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 0, 90);
+		g.DrawArc(&p,rect.X, rect.Y + rect.Height - (radius * 2), radius * 2, radius * 2, 90, 90);
+		g.DrawArc(&p,rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+	}
+
+	void RoundRectangleLines(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/, f32 thickness)
+	{
+		//thanks http://codewee.com/view.php?idx=60
+		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
+		Gdiplus::Graphics g(dc);
+
+		g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+		g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+		g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+		g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br));
+		auto p = Gdiplus::Pen(c, thickness);
+		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r));
+		
+		g.DrawLine(&p,rect.X + radius, rect.Y, rect.X + rect.Width - radius, rect.Y);
+		g.DrawLine(&p,rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - radius);
+		g.DrawLine(&p,rect.X + rect.Width - radius, rect.Y + rect.Height, rect.X + radius, rect.Y + rect.Height);
+		g.DrawLine(&p,rect.X, rect.Y + rect.Height - radius, rect.X, rect.Y + radius);
+	}
+
+
 	//doesnt look too good really, gdiplus dissapoints again
 	//TODO(fran): improve this guy, we need it for big controls, small ones can use RoundRect, I can try rendering the arcs with a smaller pen, or reduce the addarc w and h
 	void RoundRectangleBorder(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/,f32 thickness)
 	{
-		//thanks http://codewee.com/view.php?idx=60
+		//semi-thanks http://codewee.com/view.php?idx=60
 		//thanks https://stackoverflow.com/questions/33878184/c-sharp-how-to-make-smooth-arc-region-using-graphics-path
 		Gdiplus::Graphics graphics(dc);
 
@@ -827,7 +905,8 @@ namespace urender {
 		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r));
 
 		Gdiplus::GraphicsPath path;
-
+#if 1
+		//TODO(fran): this calculations are completely wrong, the lines dont line up with the arcs, maybe that's part of the problem why it looks so bad
 		path.AddLine(rect.X + radius, rect.Y, rect.X + rect.Width - (radius * 2), rect.Y);
 		path.AddArc(rect.X + rect.Width - (radius * 2), rect.Y, radius * 2, radius * 2, 270, 90);
 		path.AddLine(rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - (radius * 2));
@@ -839,6 +918,12 @@ namespace urender {
 		path.CloseFigure();
 		
 		graphics.DrawPath(&p, &path);
+#else
+		graphics.DrawLine(&p,rect.X + radius, rect.Y, rect.X + rect.Width - (radius * 2), rect.Y);
+		graphics.DrawLine(&p,rect.X + rect.Width, rect.Y + radius, rect.X + rect.Width, rect.Y + rect.Height - (radius * 2));
+		graphics.DrawLine(&p,rect.X + rect.Width - (radius * 2), rect.Y + rect.Height, rect.X + radius, rect.Y + rect.Height);
+		graphics.DrawLine(&p,rect.X, rect.Y + rect.Height - (radius * 2), rect.X, rect.Y + radius);
+#endif
 	}
 
 	static ULONG_PTR gdiplusToken;//HACK, gdi+ shouldnt need it in the first place but the devs had no idea what they were doing

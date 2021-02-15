@@ -464,6 +464,17 @@ namespace graph {
 			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 			return 0;
 		} break;
+		case WM_STYLECHANGED:
+		{
+			bool ex_style_changed = wparam & GWL_EXSTYLE;
+			bool style_changed = wparam & GWL_STYLE;
+			STYLESTRUCT* changes = (STYLESTRUCT*)lparam;
+			bool re_render= style_changed;//TODO(fran): check which styles changed before re-rendering, it may not be needed
+			if (re_render) {
+				render_backbuffer(state);
+				InvalidateRect(state->wnd, nullptr, TRUE);
+			}
+		} break;
 		case WM_GETFONT:
 		{
 			return (LRESULT)state->_font;

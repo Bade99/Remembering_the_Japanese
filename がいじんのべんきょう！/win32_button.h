@@ -374,11 +374,40 @@ namespace button {
 						RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
 					}
 					else {
+#if 0
 						//Bk
 						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-						//FillRect(dc, &rc, bk_br);
 						//Border
 						urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+#elif 0
+						//Bk
+						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+						//Border
+						urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+						urender::RoundRectangleCornerFill(dc, bk_br, rc, roundedness);//TODO(fran): if this didnt cut a bit of the line it would be semi acceptable
+#elif 1
+						//Bk
+						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+						//Border Arcs
+						urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)border_thickness);
+						//Border Lines
+						urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)border_thickness+1);
+						//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
+#else
+						HDC highresdc = CreateCompatibleDC(dc); defer{ DeleteDC(highresdc); };
+						HBRUSH oldbr = SelectBrush(highresdc, bk_br); defer{ SelectBrush(highresdc,oldbr); };
+						i32 scale_factor = 2;
+						HPEN pen = CreatePen(PS_SOLID, border_thickness*scale_factor, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+						HPEN oldpen = SelectPen(highresdc, pen); defer{ SelectPen(highresdc,oldpen); };
+						HBITMAP highresbmp = CreateCompatibleBitmap(dc, w*scale_factor, h * scale_factor); defer{ DeleteBitmap(highresbmp); };
+						HBITMAP oldbmp = SelectBitmap(highresdc, highresbmp); defer{ SelectBitmap(highresdc, oldbmp); };
+						RoundRect(highresdc, 1, 1, w* scale_factor-2, h* scale_factor-2, roundedness* scale_factor*2, roundedness*scale_factor*2);
+						int oldstretchmode = SetStretchBltMode(dc, HALFTONE); defer{ SetStretchBltMode(dc, oldstretchmode); };
+						SetBrushOrgEx(dc, 0, 0, nullptr);
+						StretchBlt(dc, rc.left, rc.top, w, h, highresdc, 0, 0, h * scale_factor, w * scale_factor, SRCCOPY);
+						
+						//TODO(fran): problems with this option: very expensive, weird glitches on the top, impossible to do transparency since we gotta blit the entire bmp instead of just the roundrect
+#endif 
 					}
 				}
 				else {
