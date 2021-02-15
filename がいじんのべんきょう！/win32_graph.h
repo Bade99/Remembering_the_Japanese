@@ -106,6 +106,8 @@ namespace graph {
 					points[i].y = (i32)(y_percent * h);
 				}
 
+#define GRAPH_DRAW_LINE
+
 				//Draw below the line:
 				//Complete the polygon
 				{
@@ -114,14 +116,26 @@ namespace graph {
 					HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line));
 					HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
 					HBRUSH oldbr = SelectBrush(backbuffer_dc, state->brushes.bk_under_line); defer{ SelectBrush(backbuffer_dc,oldbr); };
+#ifdef GRAPH_DRAW_LINE
 					Polygon(backbuffer_dc, points, (int)(pt_count + 2));//draw
+#else
+					Gdiplus::Graphics g(backbuffer_dc);
+					g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+					g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+					g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+					g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.bk_under_line));
+					auto b = Gdiplus::SolidBrush(c);
+					g.FillClosedCurve(&b, (Gdiplus::Point*)points, (INT)(pt_count+2));//yep, looks terrible, what we need is a FillCurve that understands that after the curve we want straight lines to connect it
+					//TODO(fran): how can we draw this stuff correctly to match DrawCurve?
+#endif
 				}
 
 				constexpr int line_thickness = 1;
 
+#if 0
 				HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line));
 				HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
-
 				MoveToEx(backbuffer_dc, points[0].x, points[0].y, nullptr);
 				if (pt_count == 1) {
 					//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
@@ -132,6 +146,29 @@ namespace graph {
 					PolylineTo(backbuffer_dc, &points[1], (DWORD)(pt_count - 1));
 					//NOTE: there's also Polyline which doesnt depend on MoveTo but doesnt update the current position, that pos could be useful for "append drawing"
 				}
+#else
+				{
+					Gdiplus::Graphics g(backbuffer_dc);
+					g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+					g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+					g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+					g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.line));
+					Gdiplus::Pen p(c, line_thickness);
+					if (pt_count == 1) {
+						//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
+						POINT pts[2] = { points[0], {w,points[0].y} };
+						g.DrawLines(&p, (Gdiplus::Point*)pts, 2);
+					}
+					else {
+#ifdef GRAPH_DRAW_LINE
+						g.DrawLines(&p, (Gdiplus::Point*)points, (INT)pt_count);
+#else
+						g.DrawCurve(&p, (Gdiplus::Point*)points, (INT)pt_count);
+#endif
+					}
+				}
+#endif
 				//TODO(fran): add style to allow for PolyBezierTo and handle WM_STYLECHANGE to update on realtime too
 			}
 		}
@@ -538,6 +575,8 @@ namespace graph {
 			HBRUSH border_br = state->brushes.border;
 #endif
 			FillRectBorder(dc, rc, border_thickness, border_br, BORDERALL);
+
+			//TODO(fran): draw a circle around the point the user is hovering right now
 
 			EndPaint(hwnd, &ps);
 			return 0;
