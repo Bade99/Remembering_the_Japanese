@@ -166,7 +166,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     sqlite3* db;
     constexpr cstr db_name[] = 
 #ifdef _DEBUG /*TODO(fran): this aint too bulletproof*/
-        L"\\test-db";
+        L"\\test-db.db";//NOTE: I simply put an extension so external programs pick up the file on windows' file select
 #else 
         L"\\db";
 #endif

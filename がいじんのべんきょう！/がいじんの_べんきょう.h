@@ -913,7 +913,7 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.static_accuracy_timeline_title, 354);
 
-			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD
+			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, unCap_colors.Graph_Line, unCap_colors.Graph_BkUnderLine, unCap_colors.Graph_Bk, unCap_colors.Graph_Border);
 

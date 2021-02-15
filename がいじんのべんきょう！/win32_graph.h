@@ -12,6 +12,10 @@
 //TODO(fran): respond on mouse move, we could put an indicator with a tooltip filled by the user
 //TODO(fran): add graph generation animation
 
+//----------------Styles----------------:
+#define GP_LINE		0x0001 //Points are connected by straight lines
+#define GP_CURVE	0x0002 //Points are connected by a curve
+
 namespace graph {
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_graph";
@@ -68,29 +72,30 @@ namespace graph {
 			HDC __front_dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,__front_dc); };
 			HDC backbuffer_dc = CreateCompatibleDC(__front_dc); defer{ DeleteDC(backbuffer_dc); }; //TODO(fran): we may want to create a dc on WM_NCCREATE and avoid having to recreate it every single time
 			auto oldbmp = SelectBitmap(backbuffer_dc, state->backbuffer); defer{ SelectBitmap(backbuffer_dc,oldbmp); };
-
-			RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			int w = state->backbuffer_dim.cx, h = state->backbuffer_dim.cy;
 #if 0
 			bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
 #endif
 
-			//Paint the background
+			//Bk
 #if 0
 			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
 #else
 			HBRUSH bk_br = state->brushes.bk;
 #endif
+			RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
 			FillRect(backbuffer_dc, &backbuffer_rc, bk_br);
 
-			//NOTE: do _not_ paint the border here, since it should fit the real size of the wnd
+			//NOTE: do _not_ paint the border here, since it should fit the real size of the wnd, do it on WM_PAINT
 
 			//Render the points
-			if (state->points.range_to_show.length && state->points.range_to_show.idx < state->points.list.size()) {
-				int w = state->backbuffer_dim.cx, h = state->backbuffer_dim.cy;
-				//we got a valid starting index and at least one point
+			if (state->points.range_to_show.length && state->points.range_to_show.idx < state->points.list.size()) { //we got a valid starting index and at least one point
 				size_t pt_count = min(distance(state->points.range_to_show.idx, state->points.list.size()), state->points.range_to_show.length);
-				POINT* points = (decltype(points))malloc(sizeof(*points) * (pt_count + 2)); defer{ free(points); };
+				bool one_pt = pt_count == 1;
+				POINT* points = (decltype(points))malloc(sizeof(*points) * (pt_count + 3)); defer{ free(points); };//NOTE: the +3 takes into account all edge cases
 
+				//Point placement calculation
 				f32 x_pad = safe_ratio0((f32)w, (f32)(pt_count - 1));
 				f32 curr_x = 0;
 				for (size_t i = 0; i < pt_count; i++) {
@@ -106,55 +111,23 @@ namespace graph {
 					points[i].y = (i32)(y_percent * h);
 				}
 
-#define GRAPH_DRAW_LINE
-
-				//Draw below the line:
-				//Complete the polygon
+				//Bk under line and Line
 				{
-					points[pt_count] = { points[pt_count - 1].x,h };
-					points[pt_count + 1] = { points[0].x,h };
-					HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line)); defer{ DeletePen(pen); };
-					HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
-					HBRUSH oldbr = SelectBrush(backbuffer_dc, state->brushes.bk_under_line); defer{ SelectBrush(backbuffer_dc,oldbr); };
-#ifdef GRAPH_DRAW_LINE
-					Polygon(backbuffer_dc, points, (int)(pt_count + 2));//draw
-#else
-					Gdiplus::Graphics g(backbuffer_dc);
-					g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
-					g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
-					g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
-					g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
-					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.bk_under_line));
-					auto b = Gdiplus::SolidBrush(c);
+					//Complete the polygon
+					if (!one_pt) {
+						//When you have more than one point you only need two more to complete the shape
+						points[pt_count] = { points[pt_count - 1].x,h };
+						points[pt_count + 1] = { points[0].x,h };
+					}
+					else {
+						//When you got only one point you need to construct the other 3 to complete the shape
+						points[1] = { w,points[0].y };
+						points[2] = { points[1].x,h };
+						points[3] = { points[0].x,h };
+						pt_count = 2;
+					}
 
-					//TODO(fran): check what happens when there's only one point
-					Gdiplus::GraphicsPath path;
-					path.AddCurve((Gdiplus::Point*)points, (INT)pt_count);
-					path.AddLines((Gdiplus::Point*)points + pt_count, 2);//TODO(fran): check this is the correct start and end point
-					path.CloseFigure();
-
-					g.FillPath(&b, &path);
-					//TODO(fran): handle the one point case correctly, for both line and curve (if it was working for line I broke it)
-#endif
-				}
-
-				constexpr int line_thickness = 1;
-
-#if 0
-				HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line)); defer{ DeletePen(pen); };
-				HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
-				MoveToEx(backbuffer_dc, points[0].x, points[0].y, nullptr);
-				if (pt_count == 1) {
-					//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
-					POINT end{ w,points[0].y };
-					PolylineTo(backbuffer_dc, &end, (DWORD)pt_count);
-				}
-				else {
-					PolylineTo(backbuffer_dc, &points[1], (DWORD)(pt_count - 1));
-					//NOTE: there's also Polyline which doesnt depend on MoveTo but doesnt update the current position, that pos could be useful for "append drawing"
-				}
-#else
-				{
+					constexpr int line_thickness = 1;
 					Gdiplus::Graphics g(backbuffer_dc);
 					g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
 					g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
@@ -162,20 +135,54 @@ namespace graph {
 					g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
 					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.line));
 					Gdiplus::Pen p(c, line_thickness);
-					if (pt_count == 1) {
-						//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
-						POINT pts[2] = { points[0], {w,points[0].y} };
-						g.DrawLines(&p, (Gdiplus::Point*)pts, 2);
-					}
-					else {
-#ifdef GRAPH_DRAW_LINE
+
+					if (style & GP_LINE) {
+						HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(state->brushes.bk_under_line)); defer{ DeletePen(pen); };
+						HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
+						HBRUSH oldbr = SelectBrush(backbuffer_dc, state->brushes.bk_under_line); defer{ SelectBrush(backbuffer_dc,oldbr); };
+						//Bk under line
+						Polygon(backbuffer_dc, points, (int)(pt_count + 2));
+
+						//Line
 						g.DrawLines(&p, (Gdiplus::Point*)points, (INT)pt_count);
-#else
+					}
+					else if (style & GP_CURVE) {
+						Gdiplus::Graphics g(backbuffer_dc);
+						g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+						g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+						g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality);
+						g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
+						Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.bk_under_line));
+						auto b = Gdiplus::SolidBrush(c);
+
+						Gdiplus::GraphicsPath path;
+						path.AddCurve((Gdiplus::Point*)points, (INT)pt_count);
+						path.AddLines((Gdiplus::Point*)points + pt_count, 2);
+						path.CloseFigure();
+
+						//Bk under line
+						g.FillPath(&b, &path);
+
+						//Line
 						g.DrawCurve(&p, (Gdiplus::Point*)points, (INT)pt_count);
-#endif
 					}
 				}
-#endif
+
+				//Line
+				//{
+					//if (one_pt) {
+						//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
+						//POINT pts[2] = { points[0], {w,points[0].y} };
+						//g.DrawLines(&p, (Gdiplus::Point*)points, pt_count);
+					//}
+					//else {
+//#ifdef GRAPH_DRAW_LINE
+						//g.DrawLines(&p, (Gdiplus::Point*)points, (INT)pt_count);
+//#else
+						//g.DrawCurve(&p, (Gdiplus::Point*)points, (INT)pt_count);
+//#endif
+					//}
+				//}
 				//TODO(fran): add style to allow for PolyBezierTo and handle WM_STYLECHANGE to update on realtime too
 			}
 		}
@@ -628,3 +635,19 @@ namespace graph {
 	};
 	static const pre_post_main PREMAIN_POSTMAIN;
 }
+
+
+/*Old line drawing code:
+HPEN pen = CreatePen(PS_SOLID, line_thickness, ColorFromBrush(state->brushes.line)); defer{ DeletePen(pen); };
+HPEN oldpen = SelectPen(backbuffer_dc, pen); defer{ SelectPen(backbuffer_dc,oldpen); };
+MoveToEx(backbuffer_dc, points[0].x, points[0].y, nullptr);
+if (pt_count == 1) {
+	//We need to invent an extra point at the end otherwise we dont have a second point to connect the line
+	POINT end{ w,points[0].y };
+	PolylineTo(backbuffer_dc, &end, (DWORD)pt_count);
+}
+else {
+	PolylineTo(backbuffer_dc, &points[1], (DWORD)(pt_count - 1));
+	//NOTE: there's also Polyline which doesnt depend on MoveTo but doesnt update the current position, that pos could be useful for "append drawing"
+}
+*/
