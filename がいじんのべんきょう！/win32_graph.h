@@ -126,8 +126,15 @@ namespace graph {
 					g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias);
 					Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(state->brushes.bk_under_line));
 					auto b = Gdiplus::SolidBrush(c);
-					g.FillClosedCurve(&b, (Gdiplus::Point*)points, (INT)(pt_count+2));//yep, looks terrible, what we need is a FillCurve that understands that after the curve we want straight lines to connect it
-					//TODO(fran): how can we draw this stuff correctly to match DrawCurve? use a path and path.AddCurve, path.addlines para cerrarlo
+
+					//TODO(fran): check what happens when there's only one point
+					Gdiplus::GraphicsPath path;
+					path.AddCurve((Gdiplus::Point*)points, (INT)pt_count);
+					path.AddLines((Gdiplus::Point*)points + pt_count, 2);//TODO(fran): check this is the correct start and end point
+					path.CloseFigure();
+
+					g.FillPath(&b, &path);
+					//TODO(fran): handle the one point case correctly, for both line and curve (if it was working for line I broke it)
 #endif
 				}
 
