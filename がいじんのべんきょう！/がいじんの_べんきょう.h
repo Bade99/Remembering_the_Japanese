@@ -32,8 +32,6 @@
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): page search: pressing enter in the edit control of the searchbox should trigger searching
 //TODO(fran): page search: window's combobox is too broken and useless, create one from scratch (search_box)
-//TODO(fran): page show_word: format dates to only show up to the day, not including hours,min,sec
-//TODO(fran): page show_word: datetimes are stored in GMT, convert creation_date to user timezone before showing in the UI
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
@@ -767,7 +765,7 @@ namespace べんきょう {
 
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));//TODO(fran): lang mgr
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -780,17 +778,17 @@ namespace べんきょう {
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
 
 			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
@@ -829,12 +827,12 @@ namespace べんきょう {
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -847,7 +845,7 @@ namespace べんきょう {
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
 
 			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
@@ -934,7 +932,7 @@ namespace べんきょう {
 
 			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
 			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
@@ -1503,7 +1501,7 @@ namespace べんきょう {
 		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
 			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
 			if (!sz_char) {
-				EDITONELINE_show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, ETP::top);
+				edit_oneline::show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
 				return false;
 			}
 		}
@@ -1516,7 +1514,7 @@ namespace べんきょう {
 		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
 			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
 			if (!sz_char) {
-				EDITONELINE_show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, ETP::top);
+				edit_oneline::show_tip(edit_required[i], RCS(11), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
 				return false;
 			}
 		}
@@ -1848,7 +1846,7 @@ namespace べんきょう {
 			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
 			
-			EDITONELINE_set_brushes(controls.list.edit_answer, TRUE, answer_br, 0, 0, 0, 0, 0);
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, 0, 0, 0, 0, 0);
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 
 		} break;
@@ -2297,14 +2295,10 @@ namespace べんきょう {
 					if (child == page.list.combo_search) {
 						WORD notif = HIWORD(wparam);
 						switch (notif) {
-						case CBN_EDITUPDATE://The user has changed the content of the edit box, this msg is sent before the change is rendered in the control
+						case CBN_EDITCHANGE://The user has changed the content of the edit box, this msg is sent after the change is rendered in the control (if we use CBN_EDITUPDATE whick is sent before re-rendering it slows down user input and feels bad to type)
 						{
-							//NOTE: there's also CBN_EDITCHANGE which does the same but after the modification has been rendered
 
-							//Do a search for what they wrote and show the results in the listbox of the combobox
 							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
-
-							//DWORD sel_start, sel_end; SendMessage(page.list.combo_search, CB_GETEDITSEL, (WPARAM)&sel_start, (LPARAM)&sel_end);
 
 							COMBOBOX_clear_list_items(page.list.combo_search);
 
@@ -2361,17 +2355,21 @@ namespace べんきょう {
 									//TODO(fran): now we have semi success with the cb, but still the first character comes out a little too late, it feels bad, we probably cant escape creating our own combobox (I assume that happens because animatewindow is happening?)
 									//TODO(fran): actually we can implement this in the subclass, we can add a msg for a non stupid way of showing the listbox, we can probaly handle everything well from there
 								}
-								else {
+								//else {
 									//Hide the listbox, well... maybe not since we now show the search string on the first item
 									//SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
-								}
+								//}
 								//Update listbox size
 								COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
 								int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
 								int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt, 2);
 								RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
 								MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
+#if 0
 								AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+#else
+								//ShowWindow(nfo.hwndList, SW_SHOW);//NOTE: dont call AnimateWindow, for starters SW_SHOW appears to already animate, unfortunately we dont want animation, we want the results as fast as possible, also the animation seems to be performed by the same thread which slows down user input
+#endif
 							}
 							else {
 								//Hide the listbox
@@ -2472,7 +2470,7 @@ namespace べんきょう {
 
 							//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
 							HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
-							EDITONELINE_set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
+							edit_oneline::set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
 							button::set_brushes(page.list.button_next, TRUE, bk, bk, unCap_colors.ControlTxt, 0, 0);
 
 							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times

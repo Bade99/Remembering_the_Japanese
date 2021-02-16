@@ -693,3 +693,9 @@ static u32 win32_get_refresh_rate_hz(HWND wnd) {
 	}
 	return res;
 }
+
+//----------------------CARET-----------------------:
+BOOL SetCaretPos(POINT p) {
+	BOOL res = SetCaretPos(p.x, p.y);
+	return res;
+}
