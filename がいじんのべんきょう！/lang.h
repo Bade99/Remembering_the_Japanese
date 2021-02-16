@@ -74,6 +74,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(207,"Counter")
 
 	lang_entry(250,"Search Hiragana")
+	lang_entry(251,"Search . . .")
 
 
 	lang_entry(270,"Created:")

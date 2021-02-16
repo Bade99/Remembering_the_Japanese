@@ -190,6 +190,7 @@
     <ClInclude Include="win32_edit_oneline.h" />
     <ClInclude Include="unCap_Global.h" />
     <ClInclude Include="unCap_Math.h" />
+    <ClInclude Include="win32_listbox.h" />
     <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
     <ClInclude Include="win32_Renderer.h" />

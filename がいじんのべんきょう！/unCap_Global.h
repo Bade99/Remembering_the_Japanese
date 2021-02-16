@@ -25,13 +25,6 @@ union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 		op(HBRUSH,ControlBk_Disabled,CreateSolidBrush(RGB(35, 36, 30))) \
 		op(HBRUSH,ControlTxt_Disabled,CreateSolidBrush(RGB(128, 128, 122))) \
 		op(HBRUSH,Img_Disabled,CreateSolidBrush(RGB(98, 98, 92))) \
-		op(HBRUSH,Search_Bk,CreateSolidBrush(RGB(30, 31, 25))) \
-		op(HBRUSH,Search_BkPush,CreateSolidBrush(RGB(0, 120, 210))) \
-		op(HBRUSH,Search_BkMouseOver,CreateSolidBrush(RGB(0, 130, 225))) \
-		op(HBRUSH,Search_Txt,CreateSolidBrush(RGB(238, 238, 232))) \
-		op(HBRUSH,Search_Edit_Bk,CreateSolidBrush(RGB(60, 61, 65))) \
-		op(HBRUSH,Search_Edit_Txt,CreateSolidBrush(RGB(248, 248, 242))) \
-		op(HBRUSH,Search_BkSelected,CreateSolidBrush(RGB(60, 61, 55))) \
 		op(HBRUSH,Score_RingBk,CreateSolidBrush(RGB(20, 21, 35))) \
 		op(HBRUSH,Score_RingFull,CreateSolidBrush(RGB(20, 243, 35))) \
 		op(HBRUSH,Score_RingEmpty,CreateSolidBrush(RGB(243, 21, 35))) \
@@ -101,3 +94,14 @@ private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and u
 };
 
 extern UNCAP_BMPS unCap_bmps;
+
+
+/*
+op(HBRUSH,Search_Bk,CreateSolidBrush(RGB(30, 31, 25))) \
+		op(HBRUSH,Search_BkPush,CreateSolidBrush(RGB(0, 120, 210))) \
+		op(HBRUSH,Search_BkMouseOver,CreateSolidBrush(RGB(0, 130, 225))) \
+		op(HBRUSH,Search_Txt,CreateSolidBrush(RGB(238, 238, 232))) \
+		op(HBRUSH,Search_Edit_Bk,CreateSolidBrush(RGB(60, 61, 65))) \
+		op(HBRUSH,Search_Edit_Txt,CreateSolidBrush(RGB(248, 248, 242))) \
+		op(HBRUSH,Search_BkSelected,CreateSolidBrush(RGB(60, 61, 55))) \
+*/

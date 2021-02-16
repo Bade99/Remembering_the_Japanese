@@ -388,6 +388,12 @@ namespace gridview {
 		} break;
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
+			if (state->backbuffer) {
+				DeleteBitmap(state->backbuffer);
+				state->backbuffer = 0;
+			}
+			state->elements.~vector();
+			state->element_placements.~vector();
 			free(state);
 			return 0;
 		}break;

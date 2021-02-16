@@ -3,40 +3,37 @@
 #include "win32_Platform.h"
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
-#include "win32_edit_oneline.h"
-#include "win32_listbox.h"
 #include <windowsx.h>
+#include <vector>
 
 //NOTE: no ASCII support, always utf16
 
 //------------------"API"------------------:
-//searchbox::wndclass identifies the window class to be used when calling CreateWindow()
-//searchbox::set_brushes() to set the HBRUSHes used by the searchbox, its editbox and listbox
+//listbox::wndclass identifies the window class to be used when calling CreateWindow()
+//listbox::set_brushes() to set the HBRUSHes used
 
 
 //------------------"Additional Styles"------------------:
-#define SRB_ROUNDRECT 0x0001 //Control has rounded corners
+#define LSB_ROUNDRECT_END 0x0001 //Control has rounded ending corners (eg if it's displayed below another wnd then the top corners remain squared while the bottom ones get rounded
+//TODO(fran): try to implement this, we'll need ws_ex_layered or ws_ex_transparent
 
-namespace searchbox {
-	
-	constexpr cstr wndclass[] = L"がいじんの_wndclass_searchbox";
+namespace listbox {
+
+	constexpr cstr wndclass[] = L"がいじんの_wndclass_listbox";
 
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
-		struct brushes {
-			HBRUSH bk, img;
-			HBRUSH bk_disabled, img_disabled;
+		HWND foster_parent;
+		struct brushes {//TODO(fran): we want the user to _always_ be in charge of drawing, so idk how useful this is to be sent to them
+			HBRUSH txt, bk, border;
+			HBRUSH txt_disabled, bk_disabled, border_disabled;
 		}brushes;
-		HFONT font;//simply cause windows msgs ask for it
+		HFONT font;//TODO(fran): again, may or may not be useful stuff to the user's rendering
 
-		struct {
-			HWND editbox;
-			HWND listbox;
-			//HWND button; //TODO(fran): add as an extra style
-		}controls;
+		std::vector<void*> elements;//each row will contain data sent by the user
+
 	};
-	//TODO(fran): use state->brushes.img to render an img icon of a magnifying glass
 
 
 	ProcState* get_state(HWND wnd) {
@@ -50,20 +47,28 @@ namespace searchbox {
 
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
 	//Any null HBRUSH param is ignored and the current one remains
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH img, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled, HBRUSH img_disabled) {
+	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			edit_oneline::set_brushes(state->controls.editbox, repaint, txt, bk, border, txt_disabled, bk_disabled, border_disabled);
 
-			//TODO(fran): set listbox brushes (though we want to allow the user to choose the render function)
+			if (txt)state->brushes.txt = txt;
+			if (txt_disabled)state->brushes.txt_disabled = txt_disabled;
 
 			if (bk)state->brushes.bk = bk;
 			if (bk_disabled)state->brushes.bk_disabled = bk_disabled;
 
-			if (img)state->brushes.img = img;
-			if (img_disabled)state->brushes.img_disabled = img_disabled;
+			if (border)state->brushes.border = border;
+			if (border_disabled)state->brushes.border_disabled = border_disabled;
 
 			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+			//TODO(fran): redraw elements
+		}
+	}
+
+	void set_parent(HWND wnd, HWND foster_parent) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->foster_parent = foster_parent;
 		}
 	}
 
@@ -78,29 +83,18 @@ namespace searchbox {
 			Assert(st);
 			set_state(hwnd, st);
 			st->wnd = hwnd;
-			st->parent = creation_nfo->hwndParent;
+			st->parent = creation_nfo->hwndParent;//NOTE: we could also be a floating wnd and parent be null
+			Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
+			st->elements = decltype(st->elements)();
+
+			//TODO(fran): check our styles
+
 			return TRUE; //continue creation
 		} break;
 		case WM_CREATE:
 		{
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
 			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-
-			//TODO(fran): settext is redirected to the editbox
-			if (createnfo->lpszName) PostMessage(state->wnd, WM_SETTEXT, 0, (LPARAM)createnfo->lpszName);
-
-			DWORD editbox_extrastyles= ES_LEFT;
-			if (style & SRB_ROUNDRECT) editbox_extrastyles |= ES_ROUNDRECT;
-
-			state->controls.editbox = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | WS_VISIBLE | WS_TABSTOP | editbox_extrastyles
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-
-			state->controls.listbox = CreateWindowEx(WS_EX_TOOLWINDOW /*| WS_EX_TOPMOST*/,listbox::wndclass, 0, WS_POPUP
-				, 0, 0, 0, 0, NULL, 0, NULL, NULL); 
-			//TODO(fran): create our own floating listbox
-			//TODO(fran): try with ComboLBox (though that probably animates and at that point it's faster to create something from scratch)
-
-			//TODO(fran): another idea is to have a huge open listbox that fills itself row by row, could look nice for this project since the search page is completely empty with lots of space, but really not reusable anywhere else, you always want a small search bar and a big over-the-window/floating listbox with results
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
 		} break;
@@ -118,10 +112,9 @@ namespace searchbox {
 		} break;
 		case WM_SIZE: //4th, sent _after_ the wnd has been resized
 		{
-			//TODO(fran): do I resize the listbox here, or only when I want to show it?
 			RECT r; GetClientRect(state->wnd, &r);
-			i32 w = RECTW(r), h =RECTH(r);
-			MoveWindow(state->controls.editbox, 0, 0, w, h, FALSE);
+			i32 w = RECTW(r), h = RECTH(r);
+			//TODO(fran): redraw elements
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOVE: //5th, This msg is received _after_ the window was moved
@@ -158,8 +151,7 @@ namespace searchbox {
 			HFONT font = (HFONT)wparam;
 			BOOL redraw = LOWORD(lparam);
 			state->font = font;
-			SendMessage(state->controls.editbox, msg, wparam, lparam);
-			SendMessage(state->controls.listbox, msg, wparam, lparam);
+			//TODO(fran): redraw elements
 			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 			return 0;
 		} break;
@@ -174,7 +166,7 @@ namespace searchbox {
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
 			if (state) {
-				DestroyWindow(state->controls.listbox);//NOTE: since this isnt a child I dont think it gets automatically destroyed
+				state->elements.~vector();
 				free(state);
 			}
 			return 0;
@@ -214,6 +206,7 @@ namespace searchbox {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+			//TODO(fran): check what the user's doing, we probably need to redraw, maybe better is to track the mouse
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
@@ -227,6 +220,7 @@ namespace searchbox {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+			//TODO(fran)
 			return 0;
 		} break;
 		case WM_LBUTTONUP:
@@ -248,23 +242,31 @@ namespace searchbox {
 			HDC dc = BeginPaint(state->wnd, &ps);
 			bool window_enabled = IsWindowEnabled(state->wnd);
 			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			//TODO(fran): maybe draw a user defined image (on the right if ES_LEFT or ES_CENTER, on the left otherwise)
+			//TODO(fran): render backbuffer or smth
 			EndPaint(hwnd, &ps);
 			return 0;
 		} break;
-		case WM_PARENTNOTIFY:
+		case WM_GETTEXT:
 		{
-			WORD event = LOWORD(wparam);
-			Assert(event == WM_CREATE || event == WM_DESTROY || event == WM_LBUTTONDOWN || event == WM_MBUTTONDOWN || event == WM_RBUTTONDOWN || event == WM_XBUTTONDOWN);
 			return 0;
 		} break;
-		//Msgs redirected to editbox
-		case WM_SETDEFAULTTEXT:
-		case WM_SETTEXT:
-		case WM_GETTEXT:
 		case WM_GETTEXTLENGTH:
 		{
-			return SendMessage(state->controls.editbox, msg, wparam,lparam);
+			return 0;
+		} break;
+		case WM_SETTEXT:
+		{
+			return TRUE;//we "set" the text
+		} break;
+		case WM_ACTIVATEAPP://Sent when you get activated or deactivated (for floating listbox)
+		{
+			BOOL activated = (BOOL)wparam;
+			//lparam == the other programs' thread id
+			return 0;
+		} break;
+		case WM_UAHDESTROYWINDOW:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);//NOTE: received because of DestroyWindow()
 		} break;
 		default:
 #ifdef _DEBUG

@@ -13,11 +13,13 @@
 #include "win32_static_oneline.h"
 #include "win32_graph.h"
 #include "win32_gridview.h"
+#include "win32_searchbox.h"
 
 #include <string>
 #include <array> //create_grid_2x2
 
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
+//TODO(fran): lang mgr: add WM_SETDEFAULTTEXT
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
@@ -352,6 +354,7 @@ struct べんきょうProcState {
 			using type = HWND;
 			struct {
 				type combo_search;
+				type searchbox_search;
 				//and a list for the results
 			}list;
 			type all[sizeof(list) / sizeof(type)];
@@ -813,7 +816,12 @@ namespace べんきょう {
 			SetWindowSubclass(info.hwndList, PrintMsgProc, 0, (DWORD_PTR)"Combo List");
 #endif
 			//cstr listclass[100];
-			//GetClassNameW(info.hwndList, listclass, 100); //INFO: class is ComboLBox, one interesting class windows has an it is hidden
+			//GetClassNameW(info.hwndList, listclass, 100); //INFO: class is ComboLBox, one interesting class windows has and it is hidden
+
+			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			SendMessage(controls.list.searchbox_search, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(251));
+			searchbox::set_brushes(controls.list.searchbox_search, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled, unCap_colors.Img_Disabled);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -1321,7 +1329,7 @@ namespace べんきょう {
 		case ProcState::page::search: 
 		{
 			auto& controls = state->controls.search;
-
+			int wnd_h = 30;
 			int max_w = w - w_pad * 2;
 
 			rect_i32 cb_search;
@@ -1330,7 +1338,14 @@ namespace べんきょう {
 			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
 			cb_search.w = max_w;
 
+			rect_i32 searchbox_search;
+			searchbox_search.x = cb_search.x;
+			searchbox_search.w = cb_search.w;
+			searchbox_search.h = wnd_h;
+			searchbox_search.y = cb_search.bottom() + h_pad;
+
 			MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
+			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
 
 		} break;
 		case ProcState::page::show_word: 
@@ -2219,6 +2234,15 @@ namespace べんきょう {
 		{
 			if (state) {
 				save_settings(state);
+
+				clear_practices_vector(state->pagestate.practice_review.practices);
+				state->pagestate.practice_review.practices.~vector();
+				
+				//#free? state->pagestate.practice_writing.practice;
+
+				clear_practices_vector(state->multipagestate.temp_practices);
+				state->multipagestate.temp_practices.~vector();
+
 				free(state);
 				state = nullptr;
 			}

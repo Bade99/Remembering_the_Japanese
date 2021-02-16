@@ -502,7 +502,8 @@ namespace edit_oneline{
 				DeleteBitmap(state->caret.bmp);
 				state->caret.bmp = 0;
 			}
-			//TODO(fran): we need to manually free the vector and the string, im pretty sure they'll leak after the free()
+			state->char_dims.~vector();
+			state->char_text.~basic_string();
 			free(state);
 			return 0;
 		}break;

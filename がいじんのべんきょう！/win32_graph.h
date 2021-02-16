@@ -486,6 +486,10 @@ namespace graph {
 		} break;
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
+			if (state->backbuffer) {
+				DeleteBitmap(state->backbuffer);
+				state->backbuffer = 0;
+			}
 			free(state);
 			set_state(hwnd, 0);//TODO(fran): I dont know if I should do this always
 			return 0;

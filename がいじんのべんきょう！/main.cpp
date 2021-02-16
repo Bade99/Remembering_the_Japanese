@@ -27,6 +27,8 @@
 //Unix time has always been signed! Reasons for it: apparently c didnt support unsigned numbers at the time, also being signed allows you to go before 1970, not only forwards, which at the time might have seemed important since they were close to "before 1970", finally that means that you have 31 bits to go forward which leaves you at 2038, when going 64 bits you get 63 to go forward which leaves you beyond what anybody reading this will ever see
 //I do hate about all this SQL like databases that you need every param converted to a string back and forth, but mainly it bothers me on insertion, if I want to put a number I gotta convert it to string, there's no printf like function where you could put all the values in their real format, therefore you never get efficiency benefits from columns that arent text, really all columns should be text if there isnt gonna be a good support from the start for the values to be inserted in their non text form, so that'd be a future personal challenge, make a better db
 //The Property Sheet is what you use when you want to create a wizard, ej install wizard/installer, also it seems to give the tab control functionality for real, unlike the wrongly named "tab control" which does very little
+//Windows' hidden window classes (ComboLBox,...) https://docs.microsoft.com/en-us/windows/win32/winmsg/about-window-classes?redirectedfrom=MSDN#system
+//More undocumented windows WM_UAH... https://github.com/adzm/win32-custom-menubar-aero-theme
 
 //-----------------Macro Definitions-----------------:
 #define _CRT_SECURE_NO_WARNINGS /*Dont take away functions for which you dont have replacement, and Im not stupid*/
