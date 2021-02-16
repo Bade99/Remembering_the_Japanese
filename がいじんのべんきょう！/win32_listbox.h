@@ -11,6 +11,7 @@
 //------------------"API"------------------:
 //listbox::wndclass identifies the window class to be used when calling CreateWindow()
 //listbox::set_brushes() to set the HBRUSHes used
+//listbox::set_render_function() to provide a rendering function for all elements of the list
 
 
 //------------------"Additional Styles"------------------:
@@ -21,20 +22,39 @@ namespace listbox {
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_listbox";
 
+	struct listbox_func_renderflags {
+		bool onSelected, onClicked;
+	};
+	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, listbox_func_renderflags flags, void* element);
+
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
 		HWND foster_parent;
 		struct brushes {//TODO(fran): we want the user to _always_ be in charge of drawing, so idk how useful this is to be sent to them
-			HBRUSH txt, bk, border;
-			HBRUSH txt_disabled, bk_disabled, border_disabled;
+			HBRUSH bk, border;
+			HBRUSH bk_disabled, border_disabled;
 		}brushes;
-		HFONT font;//TODO(fran): again, may or may not be useful stuff to the user's rendering
 
 		std::vector<void*> elements;//each row will contain data sent by the user
 
-	};
+		listbox_func_renderelement render_element;
 
+		SIZE element_dim;//NOTE: all elements are of the same size
+		i32 border_thickness;
+
+		size_t selected_element;//idx of the currently selected element
+		size_t mousehover_element;//idx of the element currently under the mouse
+		size_t clicked_element;//idx of the element that was clicked/pressed enter
+
+		HDC offscreendc;
+
+		HBITMAP backbuffer;
+		SIZE backbuffer_dim;
+
+		f32 scroll_y;//[0,1]
+
+	};
 
 	ProcState* get_state(HWND wnd) {
 		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
@@ -45,14 +65,75 @@ namespace listbox {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
+	void ask_for_repaint(ProcState* state) {
+		//TODO(fran): this control will usually be invisible, we only need to repaint if it is visible
+		InvalidateRect(state->wnd, NULL, TRUE);//ask for WM_PAINT
+		//RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+	}
+
+	//NOTE: "sz" should be the already precalculated size to cover all the render elements, and maxing out in its w component by the size of the window rectangle (since we allow vertical but not horizontal scrolling)
+	void resize_backbuffer(ProcState* state, SIZE sz) {
+		RECT rc; GetClientRect(state->wnd, &rc);
+		state->backbuffer_dim = { max(sz.cx, RECTW(rc)), max(sz.cy, RECTH(rc)) };
+		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+		if (state->backbuffer) DeleteBitmap(state->backbuffer);
+		state->backbuffer = CreateCompatibleBitmap(dc, state->backbuffer_dim.cx, state->backbuffer_dim.cy);
+	}
+
+	void render_backbuffer(ProcState* state) {
+		if (state->backbuffer) {
+			HDC& dc = state->offscreendc;
+			auto oldbmp = SelectBitmap(dc, state->backbuffer); defer{ SelectBitmap(dc,oldbmp); };
+
+			RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
+			bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
+
+			//Paint the background
+#if 0
+			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
+#else
+			HBRUSH bk_br = state->brushes.bk;
+#endif
+			FillRect(dc, &backbuffer_rc, bk_br);
+
+			//NOTE: do _not_ paint the border here, since it should fit the real size of the wnd
+
+			//Render the elements
+			//TODO(fran): we should have a list of changed elems so we know which ones need redrawing, otherwise this wont scale at all
+			if (state->render_element) {
+				for (size_t i = 0; i < state->elements.size(); i++) {
+					//TODO(fran): we could apply a transform so the user can render as if from {0,0} and we simply send a SIZE obj and they dont have to bother with offsetting by left and top
+					rect_i32 elem_rc{
+							backbuffer_rc.left
+						, backbuffer_rc.top + (i32)i * state->element_dim.cy
+						, state->element_dim.cx
+						, state->element_dim.cy
+					};
+					//TODO(fran): offset rectangle by state->border_thickness
+
+					listbox_func_renderflags flags;
+					flags.onClicked = state->clicked_element == i;
+					flags.onSelected = state->selected_element == i || state->mousehover_element == i;
+
+					state->render_element(dc, elem_rc,flags, state->elements[i]);
+				}
+			}
+		}
+	}
+
+	void full_backbuffer_redo(ProcState* state) {
+		//SIZE sz = calc_element_placements(state);
+		size_t elem_cnt = state->elements.size();
+		SIZE sz{ (i32)elem_cnt * state->element_dim.cx, (i32)elem_cnt * state->element_dim.cy };
+		resize_backbuffer(state, sz);
+		render_backbuffer(state);
+	}
+
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
 	//Any null HBRUSH param is ignored and the current one remains
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-
-			if (txt)state->brushes.txt = txt;
-			if (txt_disabled)state->brushes.txt_disabled = txt_disabled;
 
 			if (bk)state->brushes.bk = bk;
 			if (bk_disabled)state->brushes.bk_disabled = bk_disabled;
@@ -60,8 +141,10 @@ namespace listbox {
 			if (border)state->brushes.border = border;
 			if (border_disabled)state->brushes.border_disabled = border_disabled;
 
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
-			//TODO(fran): redraw elements
+			if (repaint) {
+				render_backbuffer(state); //re-render with new colors
+				ask_for_repaint(state);
+			}
 		}
 	}
 
@@ -71,6 +154,64 @@ namespace listbox {
 			state->foster_parent = foster_parent;
 		}
 	}
+
+	void set_render_function(HWND wnd, listbox_func_renderelement render_func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->render_element = render_func;
+			render_backbuffer(state); //re-render with new element rendering function
+			ask_for_repaint(state);
+		}
+	}
+
+	struct dimensions {
+		//Border for the outside of the listbox
+		int border_thickness = INT32_MAX;
+		//Height of one element (all elements have the same width and height)
+		int element_h = INT32_MAX;
+		dimensions& set_border_thickness(int x) { border_thickness = x; return *this; }
+		dimensions& set_element_h(int x) { element_h = x; return *this; }
+	};
+
+	void set_dimensions(HWND wnd, dimensions dims) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			bool redo_backbuffer = false;
+			if (dims.border_thickness != INT32_MAX && dims.border_thickness != state->border_thickness) {
+				state->border_thickness = dims.border_thickness;
+				redo_backbuffer = true;
+			}
+			if (dims.element_h != INT32_MAX && dims.element_h != state->element_dim.cy) {
+				state->element_dim.cy = dims.element_h;
+				redo_backbuffer = true;
+			}
+			if (redo_backbuffer) {
+				full_backbuffer_redo(state);
+			}
+		}
+	}
+
+	//Removes any elements already present and sets the new ones
+	void set_elements(HWND wnd, void** values, size_t count) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->elements.clear();//delete old elements
+			for (int i = 0; i < count; i++) state->elements.push_back(values[i]);
+			full_backbuffer_redo(state); //render new elements
+			ask_for_repaint(state);
+		}
+	}
+
+	//Adds new elements to the list without removing already present ones
+	void add_elements(HWND wnd, void** values, size_t count) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			for (int i = 0; i < count; i++) state->elements.push_back(values + i);
+			full_backbuffer_redo(state); //render new elements
+			ask_for_repaint(state);
+		}
+	}
+
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -87,7 +228,12 @@ namespace listbox {
 			Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
 			st->elements = decltype(st->elements)();
 
-			//TODO(fran): check our styles
+			st->selected_element = st->mousehover_element = st->clicked_element = UINT32_MAX;
+
+			HDC __front_dc = GetDC(st->wnd); defer{ ReleaseDC(st->wnd,__front_dc); };
+			st->offscreendc = CreateCompatibleDC(__front_dc);
+
+			//TODO(fran): check styles
 
 			return TRUE; //continue creation
 		} break;
@@ -112,9 +258,9 @@ namespace listbox {
 		} break;
 		case WM_SIZE: //4th, sent _after_ the wnd has been resized
 		{
-			RECT r; GetClientRect(state->wnd, &r);
-			i32 w = RECTW(r), h = RECTH(r);
-			//TODO(fran): redraw elements
+			RECT rc; GetClientRect(state->wnd, &rc);
+			state->element_dim.cx = RECTW(rc);
+			full_backbuffer_redo(state);
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOVE: //5th, This msg is received _after_ the window was moved
@@ -150,14 +296,15 @@ namespace listbox {
 		{
 			HFONT font = (HFONT)wparam;
 			BOOL redraw = LOWORD(lparam);
-			state->font = font;
-			//TODO(fran): redraw elements
-			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+			//state->font = font;
+			render_backbuffer(state);
+			if (redraw) ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_GETFONT:
 		{
-			return (LRESULT)state->font;
+			//return (LRESULT)state->font;
+			return 0;
 		} break;
 		case WM_DESTROY:
 		{
@@ -166,7 +313,10 @@ namespace listbox {
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
 			if (state) {
+				if (state->backbuffer) { DeleteBitmap(state->backbuffer); state->backbuffer = 0; }
 				state->elements.~vector();
+				DeleteDC(state->offscreendc);
+
 				free(state);
 			}
 			return 0;
@@ -207,6 +357,17 @@ namespace listbox {
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 			//TODO(fran): check what the user's doing, we probably need to redraw, maybe better is to track the mouse
+
+			Assert(state->elements.size());
+			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
+			size_t mousehover_element = mouse_on_backbuffer_y / state->backbuffer_dim.cy;
+
+			if (state->mousehover_element != mousehover_element) {
+				state->mousehover_element = mousehover_element;
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
@@ -220,11 +381,24 @@ namespace listbox {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
-			//TODO(fran)
 			return 0;
 		} break;
 		case WM_LBUTTONUP:
 		{
+			//NOTE: usually this kind of control registers a click on btn release
+
+			//wparam = test for virtual keys pressed
+			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+
+			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
+			size_t clicked_element = mouse_on_backbuffer_y / state->backbuffer_dim.cy;
+
+			if (state->clicked_element != clicked_element) {
+				state->clicked_element = clicked_element;
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+
 			return 0;
 		} break;
 		case WM_IME_SETCONTEXT://Sent after SetFocus to us
@@ -238,12 +412,34 @@ namespace listbox {
 			PAINTSTRUCT ps;
 			RECT rc; GetClientRect(state->wnd, &rc);
 			int w = RECTW(rc), h = RECTH(rc);
-			//ps.rcPaint
+			int border_thickness = state->border_thickness;
 			HDC dc = BeginPaint(state->wnd, &ps);
+			HDC& offscreendc = state->offscreendc;
 			bool window_enabled = IsWindowEnabled(state->wnd);
+			//TODO(fran): we need to re-render backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
 			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			//TODO(fran): render backbuffer or smth
+			int backbuf_x = 0;
+			int backbuf_y = (int)(state->scroll_y * (f32)state->backbuffer_dim.cy);
+			Assert(state->backbuffer_dim.cx == w);
+			int backbuf_w = w;
+			int backbuf_h = h;
+
+			auto oldbmp = SelectBitmap(offscreendc, state->backbuffer); defer{ SelectBitmap(offscreendc,oldbmp); };
+
+			BitBlt(dc, 0, 0, w, h, offscreendc, backbuf_x, backbuf_y, SRCCOPY);
+
+			//Paint the border
+			
+			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_disabled;
+			FillRectBorder(dc, rc, border_thickness, border_br, BORDERALL);
+
 			EndPaint(hwnd, &ps);
+			return 0;
+		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//TODO(fran): offset state->scroll_y;
+			Assert(0);
 			return 0;
 		} break;
 		case WM_GETTEXT:

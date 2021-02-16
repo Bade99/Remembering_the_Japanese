@@ -269,8 +269,6 @@ namespace gridview {
 		}
 	}
 
-	//TODO(fran): do add_elements as a batch operation, add_elements(void* elems, size_t cnt), that way we avoid pointless recalculation if we did it one by one
-
 	//Removes any elements already present and sets the new ones
 	void set_elements(HWND wnd, void** values, size_t count) {
 		ProcState* state = get_state(wnd);

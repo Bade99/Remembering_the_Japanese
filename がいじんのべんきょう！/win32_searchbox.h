@@ -17,6 +17,8 @@
 //------------------"Additional Styles"------------------:
 #define SRB_ROUNDRECT 0x0001 //Control has rounded corners
 
+//TODO(fran): add to editbox the EN_DOWN notif when the user presses the down key, that signifies us that they want the listbox open and a search performed on what's currently on the editbox (eg if they wrote smth and then went to a different app, when they come back the listbox wont show, there are two options here, show the listbox directly when the editbox gets clicked, or wait for the down arrow msg, or some other input). Also now that I think about it, normally the selection on the searchbox doesnt redirect you directly to your destination, a search is performed at the point and the items shown on a non floating listbox, but that really depends, eg google sends you to a page if it can, otherwise loads a different page with the non floating listbox
+
 namespace searchbox {
 	
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_searchbox";
@@ -256,6 +258,38 @@ namespace searchbox {
 		{
 			WORD event = LOWORD(wparam);
 			Assert(event == WM_CREATE || event == WM_DESTROY || event == WM_LBUTTONDOWN || event == WM_MBUTTONDOWN || event == WM_RBUTTONDOWN || event == WM_XBUTTONDOWN);
+			return 0;
+		} break;
+		case WM_COMMAND:
+		{
+			HWND child = (HWND)lparam;
+			if (child) {//Notifs from our childs
+				WORD notif = HIWORD(wparam);
+				if (child == state->controls.editbox) {
+					switch (notif) {
+					case EN_ENTER:
+					{
+						//TODO(fran): it's not that easy to know what to tell the user, we have to differentiate between "the user chose an element from the listbox" and "the user wrote something", also the user could first move to some element of the listbox but afterwards write something more (well actually the problem is mine, it's easy to differentiate, a click is obviously for listbox, and enter is listbox if it's visible (since the value is linked with the editbox's) and editbox if not visible aka listbox has no elements). My problem comes when there's the same writing for different words and then I need to filter with more info, specifically the info that the listbox's elements have (since I plan to add it there). Well actually this is bullshit, it's very simple, we need two cases, if the listbox is not visible then what's in the editbox counts and it's just that info, _but_ if the listbox is visible then what count is that element's data (since the editbox is, in this case, simply showing part of the info the listbox provided).
+						//A different idea would be the google/internet-search-engine searchbar approach, when the user selects an existing listbox item we go directly to it, otherwise we show possible results on a non floating listbox below the searchbar
+					} break;
+					case EN_ESCAPE:
+					{
+						Assert(0);//TODO
+					} break;
+					default: Assert(0);
+					}
+				}
+				else if (child == state->controls.listbox) {
+
+				}
+				else {
+					Assert(0);
+				}
+			}
+			else {
+				//Menu notifications
+				Assert(0);
+			}
 			return 0;
 		} break;
 		//Msgs redirected to editbox

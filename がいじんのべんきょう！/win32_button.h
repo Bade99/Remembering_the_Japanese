@@ -406,7 +406,7 @@ namespace button {
 						SetBrushOrgEx(dc, 0, 0, nullptr);
 						StretchBlt(dc, rc.left, rc.top, w, h, highresdc, 0, 0, h * scale_factor, w * scale_factor, SRCCOPY);
 						
-						//TODO(fran): problems with this option: very expensive, weird glitches on the top, impossible to do transparency since we gotta blit the entire bmp instead of just the roundrect
+						//TODO(fran): problems with this option: very expensive, weird glitches on the top, impossible to do transparency since we gotta blit the entire bmp instead of just the roundrect (maybe we can still do transparency via SetWindowRgn() )
 #endif 
 					}
 				}
