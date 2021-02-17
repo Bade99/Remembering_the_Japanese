@@ -11,6 +11,7 @@
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
 //TODO(fran): paint/handle my own IME window
+//TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
 
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
@@ -20,7 +21,7 @@
 
 #define WM_SETDEFAULTTEXT (editoneline_base_msg_addr+1) /*wparam=unused ; lparam=pointer to null terminated cstring*/ /*TODO(fran): many different windows could use this msg, it should be global*/
 #define EM_SETINVALIDCHARS (editoneline_base_msg_addr+2) /*characters that you dont want the edit control to accept either trough WM_CHAR or WM_PASTE*/ /*lparam=unused ; wparam=pointer to null terminated cstring, each char will be added as invalid*/ /*INFO: overrides the previously invalid characters that were set before*/ /*TODO(fran): what to do on pasting? reject the entire string or just ignore those chars*/
-#define WM_SETTEXT_NO_NOTIF (editoneline_base_msg_addr+3)
+#define WM_SETTEXT_NO_NOTIFY (editoneline_base_msg_addr+3) /*wparam=unused ; lparam=null terminated utf16* */
 
 
 //-------------"Default Notifications"-------------:
@@ -1054,7 +1055,7 @@ namespace edit_oneline{
 
 			return res;
 		}break;
-		case WM_SETTEXT_NO_NOTIF:
+		case WM_SETTEXT_NO_NOTIFY:
 		{
 			cstr* buf = (cstr*)lparam;//null terminated
 

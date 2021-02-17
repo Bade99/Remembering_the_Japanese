@@ -353,7 +353,7 @@ struct べんきょうProcState {
 		union search_controls {
 			using type = HWND;
 			struct {
-				type combo_search;
+				//type combo_search;
 				type searchbox_search;
 				//and a list for the results
 			}list;
@@ -762,6 +762,11 @@ namespace べんきょう {
 		urender::draw_text(dc, rc, to_utf16_str(txt), unCap_fonts.General, unCap_colors.ControlTxt, bk_br, urender::txt_align::left, 3);
 	}
 
+	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
+		utf16* txt = (decltype(txt))element;
+		SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt);
+	}
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT | BS_BITMAP;
@@ -830,10 +835,10 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.search;
 
-			controls.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP | CBS_ROUNDRECT /*TODO(fran):is CBS_HASSTRINGS necessary?*/
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			ACC(controls.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
-			SetWindowSubclass(controls.list.combo_search, TESTComboProc, 0, 0);
+			//controls.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP | CBS_ROUNDRECT /*TODO(fran):is CBS_HASSTRINGS necessary?*/
+			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//ACC(controls.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
+			//SetWindowSubclass(controls.list.combo_search, TESTComboProc, 0, 0);
 #if 0
 			COMBOBOXINFO info = { sizeof(info) };
 			GetComboBoxInfo(controls.list.combo_search, &info);
@@ -845,13 +850,14 @@ namespace べんきょう {
 
 			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			SendMessage(controls.list.searchbox_search, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(251));
+			//SendMessage(controls.list.searchbox_search, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(251));
+			ACC(controls.list.searchbox_search, 251);
 			searchbox::set_brushes(controls.list.searchbox_search, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled, unCap_colors.Img_Disabled);
 			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
 			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
 			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
 			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
-			//searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,);//TODO(fran)
+			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);//TODO(fran)
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
@@ -1363,19 +1369,19 @@ namespace べんきょう {
 			int wnd_h = 30;
 			int max_w = w - w_pad * 2;
 
-			rect_i32 cb_search;
-			cb_search.x = w_pad;
-			cb_search.y = h_pad;
-			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
-			cb_search.w = max_w;
+			//rect_i32 cb_search;
+			//cb_search.x = w_pad;
+			//cb_search.y = h_pad;
+			//cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
+			//cb_search.w = max_w;
 
 			rect_i32 searchbox_search;
-			searchbox_search.x = cb_search.x;
-			searchbox_search.w = cb_search.w;
+			searchbox_search.w = max_w;
+			searchbox_search.x = (w- searchbox_search.w) /2;
 			searchbox_search.h = wnd_h;
-			searchbox_search.y = cb_search.bottom() + h_pad;
+			searchbox_search.y = h_pad;
 
-			MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
+			//MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
 			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
 			searchbox::set_listbox_dimensions(controls.list.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
 
@@ -1936,7 +1942,10 @@ namespace べんきょう {
 		ProcState* state = get_state((HWND)user_extra);
 		if (state) {
 			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
-			utf16* search = (decltype(search))element;
+			utf16* search;
+			
+			if (is_element) search = (decltype(search))element;
+			else search = ((utf16_str*)element)->str;
 
 			get_word_res res = get_word(state->settings->db, search); defer{ free_get_word(res); };
 			if (res.found) {
@@ -2389,6 +2398,7 @@ namespace べんきょう {
 				case ProcState::page::search:
 				{
 					auto& page = state->controls.search;
+#if 0
 					if (child == page.list.combo_search) {
 						WORD notif = HIWORD(wparam);
 						switch (notif) {
@@ -2507,6 +2517,7 @@ namespace べんきょう {
 						} break;
 						}
 					}
+#endif
 				} break;
 				case ProcState::page::show_word:
 				{

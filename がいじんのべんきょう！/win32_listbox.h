@@ -16,7 +16,8 @@
 
 //--------------"Notifications"---------------: (through WM_COMMAND)
 //IMPORTANT: this listbox always sends notifications
-//LBN_CLK (alias for LBN_SELCHANGE): notifies whenever the user has clicked an item on the listbox, IMPORTANT: the current selection/click remains only while on the WM_COMMAND response
+//LBN_CLK: notifies whenever the user has clicked an item on the listbox, IMPORTANT: the current click remains only while on the WM_COMMAND response, meaning you must call listbox::get_clicked_element() there, it wont be correct later
+//LBN_SELCHANGE: the selection has changed (eg by calling listbox::sel_up())
 
 //------------------"Styles"------------------:
 #define LSB_ROUNDRECT_END 0x0001 //Control has rounded ending corners (eg if it's displayed below another wnd then the top corners remain squared while the bottom ones get rounded
@@ -24,7 +25,9 @@
 
 //TODO(fran): rendering: there's something clearly screwed up, when you hover with the mouse along many elements you can see a vertical cut as it changes from one to another, wtf is that? also it doesnt always happen
 
-#define LBN_CLK LBN_SELCHANGE
+#define LBN_CLK (LBN_KILLFOCUS+10) //NOTE: LBN_KILLFOCUS is the last default listbox notif
+
+//TODO(fran): add extra functionality for non floating listboxes, eg VK_UP and VK_DOWN to change the selection
 
 namespace listbox {
 
@@ -88,6 +91,7 @@ namespace listbox {
 		//RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 	}
 
+	//IMPORTANT: the return ptr must not be freed, it points to the actual elements of the listbox
 	ptr<void*> get_all_elements(HWND wnd) {//TODO(fran): this shouldnt exist but I need it in order to be lazy in the searchbox
 		ptr<void*> res{ 0 };
 		ProcState* state = get_state(wnd);
@@ -220,9 +224,14 @@ namespace listbox {
 		}
 	}
 
+	void notify_parent(ProcState* state, WORD notif) {
+		SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, notif), (LPARAM)state->wnd);
+	}
+
 	void clear_selection(ProcState* state) {
 		state->selected_element = state->mousehover_element = state->clicked_element = UINT32_MAX;
 		//TODO(fran): not sure whether I want to clear everything or just the selected_element
+		notify_parent(state, LBN_SELCHANGE);
 	}
 
 	//Removes any elements already present and sets the new ones
@@ -257,12 +266,10 @@ namespace listbox {
 		}
 	}
 
+	//IMPORTANT TODO(fran): this functions should map to a SendMessage, otherwise we're bypassing the msg queue and an external user cant see what we're doing nor modify it
+
 	size_t get_element_cnt(HWND wnd) {
-		size_t res=0;
-		ProcState* state = get_state(wnd);
-		if (state) {
-			res = state->elements.size();
-		}
+		size_t res = SendMessage(wnd, LB_GETCOUNT, 0, 0);
 		return res;
 	}
 
@@ -276,8 +283,50 @@ namespace listbox {
 		return res;
 	}
 
+	//returns the currently selected item index, if no item is selected this value will be higher than the current element count
+	size_t get_cur_sel(HWND wnd) {
+		size_t res = SendMessage(wnd, LB_GETCURSEL, 0, 0);
+		return res;
+	}
+
+	void* get_element_at(HWND wnd, size_t idx) {
+		void* res = (decltype(res))SendMessage(wnd, LB_GETITEMDATA, idx, 0);
+		return res;
+	}
+
+	void sel_up(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (state->elements.size()) {
+				if (state->selected_element != UINT32_MAX)
+					state->selected_element = state->selected_element==0 ? 
+						state->elements.size()-1 : (state->selected_element - 1) % state->elements.size();
+				else state->selected_element = state->elements.size() - 1;
+				//TODO(fran): only re-render if the selected_element changed 
+				notify_parent(state, LBN_SELCHANGE);
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+		}
+	}
+
+	void sel_down(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (state->elements.size()) {
+				if (state->selected_element != UINT32_MAX)
+					state->selected_element = (state->selected_element + 1) % state->elements.size();
+				else state->selected_element = 0;
+				//TODO(fran): only re-render if the selected_element changed 
+				notify_parent(state, LBN_SELCHANGE);
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+		}
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		printf("LISTBOX:%s\n",msgToString(msg));
+		//printf("LISTBOX:%s\n",msgToString(msg));
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
 		case WM_NCCREATE:
@@ -292,7 +341,7 @@ namespace listbox {
 			Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
 			st->elements = decltype(st->elements)();
 
-			st->selected_element = st->mousehover_element = st->clicked_element = UINT32_MAX;
+			st->selected_element = st->mousehover_element = st->clicked_element = UINT32_MAX;//TODO(fran): use std::limits<size_t>::max()
 
 			HDC __front_dc = GetDC(st->wnd); defer{ ReleaseDC(st->wnd,__front_dc); };
 			st->offscreendc = CreateCompatibleDC(__front_dc);
@@ -598,6 +647,22 @@ namespace listbox {
 		//	InvalidateRect(state->wnd, NULL, TRUE);
 		//	return 0;
 		//} break;
+		//---------Responses to the user---------:
+		case LB_GETCURSEL:
+		{
+			return state->selected_element;//TODO(fran): idk if we want to check if state->clicked_element is valid too
+		} break;
+		case LB_GETCOUNT:
+		{
+			return state->elements.size();
+		} break;
+		case LB_GETITEMDATA:
+		{
+			void* res = 0;
+			size_t idx = wparam;
+			if (idx < state->elements.size()) res = state->elements[idx];
+			return (LRESULT)res;
+		} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);

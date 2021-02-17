@@ -20,14 +20,19 @@
 //searchbox::set_function_render_listbox_element()
 //searchbox::set_user_extra() extra user-defined data to be sent on each function call
 
+//-------------"API" (Additional Messages)-------------:
+#define searchbox_base_msg_addr (WM_USER + 3300)
+#define SRBM_CLKOUTSIDE (searchbox_base_msg_addr + 20) //do not use, internal msg
+
+
 //IMPORTANT: instead of having what's written on the editbox duplicated on the first row of the listbox we'll implement ESC (escape) as a means of getting back to the word you were writing, TODO(fran): for this to work we need to store here the last written input by the user, and restore it on EN_ESCAPE or whatever
 
 //------------------"Additional Styles"------------------:
 #define SRB_ROUNDRECT 0x0001 //Control has rounded corners
 
 //TODO(fran): add to editbox the EN_DOWN notif when the user presses the down key, that signifies us that they want the listbox open and a search performed on what's currently on the editbox (eg if they wrote smth and then went to a different app, when they come back the listbox wont show, there are two options here, show the listbox directly when the editbox gets clicked, or wait for the down arrow msg, or some other input). Also now that I think about it, normally the selection on the searchbox doesnt redirect you directly to your destination, a search is performed at the point and the items shown on a non floating listbox, but that really depends, eg google sends you to a page if it can, otherwise loads a different page with the non floating listbox
-
 //TODO(fran): small BUG, when the user click on an item from the listbox we lose keyboard focus and therefore the nonclient renders itself as inactive for a couple of frames before coming back to active
+//TODO(fran): I dont see an easy way of hiding the listbox if the user starts clicking outside of it but inside our main wnd, we would need some way of detecting a click or some change, right now neither the listbox, nor the editbox, nor us get anything when the user clicks outside
 
 namespace searchbox {
 	
@@ -36,8 +41,8 @@ namespace searchbox {
 	//NOTE: trying a different approach, the control is the active part, and the user is passive. May be a bad idea, we'll find out
 	typedef void(*searchbox_func_free_elements)(ptr<void*> elements, void* user_extra);
 	typedef ptr<void*>(*searchbox_func_retrieve_search_options)(utf16_str user_input, void* user_extra);//you're provided with the string written on the editbox and are expected to return an array of elements to show on the listbox
-	typedef void(*searchbox_func_perform_search)(void* element, bool is_element, void* user_extra);//the user has selected something to be searched. If is_element == true -> void* data points to your element data, if == false then it points to a utf16_str* with the content of the editbox
-	typedef void(*searchbox_func_show_element_on_editbox)(HWND editbox, void* element, void* user_extra);//you're given one of your elements and tasked with SendMessage(WM_SETTEXT) to the provided editbox hwnd (this is used when the user scrolls with the arrow keys along the options on the listbox, you can also decide _not_ to update the editbox if you dont feel like it, though it's not really supported right now, what happens could not be what the user expects)
+	typedef void(*searchbox_func_perform_search)(void* element, bool is_element, void* user_extra);//the user has selected something to be searched. If is_element == true then element points to your element data, if == false then it points to a utf16_str with the content of the editbox
+	typedef void(*searchbox_func_show_element_on_editbox)(HWND editbox, void* element, void* user_extra);//you're given one of your elements and tasked with SendMessage(WM_SETTEXT_NO_NOTIFY) to the provided editbox hwnd (this is used when the user scrolls with the arrow keys along the options on the listbox, you can also decide _not_ to update the editbox if you dont feel like it, though it's not really supported right now, what happens could not be what the user expects)
 
 	struct ProcState {
 		HWND wnd;
@@ -60,6 +65,10 @@ namespace searchbox {
 		searchbox_func_retrieve_search_options retrieve_search_options;
 		searchbox_func_perform_search perform_search;
 		searchbox_func_show_element_on_editbox show_element_on_editbox;
+
+		struct{
+			HHOOK hookmouseclick;
+		}impl;
 	};
 	//TODO(fran): use state->brushes.img to render an img icon of a magnifying glass
 
@@ -140,23 +149,76 @@ namespace searchbox {
 		}
 	}
 
+	//IMPORTANT (multiwnd/multithreading dubious): uses a static object to store the hwnd, since we use it to hide listboxes, and only one is active at any single time this shouldnt be a problem, but you never know
+	HWND __hookmouseclick_store_hwnd(HWND _wnd = (HWND)INT32_MIN) {
+		static HWND wnd{ 0 };
+		if (_wnd != (HWND)INT32_MIN) {
+			wnd = _wnd;
+		}
+		return wnd;
+	}
+
+	LRESULT CALLBACK hookmouseclick(int code, WPARAM wparam, LPARAM lparam) {
+		//printf("MOUSECLICKHOOK:0x%08x\n", wparam);
+		if (code == HC_ACTION) {//TODO(fran): WH_MOUSE also includes a HC_NOREMOVE code
+			switch (wparam) {
+			case WM_LBUTTONDOWN:
+			case WM_RBUTTONDOWN:
+			case WM_NCLBUTTONDOWN:
+			case WM_NCRBUTTONDOWN:
+			{
+				HWND wnd = __hookmouseclick_store_hwnd();
+				ProcState* state = get_state(wnd);
+				if (state) {
+					//check if the mouse is inside our controls
+#if 0
+					POINT mouse = ((MSLLHOOKSTRUCT*)lparam)->pt;//TODO(fran): _per-monitor-aware_ screen coordinates (idk I that changes something)
+#else
+					POINT mouse = ((MOUSEHOOKSTRUCT*)lparam)->pt;//screen coordinates
+#endif
+					RECT lbrc; GetWindowRect(state->controls.listbox, &lbrc);
+					RECT edrc; GetWindowRect(state->controls.editbox, &edrc);
+					if (!test_pt_rc(mouse, lbrc) && !test_pt_rc(mouse, edrc)) {
+						//Mouse clicked outside our control -> hide the listbox
+						PostMessage(state->wnd, SRBM_CLKOUTSIDE, 0, 0);
+					}
+
+				}
+			}break;
+			}
+		}
+		return CallNextHookEx(0, code, wparam, lparam);
+	}
+
 	void show_listbox(ProcState* state, bool show) {
 		if (show) {
-			//if (!IsWindowVisible(state->controls.listbox)) {
-				RECT rw;  GetWindowRect(state->wnd, &rw);
-				i32 w = RECTW(rw), h = RECTH(rw) * (i32)listbox::get_element_cnt(state->controls.listbox);
+			RECT rw;  GetWindowRect(state->wnd, &rw);
+			i32 w = RECTW(rw), h = RECTH(rw) * (i32)listbox::get_element_cnt(state->controls.listbox);
 #if 0
-				//REMEMBER: SetWindowPos activates the window no matter how many times you tell it not to if you're doing many things like in this case
-				SetWindowPos(state->controls.listbox, HWND_NOTOPMOST, rw.left, rw.bottom, w, h, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+			//REMEMBER: SetWindowPos activates the window no matter how many times you tell it not to if you're doing many things like in this case
+			SetWindowPos(state->controls.listbox, HWND_NOTOPMOST, rw.left, rw.bottom, w, h, SWP_SHOWWINDOW | SWP_NOACTIVATE);
 #else
-				SetWindowPos(state->controls.listbox, HWND_NOTOPMOST/*TODO(fran): we may want HWND_TOP or HWND_TOPMOST*/, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE);
-				MoveWindow(state->controls.listbox, rw.left, rw.bottom, w, h, TRUE);
-				ShowWindow(state->controls.listbox, SW_SHOWNA);//TODO(fran): make sure it's on top of the z order, at least on top of us
+			SetWindowPos(state->controls.listbox, HWND_NOTOPMOST/*TODO(fran): we may want HWND_TOP or HWND_TOPMOST*/, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE);
+			MoveWindow(state->controls.listbox, rw.left, rw.bottom, w, h, TRUE);
+			ShowWindow(state->controls.listbox, SW_SHOWNA);//TODO(fran): make sure it's on top of the z order, at least on top of us
 #endif
-			//}
+			//We need to know when the user clicks outside of our editbox/listbox to be able to hide the listbox
+			if (!state->impl.hookmouseclick) {
+				//TODO(fran): maybe this should be standar implementation in the listbox
+				__hookmouseclick_store_hwnd(state->wnd);
+				state->impl.hookmouseclick = SetWindowsHookEx(WH_MOUSE, hookmouseclick, 0, GetCurrentThreadId()); //attach the hook
+				//state->impl.hookmouseclick = SetWindowsHookEx(WH_MOUSE_LL, hookmouseclick, 0, GetCurrentThreadId()); //TODO(fran): I wanted to use this one but apparently low level hooks cannot be run on debug threads, the docs recommend using raw input instead //https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawmouse
+				Assert(state->impl.hookmouseclick);
+			}
+
 		}
-		else
+		else {
+			printf("SEARCHBOX:HIDE LISTBOX\n");
 			ShowWindow(state->controls.listbox, SW_HIDE);
+
+			UnhookWindowsHookEx(state->impl.hookmouseclick); // remove the hook
+			state->impl.hookmouseclick = 0;
+		}
 	}
 
 	//TODO(fran): instead of working as a pasamanos it'd be best to provide an attach_listbox() function with a full configured listbox that abides by our listbox specification
@@ -436,18 +498,43 @@ namespace searchbox {
 
 						//SOLUTION: the listbox's selection is cleared each time the user writes smth, that means we have a way of differentiating between enter for listbox and enter for editbox, if a valid selection is present in the listbox then it's a listbox enter, otherwise it's an editbox one
 
+						size_t lb_sel = listbox::get_cur_sel(state->controls.listbox);
+						size_t lb_cnt = listbox::get_element_cnt(state->controls.listbox);
+						if (lb_sel < lb_cnt) {
+							//Valid listbox selection, use the listbox item
+							if (state->perform_search)
+								state->perform_search(listbox::get_element_at(state->controls.listbox, lb_sel), true, state->user_extra);
+						}
+						else {
+							//Invalid listbox selection, use the editbox's text
+							utf16_str txt; _get_edit_str(state->controls.editbox, txt); defer{ if (txt.sz) free_any_str(txt.str); };
+							if (state->perform_search)
+								state->perform_search(&txt, false, state->user_extra);
+						}
+
+						//Clear search options
+						if (state->free_elements)
+							state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+						listbox::remove_all_elements(state->controls.listbox);
+						show_listbox(state, false);
+
+
 					} break;
 					case EN_ESCAPE:
 					{
-						Assert(0);//TODO
+						show_listbox(state, false);
+						if (state->free_elements)
+							state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+						listbox::remove_all_elements(state->controls.listbox);
+						//TODO(fran): restore the content of the editbox (WM_SETTEXT_NONOTIF)
 					} break;
 					case EN_UP:
 					{
-						Assert(0);//TODO
+						listbox::sel_up(state->controls.listbox);
 					} break;
 					case EN_DOWN:
 					{
-						Assert(0);//TODO
+						listbox::sel_down(state->controls.listbox);
 					} break;
 					case EN_KILLFOCUS:
 					{
@@ -477,6 +564,20 @@ namespace searchbox {
 						show_listbox(state, false);
 
 					} break;
+					case LBN_SELCHANGE://The user is moving up and down the elements of the listbox
+					{
+						size_t lb_sel = listbox::get_cur_sel(state->controls.listbox);
+						size_t lb_cnt = listbox::get_element_cnt(state->controls.listbox);
+						if (lb_sel < lb_cnt) {
+							//Valid listbox selection
+							if (state->show_element_on_editbox)
+								state->show_element_on_editbox(state->controls.editbox,listbox::get_element_at(state->controls.listbox, lb_sel), state->user_extra);
+							//TODO(fran): save what the user currently wrote to be able to restore it later
+						}
+						else {
+							//Invalid listbox selection
+						}
+					} break;
 					default: Assert(0);
 					}
 				}
@@ -490,6 +591,23 @@ namespace searchbox {
 			}
 			return 0;
 		} break;
+		case SRBM_CLKOUTSIDE://The user clicked outside our listbox/editbox -> hide the listbox
+		{
+			//Clear search options
+			if (state->free_elements)
+				state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+			listbox::remove_all_elements(state->controls.listbox);
+			show_listbox(state, false);
+		} break;
+		case CB_SETCUEBANNER:
+		{
+			return SendMessage(state->controls.editbox, WM_SETDEFAULTTEXT, wparam, lparam);
+		} break;
+		//case CB_GETCUEBANNER://TODO(fran): I dont have a WM_GETDEFAULTTEXT
+		//{
+		//	//NOTE: there is more than one stupid thing about this msg, first the paramaters are REVERSED compared to WM_GETTEXT, and second there's no CB_GETCUEBANNERLENGTH!
+		//	return SendMessage(state->controls.editbox, WM_GETDEFAULTTEXT, lparam, wparam);
+		//} break;
 		//Msgs redirected to editbox
 		case WM_SETDEFAULTTEXT:
 		case WM_SETTEXT:

@@ -608,7 +608,7 @@ static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
 		}
 	}
 
-	return CallNextHookEx(0 /*NOTE: this was necessary on the times of win95, not anymore*/, code, wparam, lparam);
+	return CallNextHookEx(0 /*NOTE: this param was necessary on the times of win95, not anymore*/, code, wparam, lparam);
 }
 
 //INFO: placement is relative to hWnd
