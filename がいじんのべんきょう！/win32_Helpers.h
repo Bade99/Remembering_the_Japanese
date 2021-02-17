@@ -33,7 +33,19 @@
 
 #define sqlite_runtime_assert(assertion,db) if (!(assertion))MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
+
+//-------------Data retrieval from UI-----------------: (UI strings are always utf16)
+
+// use for controls whose value is obtained via WM_GETTEXT, eg static, button, edit, ...
+#define _get_edit_str(edit,any_str) \
+			{ \
+				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
+				any_str = alloc_any_str(_sz_char * sizeof(utf16)); \
+				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
+			}
+
 //----------------------STRING-----------------------:
+
 
 #define to_str(v) std::to_wstring(v)
 
@@ -76,6 +88,9 @@ static size_t find_till_no_match(str s, size_t offset, str match) {
 	}
 	return p;
 }
+
+utf16_str to_utf16_str(utf16* s) { return { s, (cstr_len(s) + 1) * sizeof(*s) }; }
+utf8_str to_utf8_str(utf8* s) { return { s, (strlen(s) + 1) * sizeof(*s) }; }
 
 //TODO(fran): normalize all this convert functions into one that receives the necesssary params to achieve any conversion
 

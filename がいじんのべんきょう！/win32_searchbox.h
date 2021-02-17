@@ -6,22 +6,38 @@
 #include "win32_edit_oneline.h"
 #include "win32_listbox.h"
 #include <windowsx.h>
+#include <CommCtrl.h>//SetWindowSubclass
 
 //NOTE: no ASCII support, always utf16
 
 //------------------"API"------------------:
 //searchbox::wndclass identifies the window class to be used when calling CreateWindow()
 //searchbox::set_brushes() to set the HBRUSHes used by the searchbox, its editbox and listbox
+//searchbox::set_function_free_elements() to free the content of N elements in the listbox, this is called when we need to clear the listbox, for example when it's hidden or when the search options change
+//searchbox::set_function_retrieve_search_options()
+//searchbox::set_function_perform_search()
+//searchbox::set_function_show_element_on_editbox()
+//searchbox::set_function_render_listbox_element()
+//searchbox::set_user_extra() extra user-defined data to be sent on each function call
 
+//IMPORTANT: instead of having what's written on the editbox duplicated on the first row of the listbox we'll implement ESC (escape) as a means of getting back to the word you were writing, TODO(fran): for this to work we need to store here the last written input by the user, and restore it on EN_ESCAPE or whatever
 
 //------------------"Additional Styles"------------------:
 #define SRB_ROUNDRECT 0x0001 //Control has rounded corners
 
 //TODO(fran): add to editbox the EN_DOWN notif when the user presses the down key, that signifies us that they want the listbox open and a search performed on what's currently on the editbox (eg if they wrote smth and then went to a different app, when they come back the listbox wont show, there are two options here, show the listbox directly when the editbox gets clicked, or wait for the down arrow msg, or some other input). Also now that I think about it, normally the selection on the searchbox doesnt redirect you directly to your destination, a search is performed at the point and the items shown on a non floating listbox, but that really depends, eg google sends you to a page if it can, otherwise loads a different page with the non floating listbox
 
+//TODO(fran): small BUG, when the user click on an item from the listbox we lose keyboard focus and therefore the nonclient renders itself as inactive for a couple of frames before coming back to active
+
 namespace searchbox {
 	
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_searchbox";
+
+	//NOTE: trying a different approach, the control is the active part, and the user is passive. May be a bad idea, we'll find out
+	typedef void(*searchbox_func_free_elements)(ptr<void*> elements, void* user_extra);
+	typedef ptr<void*>(*searchbox_func_retrieve_search_options)(utf16_str user_input, void* user_extra);//you're provided with the string written on the editbox and are expected to return an array of elements to show on the listbox
+	typedef void(*searchbox_func_perform_search)(void* element, bool is_element, void* user_extra);//the user has selected something to be searched. If is_element == true -> void* data points to your element data, if == false then it points to a utf16_str* with the content of the editbox
+	typedef void(*searchbox_func_show_element_on_editbox)(HWND editbox, void* element, void* user_extra);//you're given one of your elements and tasked with SendMessage(WM_SETTEXT) to the provided editbox hwnd (this is used when the user scrolls with the arrow keys along the options on the listbox, you can also decide _not_ to update the editbox if you dont feel like it, though it's not really supported right now, what happens could not be what the user expects)
 
 	struct ProcState {
 		HWND wnd;
@@ -37,6 +53,13 @@ namespace searchbox {
 			HWND listbox;
 			//HWND button; //TODO(fran): add as an extra style
 		}controls;
+
+		void* user_extra;
+
+		searchbox_func_free_elements free_elements;
+		searchbox_func_retrieve_search_options retrieve_search_options;
+		searchbox_func_perform_search perform_search;
+		searchbox_func_show_element_on_editbox show_element_on_editbox;
 	};
 	//TODO(fran): use state->brushes.img to render an img icon of a magnifying glass
 
@@ -69,6 +92,107 @@ namespace searchbox {
 		}
 	}
 
+	void set_user_extra(HWND wnd, void* user_extra) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->user_extra = user_extra;
+			listbox::set_user_extra(state->controls.listbox, user_extra);
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_free_elements(HWND wnd, searchbox_func_free_elements func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->free_elements = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_retrieve_search_options(HWND wnd, searchbox_func_retrieve_search_options func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->retrieve_search_options = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_perform_search(HWND wnd, searchbox_func_perform_search func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->perform_search = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_show_element_on_editbox(HWND wnd, searchbox_func_show_element_on_editbox func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->show_element_on_editbox = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_render_listbox_element(HWND wnd, listbox::listbox_func_renderelement func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			listbox::set_render_function(state->controls.listbox, func);
+		}
+	}
+
+	void show_listbox(ProcState* state, bool show) {
+		if (show) {
+			//if (!IsWindowVisible(state->controls.listbox)) {
+				RECT rw;  GetWindowRect(state->wnd, &rw);
+				i32 w = RECTW(rw), h = RECTH(rw) * (i32)listbox::get_element_cnt(state->controls.listbox);
+#if 0
+				//REMEMBER: SetWindowPos activates the window no matter how many times you tell it not to if you're doing many things like in this case
+				SetWindowPos(state->controls.listbox, HWND_NOTOPMOST, rw.left, rw.bottom, w, h, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+#else
+				SetWindowPos(state->controls.listbox, HWND_NOTOPMOST/*TODO(fran): we may want HWND_TOP or HWND_TOPMOST*/, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE);
+				MoveWindow(state->controls.listbox, rw.left, rw.bottom, w, h, TRUE);
+				ShowWindow(state->controls.listbox, SW_SHOWNA);//TODO(fran): make sure it's on top of the z order, at least on top of us
+#endif
+			//}
+		}
+		else
+			ShowWindow(state->controls.listbox, SW_HIDE);
+	}
+
+	//TODO(fran): instead of working as a pasamanos it'd be best to provide an attach_listbox() function with a full configured listbox that abides by our listbox specification
+	void set_listbox_dimensions(HWND wnd, listbox::dimensions dims) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			listbox::set_dimensions(state->controls.listbox, dims);
+		}
+	}
+
+
+#define EN_UP (EN_ESCAPE+50)
+#define EN_DOWN (EN_ESCAPE+51)
+	//TODO(fran): this functionality could be added to the default edit control
+	LRESULT CALLBACK EditNotifyProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
+		HWND parent = GetParent(hwnd);
+		switch (msg) {
+		case WM_KEYDOWN:
+		{
+			char vk = (char)wparam;
+			switch (vk) {
+			case VK_UP:
+			{
+				PostMessage(parent, WM_COMMAND, MAKELONG(0, EN_UP), (LPARAM)hwnd);
+			} break;
+			case VK_DOWN:
+			{
+				PostMessage(parent, WM_COMMAND, MAKELONG(0, EN_DOWN), (LPARAM)hwnd);
+			} break;
+			}
+		} break;
+		}
+
+		return DefSubclassProc(hwnd, msg, wparam, lParam);
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
@@ -96,10 +220,11 @@ namespace searchbox {
 
 			state->controls.editbox = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | WS_VISIBLE | WS_TABSTOP | editbox_extrastyles
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			SetWindowSubclass(state->controls.editbox, EditNotifyProc,0,0 );//TODO(fran): idk if calling RemoveWindowSubclass on WM_DESTROY is necessary
 
 			state->controls.listbox = CreateWindowEx(WS_EX_TOOLWINDOW /*| WS_EX_TOPMOST*/,listbox::wndclass, 0, WS_POPUP
 				, 0, 0, 0, 0, NULL, 0, NULL, NULL); 
-			//TODO(fran): create our own floating listbox
+			listbox::set_parent(state->controls.listbox, state->wnd);
 			//TODO(fran): try with ComboLBox (though that probably animates and at that point it's faster to create something from scratch)
 
 			//TODO(fran): another idea is to have a huge open listbox that fills itself row by row, could look nice for this project since the search page is completely empty with lots of space, but really not reusable anywhere else, you always want a small search bar and a big over-the-window/floating listbox with results
@@ -267,20 +392,93 @@ namespace searchbox {
 				WORD notif = HIWORD(wparam);
 				if (child == state->controls.editbox) {
 					switch (notif) {
+					case EN_CHANGE:
+					{
+						//The user has modified the editbox -> retrieve search options based on the content of the editbox
+						utf16_str txt; _get_edit_str(state->controls.editbox, txt); defer{ if(txt.sz) free_any_str(txt.str); };
+						//TODO(fran): check what happens if the editbox is empty -> malloc(0) is implementation dependant
+						
+						//Clear previous search options
+						if (state->free_elements)
+							state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+						listbox::remove_all_elements(state->controls.listbox);//NOTE: this is inefficient since in the case of set_elements() we'll basically perform two repaints on the listbox
+
+						bool show_lb = false;
+
+						if (txt.sz_char() > 1 /*not null nor just the null terminator*/) {
+							//Get search options
+							ptr<void*> search_options{0}; defer{ search_options.free(); };
+							if(state->retrieve_search_options) 
+								search_options = state->retrieve_search_options(txt, state->user_extra);
+
+							if (search_options.cnt) {
+								//Set new elements (auto removes existing ones), show the listbox
+								listbox::set_elements(state->controls.listbox, search_options.mem, search_options.cnt);
+								show_lb = true;
+							}
+							else {
+								//No search options, hide the listbox
+								show_lb = false;
+							}
+						}
+						else {
+							//The editbox is empty, hide the listbox
+							show_lb = false;
+						}
+
+						show_listbox(state, show_lb);
+
+					} break;
 					case EN_ENTER:
 					{
 						//TODO(fran): it's not that easy to know what to tell the user, we have to differentiate between "the user chose an element from the listbox" and "the user wrote something", also the user could first move to some element of the listbox but afterwards write something more (well actually the problem is mine, it's easy to differentiate, a click is obviously for listbox, and enter is listbox if it's visible (since the value is linked with the editbox's) and editbox if not visible aka listbox has no elements). My problem comes when there's the same writing for different words and then I need to filter with more info, specifically the info that the listbox's elements have (since I plan to add it there). Well actually this is bullshit, it's very simple, we need two cases, if the listbox is not visible then what's in the editbox counts and it's just that info, _but_ if the listbox is visible then what count is that element's data (since the editbox is, in this case, simply showing part of the info the listbox provided).
 						//A different idea would be the google/internet-search-engine searchbar approach, when the user selects an existing listbox item we go directly to it, otherwise we show possible results on a non floating listbox below the searchbar
+
+						//SOLUTION: the listbox's selection is cleared each time the user writes smth, that means we have a way of differentiating between enter for listbox and enter for editbox, if a valid selection is present in the listbox then it's a listbox enter, otherwise it's an editbox one
+
 					} break;
 					case EN_ESCAPE:
 					{
 						Assert(0);//TODO
 					} break;
+					case EN_UP:
+					{
+						Assert(0);//TODO
+					} break;
+					case EN_DOWN:
+					{
+						Assert(0);//TODO
+					} break;
+					case EN_KILLFOCUS:
+					{
+						//NOTE: since killfocus arrives _before_ LBN_CLK, we need to check who is the one with focus now, if it's the listbox cause the user clicked it then we are okay, otherwise we gotta clear it
+						if (state->controls.listbox != GetFocus()) {
+							//Clear search options
+							if (state->free_elements)
+								state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+							listbox::remove_all_elements(state->controls.listbox);
+							show_listbox(state, false);
+						}
+					} break;
 					default: Assert(0);
 					}
 				}
 				else if (child == state->controls.listbox) {
+					switch (notif) {
+					case LBN_CLK:
+					{
+						if (state->perform_search)
+							state->perform_search(listbox::get_clicked_element(state->controls.listbox), true, state->user_extra);
 
+						//Clear search options
+						if (state->free_elements)
+							state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+						listbox::remove_all_elements(state->controls.listbox);
+						show_listbox(state, false);
+
+					} break;
+					default: Assert(0);
+					}
 				}
 				else {
 					Assert(0);

@@ -12,20 +12,28 @@
 //listbox::wndclass identifies the window class to be used when calling CreateWindow()
 //listbox::set_brushes() to set the HBRUSHes used
 //listbox::set_render_function() to provide a rendering function for all elements of the list
+//listbox::set_user_extra() extra user-defined data to be sent on each function call
 
+//--------------"Notifications"---------------: (through WM_COMMAND)
+//IMPORTANT: this listbox always sends notifications
+//LBN_CLK (alias for LBN_SELCHANGE): notifies whenever the user has clicked an item on the listbox, IMPORTANT: the current selection/click remains only while on the WM_COMMAND response
 
-//------------------"Additional Styles"------------------:
+//------------------"Styles"------------------:
 #define LSB_ROUNDRECT_END 0x0001 //Control has rounded ending corners (eg if it's displayed below another wnd then the top corners remain squared while the bottom ones get rounded
 //TODO(fran): try to implement this, we'll need ws_ex_layered or ws_ex_transparent
+
+//TODO(fran): rendering: there's something clearly screwed up, when you hover with the mouse along many elements you can see a vertical cut as it changes from one to another, wtf is that? also it doesnt always happen
+
+#define LBN_CLK LBN_SELCHANGE
 
 namespace listbox {
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_listbox";
 
 	struct listbox_func_renderflags {
-		bool onSelected, onClicked;
+		bool onSelected, onClicked;//TODO(fran): we may want to differentiate between selected and mousehover
 	};
-	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, listbox_func_renderflags flags, void* element);
+	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, listbox_func_renderflags flags, void* element, void* user_extra);
 
 	struct ProcState {
 		HWND wnd;
@@ -54,6 +62,7 @@ namespace listbox {
 
 		f32 scroll_y;//[0,1]
 
+		void* user_extra;
 	};
 
 	ProcState* get_state(HWND wnd) {
@@ -65,10 +74,30 @@ namespace listbox {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
+	void set_user_extra(HWND wnd, void* user_extra) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->user_extra = user_extra;
+			//TODO(fran): should I redraw?
+		}
+	}
+
 	void ask_for_repaint(ProcState* state) {
 		//TODO(fran): this control will usually be invisible, we only need to repaint if it is visible
 		InvalidateRect(state->wnd, NULL, TRUE);//ask for WM_PAINT
 		//RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+	}
+
+	ptr<void*> get_all_elements(HWND wnd) {//TODO(fran): this shouldnt exist but I need it in order to be lazy in the searchbox
+		ptr<void*> res{ 0 };
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (state->elements.size()) {
+				res.mem = &state->elements[0];//TODO(fran): this isnt very nice
+				res.cnt = state->elements.size();
+			}
+		}
+		return res;
 	}
 
 	//NOTE: "sz" should be the already precalculated size to cover all the render elements, and maxing out in its w component by the size of the window rectangle (since we allow vertical but not horizontal scrolling)
@@ -115,7 +144,7 @@ namespace listbox {
 					flags.onClicked = state->clicked_element == i;
 					flags.onSelected = state->selected_element == i || state->mousehover_element == i;
 
-					state->render_element(dc, elem_rc,flags, state->elements[i]);
+					state->render_element(dc, elem_rc,flags, state->elements[i],state->user_extra);
 				}
 			}
 		}
@@ -124,7 +153,7 @@ namespace listbox {
 	void full_backbuffer_redo(ProcState* state) {
 		//SIZE sz = calc_element_placements(state);
 		size_t elem_cnt = state->elements.size();
-		SIZE sz{ (i32)elem_cnt * state->element_dim.cx, (i32)elem_cnt * state->element_dim.cy };
+		SIZE sz{ state->element_dim.cx, (i32)elem_cnt * state->element_dim.cy };
 		resize_backbuffer(state, sz);
 		render_backbuffer(state);
 	}
@@ -191,11 +220,17 @@ namespace listbox {
 		}
 	}
 
+	void clear_selection(ProcState* state) {
+		state->selected_element = state->mousehover_element = state->clicked_element = UINT32_MAX;
+		//TODO(fran): not sure whether I want to clear everything or just the selected_element
+	}
+
 	//Removes any elements already present and sets the new ones
 	void set_elements(HWND wnd, void** values, size_t count) {
 		ProcState* state = get_state(wnd);
 		if (state) {
 			state->elements.clear();//delete old elements
+			clear_selection(state);
 			for (int i = 0; i < count; i++) state->elements.push_back(values[i]);
 			full_backbuffer_redo(state); //render new elements
 			ask_for_repaint(state);
@@ -212,8 +247,37 @@ namespace listbox {
 		}
 	}
 
+	void remove_all_elements(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->elements.clear();
+			clear_selection(state);
+			full_backbuffer_redo(state);
+			ask_for_repaint(state);
+		}
+	}
+
+	size_t get_element_cnt(HWND wnd) {
+		size_t res=0;
+		ProcState* state = get_state(wnd);
+		if (state) {
+			res = state->elements.size();
+		}
+		return res;
+	}
+
+	void* get_clicked_element(HWND wnd) {
+		void* res=0;
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if(state->clicked_element < state->elements.size())
+				res = state->elements[state->clicked_element];
+		}
+		return res;
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+		printf("LISTBOX:%s\n",msgToString(msg));
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
 		case WM_NCCREATE:
@@ -356,19 +420,36 @@ namespace listbox {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
-			//TODO(fran): check what the user's doing, we probably need to redraw, maybe better is to track the mouse
 
 			Assert(state->elements.size());
 			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
-			size_t mousehover_element = mouse_on_backbuffer_y / state->backbuffer_dim.cy;
+			size_t mousehover_element = mouse_on_backbuffer_y / state->element_dim.cy;
 
 			if (state->mousehover_element != mousehover_element) {
 				state->mousehover_element = mousehover_element;
 				render_backbuffer(state);
 				ask_for_repaint(state);
+
+				//We now need to know when the mouse exits our window to clear the mousehover_element
+				TRACKMOUSEEVENT track;
+				track.cbSize = sizeof(track);
+				track.hwndTrack = state->wnd;
+				track.dwFlags = TME_LEAVE;
+				TrackMouseEvent(&track);
 			}
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_MOUSELEAVE:
+		{
+			//we asked TrackMouseEvent for this so we can update when the mouse leaves our client area, which we dont get notified about otherwise and is needed, for example when the user hovers on top an element and then hovers outside the wnd
+			//Clear the mousehover_element
+			if (state->mousehover_element != UINT32_MAX) {
+				state->mousehover_element = UINT32_MAX;
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+			return 0;
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
 		{
@@ -381,6 +462,16 @@ namespace listbox {
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+			
+			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
+			size_t clicked_element = mouse_on_backbuffer_y / state->element_dim.cy;
+
+			if (state->clicked_element != clicked_element) {
+				state->clicked_element = clicked_element;
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+
 			return 0;
 		} break;
 		case WM_LBUTTONUP:
@@ -391,13 +482,17 @@ namespace listbox {
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 
 			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
-			size_t clicked_element = mouse_on_backbuffer_y / state->backbuffer_dim.cy;
+			size_t unclicked_element = mouse_on_backbuffer_y / state->element_dim.cy;
 
-			if (state->clicked_element != clicked_element) {
-				state->clicked_element = clicked_element;
-				render_backbuffer(state);
-				ask_for_repaint(state);
+			//Check the user released the click on the same element, otherwise they're canceling it
+			if (state->clicked_element == unclicked_element  && state->clicked_element < state->elements.size()) {
+				//IMPORTANT: this must be sent via SendMessage since the selection/click will be cleared afterwards
+				SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, LBN_CLK), (LPARAM)state->wnd);
 			}
+			//Clear the clicked element since the mouse btn is now up
+			state->clicked_element = UINT32_MAX;
+			render_backbuffer(state);
+			ask_for_repaint(state);
 
 			return 0;
 		} break;
@@ -423,11 +518,11 @@ namespace listbox {
 			Assert(state->backbuffer_dim.cx == w);
 			int backbuf_w = w;
 			int backbuf_h = h;
+			if (state->backbuffer) {
+				auto oldbmp = SelectBitmap(offscreendc, state->backbuffer); defer{ SelectBitmap(offscreendc,oldbmp); };
 
-			auto oldbmp = SelectBitmap(offscreendc, state->backbuffer); defer{ SelectBitmap(offscreendc,oldbmp); };
-
-			BitBlt(dc, 0, 0, w, h, offscreendc, backbuf_x, backbuf_y, SRCCOPY);
-
+				BitBlt(dc, 0, 0, w, h, offscreendc, backbuf_x, backbuf_y, SRCCOPY);
+			}
 			//Paint the border
 			
 			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_disabled;
@@ -464,6 +559,45 @@ namespace listbox {
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);//NOTE: received because of DestroyWindow()
 		} break;
+		case WM_NCACTIVATE:
+		{
+			//So basically this guy is another WM_NCPAINT, just do exactly the same, but also here we have the option to paint slightly different if we are deactivated, so the user can see the change
+			BOOL active = (BOOL)wparam; //Indicates active or inactive state for a title bar or icon that needs to be changed
+			//state->active = active;
+			HRGN opt_upd_rgn = (HRGN)lparam; // handle to optional update region for the nonclient area. If set to -1, do nothing
+			RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
+			return TRUE; //NOTE: it says we can return FALSE to "prevent the change"
+		} break;
+		case WM_ACTIVATE:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): we may not want this default behaviour: If the window is being activated and is not minimized, the DefWindowProc function sets the keyboard focus to the window. If the window is activated by a mouse click, it also receives a WM_MOUSEACTIVATE message.
+		} break;
+		case WM_SETFOCUS:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_KILLFOCUS:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_KEYUP:
+		{
+			//NOTE: erroneous input received when using the listbox for the searchbox, while the user writes on the editbox we get keyboard focus and therefore a keyup that should have gone to the editbox
+			//NOTE: for key events in this control we should handle on WM_KEYDOWN _not_ up
+			return 0;
+		}
+		//case WM_CANCELMODE: //TODO(fran): stop capturing the mouse
+		//{
+		//	//We got canceled by the system, not really sure what it means but doc says we should cancel everything mouse capture related, so stop tracking
+		//	if (state->OnMouseTracking) {
+		//		ReleaseCapture();//stop capturing the mouse
+		//		state->OnMouseTracking = false;
+		//	}
+		//	state->onLMouseClick = false;
+		//	state->onMouseOver = false;
+		//	InvalidateRect(state->wnd, NULL, TRUE);
+		//	return 0;
+		//} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);

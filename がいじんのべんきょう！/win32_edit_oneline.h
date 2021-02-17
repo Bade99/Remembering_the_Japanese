@@ -22,6 +22,12 @@
 #define EM_SETINVALIDCHARS (editoneline_base_msg_addr+2) /*characters that you dont want the edit control to accept either trough WM_CHAR or WM_PASTE*/ /*lparam=unused ; wparam=pointer to null terminated cstring, each char will be added as invalid*/ /*INFO: overrides the previously invalid characters that were set before*/ /*TODO(fran): what to do on pasting? reject the entire string or just ignore those chars*/
 #define WM_SETTEXT_NO_NOTIF (editoneline_base_msg_addr+3)
 
+
+//-------------"Default Notifications"-------------:
+//EN_CHANGE
+//EN_KILLFOCUS
+
+//-------------"Non-standard Notifications"-------------:
 //Notification msgs, sent to the parent through WM_COMMAND with LOWORD(wparam)=control identifier ; HIWORD(wparam)=msg code ; lparam=HWND of the control
 //IMPORTANT: this are sent _only_ if you have set an identifier for the control (hMenu on CreateWindow)
 #define _editoneline_notif_base_msg 0x0104
@@ -38,7 +44,7 @@
 #define EDITONELINE_tooltip_timer_id 0xf1
 
 
-//---------Differences with a default oneline edit control
+//---------Differences with default oneline edit control---------:
 //·EN_CHANGE is sent when there is a modification to the text, of any type, and it's sent immediately, not after rendering
 
 
@@ -778,6 +784,9 @@ namespace edit_oneline{
 			//Also says to not display/activate a window here cause we can lock the thread
 			bool show_default_text = *state->default_text && (state->char_text.length() == 0);
 			if(show_default_text) InvalidateRect(state->wnd, NULL, TRUE);
+
+			PostMessage(GetParent(state->wnd), WM_COMMAND, MAKELONG(state->identifier, EN_KILLFOCUS), (LPARAM)state->wnd);
+
 			return 0;
 		} break;
 		case WM_KEYDOWN://When the user presses a non-system key this is the 1st msg we receive

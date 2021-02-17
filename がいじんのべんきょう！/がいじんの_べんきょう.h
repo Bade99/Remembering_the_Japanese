@@ -228,12 +228,12 @@ struct practice_writing_word {
 //-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 
 // use for controls whose value is obtained via WM_GETTEXT, eg static, button, edit, ...
-#define _get_edit_str(edit,any_str) \
-			{ \
-				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
-				any_str = alloc_any_str(_sz_char * sizeof(utf16)); \
-				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
-			}
+//#define _get_edit_str(edit,any_str) \
+//			{ \
+//				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
+//				any_str = alloc_any_str(_sz_char * sizeof(utf16)); \
+//				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
+//			}
 
 #define _get_combo_sel_str(cb,any_str) \
 			{ \
@@ -737,6 +737,31 @@ namespace べんきょう {
 		}
 	}
 
+	//Page Search: Searchbox functions
+	void searchbox_free_elements_func(ptr<void*> elements, void* user_extra){
+		for(size_t i=0; i <elements.cnt;i++) free_any_str(elements[i]);
+	}
+
+	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra);
+
+	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra);
+
+	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::listbox_func_renderflags flags, void* element, void* user_extra) {
+		int w = r.w, h = r.h;
+		RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		utf16* txt = (decltype(txt))element;
+
+		//Draw bk
+		HBRUSH bk_br = unCap_colors.ControlBk;
+		if (flags.onSelected)bk_br = unCap_colors.ControlBkMouseOver;
+		if(flags.onClicked) bk_br = unCap_colors.ControlBkPush;
+
+		FillRect(dc, &rc, bk_br);
+
+		//Draw text
+		urender::draw_text(dc, rc, to_utf16_str(txt), unCap_fonts.General, unCap_colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+	}
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT | BS_BITMAP;
@@ -822,6 +847,12 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			SendMessage(controls.list.searchbox_search, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(251));
 			searchbox::set_brushes(controls.list.searchbox_search, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled, unCap_colors.Img_Disabled);
+			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
+			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
+			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
+			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
+			//searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,);//TODO(fran)
+			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
@@ -1346,6 +1377,7 @@ namespace べんきょう {
 
 			MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
 			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
+			searchbox::set_listbox_dimensions(controls.list.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
 
 		} break;
 		case ProcState::page::show_word: 
@@ -1620,6 +1652,21 @@ namespace べんきょう {
 		sqlite_exec_runtime_check(select_errmsg);//TODO(fran): should I free the result and return an empty?
 		return res;
 	}
+
+	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
+		ptr<void*> res{ 0 };
+		ProcState* state = get_state((HWND)user_extra);
+		if (user_input.sz && state) {
+			auto search_res = search_word_matches(state->settings->db, user_input.str, 5); defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			//TODO(fran): search_word_matches should return a ptr
+			res.alloc(search_res.cnt);
+			for (size_t i = 0; i < search_res.cnt; i++)
+				res[i] = search_res.matches[i];
+		}
+		return res;
+	}
+
+
 	struct get_word_res {
 		stored_word word;
 		bool found;
@@ -1884,6 +1931,32 @@ namespace べんきょう {
 		default: Assert(0);
 		}
 	}
+
+	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra) {
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
+			utf16* search = (decltype(search))element;
+
+			get_word_res res = get_word(state->settings->db, search); defer{ free_get_word(res); };
+			if (res.found) {
+				preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
+				store_previous_page(state, state->current_page);
+				set_current_page(state, ProcState::page::show_word);
+			}
+			else {
+				int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
+				if (ret == IDYES) {
+					learnt_word new_word{ 0 };
+					new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
+					preload_page(state, ProcState::page::new_word, &new_word);
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::new_word);
+				}
+			}
+		}
+	}
+
 
 	bool update_word(sqlite3* db, learnt_word* word) {
 		bool res;

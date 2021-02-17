@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "windows_sdk.h"
+#include <windowsx.h>
 #include "win32_Platform.h"
 #include "win32_Helpers.h"
 #include "unCap_Math.h"
@@ -776,6 +777,44 @@ namespace urender {
 		Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
 		graphics.DrawString(txt.str, (INT)(txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
 #endif
+	}
+
+	//Intended for a single line of text
+	void draw_text(HDC dc, const RECT& r, utf16_str txt, HFONT f,HBRUSH txt_br, HBRUSH bk_br, txt_align alignment, i32 pad_x) {
+
+		HFONT oldfont = SelectFont(dc, f); defer{ SelectFont(dc, oldfont); };
+		UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
+
+		COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
+		COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
+
+		TEXTMETRIC tm;
+		GetTextMetrics(dc, &tm);
+		// Calculate vertical position for the string so that it will be vertically centered
+		// We are single line so we want vertical alignment always
+		i32 yPos = (r.bottom + r.top - tm.tmHeight) / 2;
+		i32 xPos;
+		switch (alignment) {
+		case decltype(alignment)::center:
+		{
+			SetTextAlign(dc, TA_CENTER);
+			xPos = (r.right - r.left) / 2;
+		} break;
+		case decltype(alignment)::left:
+		{
+			SetTextAlign(dc, TA_LEFT);
+			xPos = r.left + pad_x;
+		} break;
+		case decltype(alignment)::right:
+		{
+			SetTextAlign(dc, TA_RIGHT);
+			xPos = r.right -pad_x;
+		} break;
+		}
+		TextOut(dc, xPos, yPos, txt.str, (i32)(txt.sz_char()-1));
+
+		//TODO(fran): TabbedTextOut for completeness
+		//TODO(fran): transparent bk color (if possible without gdi+)
 	}
 
 	//GDI's RoundRect has no antialiasing
