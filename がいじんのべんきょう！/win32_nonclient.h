@@ -4,7 +4,7 @@
 #include <windowsx.h>
 #include "win32_Helpers.h"
 #include "unCap_Math.h"
-#include "unCap_Global.h"
+#include "win32_Global.h"
 #include "win32_Renderer.h"
 #include "win32_button.h"
 #include "resource.h" //TODO(fran): everything that we take from the resources must be parameterized
@@ -162,7 +162,7 @@ void UNCAPNC_set_menu(HWND uncapnc, HMENU menu) { //TODO(fran): set to NULL shou
 		MENUINFO mi{ sizeof(mi) };
 		mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS; //NOTE: important to also use "apply to submenus", cause the nc area is bigger than 1px and it will look very claustrophobic
 		//TODO(fran): MIM_MAXHEIGHT and other fMask params that we should set
-		mi.hbrBack = state->active ? unCap_colors.CaptionBk : unCap_colors.CaptionBk_Inactive;
+		mi.hbrBack = state->active ? global::colors.CaptionBk : global::colors.CaptionBk_Inactive;
 		SetMenuInfo(menu, &mi);
 
 	}
@@ -220,7 +220,7 @@ void UNCAPNC_show_rclickmenu(unCapNcProcState* state, POINT mouse) {
 
 	MENUINFO mi{ sizeof(mi) };
 	mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
-	mi.hbrBack = unCap_colors.CaptionBk;
+	mi.hbrBack = global::colors.CaptionBk;
 	SetMenuInfo(m, &mi);
 
 	//NOTE: using tpm_returncmd would be a quick and simple cheat to get past msg collision problems and the like
@@ -333,9 +333,9 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 		if (rcs_overlap(state->rc_caption, ps.rcPaint)) {
 
-			FillRect(dc, &state->rc_caption, state->active ? unCap_colors.CaptionBk : unCap_colors.CaptionBk_Inactive);
+			FillRect(dc, &state->rc_caption, state->active ? global::colors.CaptionBk : global::colors.CaptionBk_Inactive);
 
-			SelectFont(dc, unCap_fonts.Caption);
+			SelectFont(dc, global::fonts.Caption);
 			TCHAR title[256]; int sz = GetWindowText(state->wnd, title, ARRAYSIZE(title));
 			TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 
@@ -357,7 +357,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 			urender::draw_icon(dc, icon_x, icon_align_height, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
 
 			int yPos = (state->rc_caption.bottom + state->rc_caption.top - tm.tmHeight) / 2;
-			HBRUSH txtbr = state->active ? unCap_colors.ControlTxt : unCap_colors.ControlTxt_Inactive;
+			HBRUSH txtbr = state->active ? global::colors.ControlTxt : global::colors.ControlTxt_Inactive;
 			SetTextColor(dc, ColorFromBrush(txtbr)); SetBkMode(dc, TRANSPARENT);
 
 
@@ -365,18 +365,18 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 			HBRUSH btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover;
 			if (state->active) {
-				btn_border = unCap_colors.CaptionBk;
-				btn_bk = unCap_colors.CaptionBk;
-				btn_fore = unCap_colors.Img;
-				btn_bk_push = unCap_colors.ControlBkPush;
-				btn_bk_mouseover = unCap_colors.ControlBkMouseOver;
+				btn_border = global::colors.CaptionBk;
+				btn_bk = global::colors.CaptionBk;
+				btn_fore = global::colors.Img;
+				btn_bk_push = global::colors.ControlBkPush;
+				btn_bk_mouseover = global::colors.ControlBkMouseOver;
 			}
 			else {
-				btn_border = unCap_colors.CaptionBk_Inactive;
-				btn_bk = unCap_colors.CaptionBk_Inactive;
-				btn_fore = unCap_colors.Img_Inactive;
-				btn_bk_push = unCap_colors.ControlBkPush;
-				btn_bk_mouseover = unCap_colors.ControlBkMouseOver;
+				btn_border = global::colors.CaptionBk_Inactive;
+				btn_bk = global::colors.CaptionBk_Inactive;
+				btn_fore = global::colors.Img_Inactive;
+				btn_bk_push = global::colors.ControlBkPush;
+				btn_bk_mouseover = global::colors.ControlBkMouseOver;
 			}
 			button::set_brushes(state->btn_close, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
 			button::set_brushes(state->btn_min, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
@@ -394,10 +394,10 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 			//Set font and colors
 			HBRUSH bkbr = mi.hbrBack;
-			HBRUSH txtbr = state->active ? unCap_colors.ControlTxt : unCap_colors.ControlTxt_Inactive;
+			HBRUSH txtbr = state->active ? global::colors.ControlTxt : global::colors.ControlTxt_Inactive;
 			COLORREF oldbkclr = SetBkColor(dc, ColorFromBrush(bkbr)); defer{ if (oldbkclr != CLR_INVALID)SetBkColor(dc, oldbkclr); };
 			COLORREF oldtxtclr = SetTextColor(dc, ColorFromBrush(txtbr)); defer{ if (oldtxtclr != CLR_INVALID)SetTextColor(dc, oldtxtclr); };
-			HFONT oldmenufont = (HFONT)SelectObject(dc, unCap_fonts.Menu); defer{ SelectObject(dc,oldmenufont); };
+			HFONT oldmenufont = (HFONT)SelectObject(dc, global::fonts.Menu); defer{ SelectObject(dc,oldmenufont); };
 
 			//Paint background
 			FillRect(dc, &menurc, bkbr);
@@ -422,8 +422,8 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				bool on_mouseover = (i == menubar_mouseover_idx);
 				if (on_mouseover) {
 					//Paint mouseover bk
-					FillRect(dc, &state->menubar_items[i], unCap_colors.ControlBkMouseOver);//TODO(fran): im having to cheat a little bit here by using the rc from a previous painting, it could be outdated
-					SetBkColor(dc, ColorFromBrush(unCap_colors.ControlBkMouseOver));
+					FillRect(dc, &state->menubar_items[i], global::colors.ControlBkMouseOver);//TODO(fran): im having to cheat a little bit here by using the rc from a previous painting, it could be outdated
+					SetBkColor(dc, ColorFromBrush(global::colors.ControlBkMouseOver));
 				}
 				else {
 					SetBkColor(dc, ColorFromBrush(bkbr));
@@ -484,23 +484,23 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 		state->btn_min = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MINIMIZE, 0, 0);
-		//UNCAPBTN_set_brushes(state->btn_min, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver); //NOTE: now I do this on WM_PAINT, commenting this actually introduces a bug for the first ms of execution where the button might draw with no brushes first and then be asked to redraw with the brushes loaded, introducing at least one frame of flicker
+		//UNCAPBTN_set_brushes(state->btn_min, TRUE, global::colors.CaptionBk, global::colors.CaptionBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver); //NOTE: now I do this on WM_PAINT, commenting this actually introduces a bug for the first ms of execution where the button might draw with no brushes first and then be asked to redraw with the brushes loaded, introducing at least one frame of flicker
 
 		state->btn_max = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_MAXIMIZE, 0, 0);
-		//UNCAPBTN_set_brushes(state->btn_max, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+		//UNCAPBTN_set_brushes(state->btn_max, TRUE, global::colors.CaptionBk, global::colors.CaptionBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 		state->btn_close = CreateWindow(button::wndclass, TEXT(""), WS_CHILD | WS_VISIBLE | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_CLOSE, 0, 0);
-		//UNCAPBTN_set_brushes(state->btn_close, TRUE, unCap_colors.CaptionBk, unCap_colors.CaptionBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+		//UNCAPBTN_set_brushes(state->btn_close, TRUE, global::colors.CaptionBk, global::colors.CaptionBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 		state->btn_back = CreateWindow(button::wndclass, NULL, WS_CHILD | BS_BITMAP
 			,0,0,0,0, state->wnd, (HMENU)UNCAPNC_BACK, 0, 0);
 
-		HBITMAP bCross = unCap_bmps.close;//TODO(fran): let the user set this guys
-		HBITMAP bMax = unCap_bmps.maximize;
-		HBITMAP bMin = unCap_bmps.minimize;
-		HBITMAP bBack = unCap_bmps.arrowLine_left;
+		HBITMAP bCross = global::bmps.close;//TODO(fran): let the user set this guys
+		HBITMAP bMax = global::bmps.maximize;
+		HBITMAP bMin = global::bmps.minimize;
+		HBITMAP bBack = global::bmps.arrowLine_left;
 		SendMessage(state->btn_close, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bCross);
 		SendMessage(state->btn_max, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMax);
 		SendMessage(state->btn_min, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bMin);
@@ -675,7 +675,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 			mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS; //TODO(fran): MIM_APPLYTOSUBMENUS is garbage, it only goes one level down, just terrible, make my own
 			//TODO(fran): MIM_MAXHEIGHT and other fMask params that we should set
 
-			mi.hbrBack = state->active ? unCap_colors.CaptionBk : unCap_colors.CaptionBk_Inactive;
+			mi.hbrBack = state->active ? global::colors.CaptionBk : global::colors.CaptionBk_Inactive;
 
 			SetMenuInfo(state->menu, &mi);
 		}
@@ -719,7 +719,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				//wprintf(L"%s\n", menu_str);
 
 				HDC dc = GetDC(hwnd); //Of course they had to ask for a dc, and not give the option to just provide the font, which is the only thing this function needs
-				HFONT hfntPrev = (HFONT)SelectObject(dc, unCap_fonts.Menu);//TODO(fran): parametric
+				HFONT hfntPrev = (HFONT)SelectObject(dc, global::fonts.Menu);//TODO(fran): parametric
 				int old_mapmode = GetMapMode(dc);
 				SetMapMode(dc, MM_TEXT);
 				WORD text_width = LOWORD(GetTabbedTextExtent(dc, menu_str, menu_str_character_cnt - 1, 0, NULL)); //TODO(fran): make common function for this and the one that does rendering, also look at how tabs work
@@ -793,12 +793,12 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				HBRUSH txt_br, bk_br;
 				if (item->itemState & ODS_SELECTED || item->itemState & ODS_HOTLIGHT /*needed for "top level" menus*/) //TODO(fran): ODS_CHECKED ODS_FOCUS
 				{
-					txt_br = unCap_colors.ControlTxt;
-					bk_br = unCap_colors.ControlBkMouseOver;
+					txt_br = global::colors.ControlTxt;
+					bk_br = global::colors.ControlBkMouseOver;
 				}
 				else
 				{
-					txt_br = unCap_colors.ControlTxt;
+					txt_br = global::colors.ControlTxt;
 					Assert((UINT)(UINT_PTR)item->hwndItem);
 					//GetMenuInfo((HMENU)item->hwndItem, &mnfo); //We will not ask our "parent" hmenu since sometimes it decides it doesnt have the hbrush, we'll go straight to the menu bar, if there is one
 					if (state->menu) {
@@ -806,7 +806,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 						GetMenuInfo(state->menu, &mnfo);
 						bk_br = mnfo.hbrBack;
 					}
-					else bk_br = unCap_colors.CaptionBk;
+					else bk_br = global::colors.CaptionBk;
 
 				}
 				clrPrevText = SetTextColor(item->hDC, ColorFromBrush(txt_br));//TODO(fran): separate menu brushes
@@ -818,7 +818,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				}
 
 				// Select the font and draw the text. 
-				hfntPrev = (HFONT)SelectObject(item->hDC, unCap_fonts.Menu);//TODO(fran): parametric
+				hfntPrev = (HFONT)SelectObject(item->hDC, global::fonts.Menu);//TODO(fran): parametric
 
 				WORD x_pad = LOWORD(GetTabbedTextExtent(item->hDC, TEXT(" "), 1, 0, NULL)); //an extra 1 space before drawing text (for not top level menus)
 				//printf("item->hwndItem=%#016x GetMenu(hwnd)=%#016x state->menu=%#016x\n",item->hwndItem,GetMenu(hwnd),state->menu);
@@ -898,7 +898,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 								int bmp_align_height = item->rcItem.top + (img_max_y - bmp_height) / 2;
 
 								//NOTE: for some insane and nonsensical reason we cant use MaskBlt here, so no urender::draw_mask.
-								urender::draw_menu_mask(item->hDC, bmp_align_width, bmp_align_height, bmp_width, bmp_height, hbmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, unCap_colors.Img);//TODO(fran): parametric brush
+								urender::draw_menu_mask(item->hDC, bmp_align_width, bmp_align_height, bmp_width, bmp_height, hbmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric brush
 								//TODO(fran): clipping
 							}
 						}
@@ -946,7 +946,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 					}
 
 					if (menu_type.hSubMenu) { //Draw the submenu arrow
-						HBITMAP mask = unCap_bmps.arrow_right; //TODO(fran): parametric
+						HBITMAP mask = global::bmps.arrow_right; //TODO(fran): parametric
 						//defer{ DeleteBitmap(mask); };
 						BITMAP bmpnfo; GetObject(mask, sizeof(bmpnfo), &bmpnfo); Assert(bmpnfo.bmBitsPixel == 1);
 						int img_max_x = GetSystemMetrics(SM_CXMENUCHECK);
@@ -958,7 +958,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 						int bmp_top = item->rcItem.top + (img_max_y - img_sz) / 2;
 						int bmp_height = img_sz;
 						int bmp_width = bmp_height;
-						urender::draw_menu_mask(item->hDC, bmp_left, bmp_top, bmp_width, bmp_height, mask, 0, 0, bmpnfo.bmWidth, bmpnfo.bmHeight, unCap_colors.Img);//TODO(fran): parametric brush
+						urender::draw_menu_mask(item->hDC, bmp_left, bmp_top, bmp_width, bmp_height, mask, 0, 0, bmpnfo.bmWidth, bmpnfo.bmHeight, global::colors.Img);//TODO(fran): parametric brush
 
 						//Prevent windows from drawing what nobody asked it to draw
 						//Many thanks to David Sumich https://www.codeguru.com/cpp/controls/menu/miscellaneous/article.php/c13017/Owner-Drawing-the-Submenu-Arrow.htm 
@@ -980,7 +980,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 					GetMenuInfo(state->menu, &mnfo);
 					bk_br = mnfo.hbrBack; //TODO: unfinished trash
 				}
-				else bk_br = unCap_colors.CaptionBk;
+				else bk_br = global::colors.CaptionBk;
 
 				FillRect(item->hDC, &item->rcItem, bk_br);
 				RECT separator_rc;
@@ -988,7 +988,7 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 				separator_rc.bottom = separator_rc.top + 1; //TODO(fran): fancier calc and position
 				separator_rc.left = item->rcItem.left + separator_x_padding;
 				separator_rc.right = item->rcItem.right - separator_x_padding;
-				FillRect(item->hDC, &separator_rc, unCap_colors.ControlTxt);
+				FillRect(item->hDC, &separator_rc, global::colors.ControlTxt);
 				//TODO(fran): clipping
 			}
 			default: return DefWindowProc(hwnd, msg, wparam, lparam);

@@ -1,21 +1,20 @@
 ﻿//-------------------General TODOs-------------------:
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
 //TODO(fran): batch file for compiling that way too
-//TODO(fran): store a version number on the db in order to be able to update the tables in case of changes with different versions
-//TODO(fran): rounded corners for everything, it'll look and feel better for this type of application
 //TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work
 //TODO(fran): should I stop giving suggestions through the IME window? so the user isnt dependent on the correct writing of the IME suggestions, at least for something like the searchbar
 //TODO(fran): we probably also want a "forward" button
 //TODO(fran): dpi awareness https://docs.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows https://github.com/tringi/win32-dpi
 //TODO(fran): add a header for all ProcStates with a unique key for each proc that way it can later identify the state is the corresponding one to that wnd, eg:
-//struct ProcStateHeader {
-//    HWND wnd;
-//    HWND parent;
-//    u32 id;//or some other name
-//};
+//                                      struct ProcStateHeader {
+//                                          HWND wnd;
+//                                          HWND parent;
+//                                          u32 id;//or some other name
+//                                      };
+ //TODO(fran): font info should be saved and be end user editable
 
 //BIG TODO(fran): we can actually pre allocate the sizes for everything, and assign "static" structures to sections of the code for reuse, going back to the handmade hero mentality that'd help a lot, no need for mallocs all over the place, at most we should implement re allocation, but even that's not necessary if we fixed every size, I was thinking about differentiating current size and allocated size for things like strings, but that's also not needed, with fixed sizes we can have everything allocated on the correct size from the start, the content on the pages of this program is very much fixed and controllable
-//BIG TODO(fran): once we get this working make a resizer, that'd save lots of problems
+//BIG TODO(fran): make a resizer, that'd save lots of problems
 //BIG TODO(fran): db configuration, pragmas and the like (eg the page size is important to be at least 4KB)
 //BIG TODO(fran): add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group
 
@@ -26,7 +25,7 @@
 //This isnt anything new but simply a reflective moment that came to me, how each time I stopped using a windows feature the arquitecting came so much easier, the systems put in place for handling stuff are terrible, either cause they are or simply because Im outside windows and dont follow their design method, by creating my own, much simpler, much less interdependent system I could do stuff much faster, more efficient, and easier
 //Unix time has always been signed! Reasons for it: apparently c didnt support unsigned numbers at the time, also being signed allows you to go before 1970, not only forwards, which at the time might have seemed important since they were close to "before 1970", finally that means that you have 31 bits to go forward which leaves you at 2038, when going 64 bits you get 63 to go forward which leaves you beyond what anybody reading this will ever see
 //I do hate about all this SQL like databases that you need every param converted to a string back and forth, but mainly it bothers me on insertion, if I want to put a number I gotta convert it to string, there's no printf like function where you could put all the values in their real format, therefore you never get efficiency benefits from columns that arent text, really all columns should be text if there isnt gonna be a good support from the start for the values to be inserted in their non text form, so that'd be a future personal challenge, make a better db
-//The Property Sheet is what you use when you want to create a wizard, ej install wizard/installer, also it seems to give the tab control functionality for real, unlike the wrongly named "tab control" which does very little
+//The Property Sheet control is what you use when you want to create a wizard, ej install wizard/installer, also it seems to give the tab control functionality for real, unlike the wrongly named "tab control" which does very little
 //Windows' hidden window classes (ComboLBox,...) https://docs.microsoft.com/en-us/windows/win32/winmsg/about-window-classes?redirectedfrom=MSDN#system
 //More undocumented windows WM_UAH... https://github.com/adzm/win32-custom-menubar-aero-theme
 
@@ -43,11 +42,10 @@
 #include <Shlwapi.h> //StrCpyNW
 
 #include "win32_Helpers.h"
-#include "win32_Renderer.h"
-#include "unCap_Global.h"
+#include "win32_Global.h"
 #include "lang.h"
-#include "img.h"
 #include "LANGUAGE_MANAGER.h"
+#include "img.h"
 
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
 
@@ -61,13 +59,6 @@
 
 //INFO: this is actually necessary, if you simply link to comctl32.lib you'll get runtime errors of "ordinals not found", in my case ordinal 380, TODO(fran): what we could do is lower the version to allow from more systems to run the sw, other thing would be making my own loadiconmetric, that's the only function that complained that I had to link
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"") //for multiline edit control
-
-//----------------------Globals----------------------:
-//i32 n_tabs = 0;//Needed for serialization
-
-UNCAP_COLORS unCap_colors{ 0 };
-UNCAP_FONTS unCap_fonts{ 0 }; //TODO(fran): font info should be saved and be end user editable
-UNCAP_BMPS unCap_bmps{ 0 };
 
 //-------------Application Entry Point---------------:
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -88,11 +79,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //INFO: by default if faceName is not set then "Modern" is used, looks good but lacks some charsets
     StrCpyNW(lf.lfFaceName, GetApp_FontFaceName().c_str(), ARRAYSIZE(lf.lfFaceName));
 
-    unCap_fonts.General = CreateFontIndirect(&lf); runtime_assert(unCap_fonts.General, (str(L"Font not found: ")+ lf.lfFaceName).c_str()); //TODO(fran): add a runtime_msg that does exactly the same as runtime_assert except for crashing
+    global::fonts.General = CreateFontIndirect(&lf); runtime_assert(global::fonts.General, (str(L"Font not found: ")+ lf.lfFaceName).c_str()); //TODO(fran): add a runtime_msg that does exactly the same as runtime_assert except for crashing
 
     lf.lfHeight = (LONG)((float)GetSystemMetrics(SM_CYMENU) * .85f); //TODO(fran): why isnt this negative?
 
-    unCap_fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
+    global::fonts.Menu = CreateFontIndirectW(&lf); runtime_assert(global::fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
 
     {
         HDC dc = GetDC(0); defer{ ReleaseDC(0,dc); };
@@ -100,27 +91,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         TEXTMETRIC tm; GetTextMetrics(dc, &tm);
         lf.lfHeight = tm.tmHeight;
     }
-    unCap_fonts.Caption = CreateFontIndirectW(&lf); runtime_assert(unCap_fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
+    global::fonts.Caption = CreateFontIndirectW(&lf); runtime_assert(global::fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
 
-    defer{ for (auto& f : unCap_fonts.all) if (f) { DeleteObject(f); f = NULL; } };
+    defer{ for (auto& f : global::fonts.all) if (f) { DeleteObject(f); f = NULL; } };
 
     //----------------Bitmap Setup-----------------:
     //INFO: use CreateBitmap for monochrome ones, and CreateCompatibleBitmap for color
-#define create_unCap_bmps(bmp) unCap_bmps.bmp = CreateBitmap(bmp.w, bmp.h,1,bmp.bpp,bmp.mem); runtime_assert(unCap_bmps.bmp,(str(L"Failed to create bitmap: ") + L#bmp).c_str()) /*TODO(fran): very ugly, but I need to assert on the result of CreateBmp*/
+#define create_global_bmps(bmp) global::bmps.bmp = CreateBitmap(bmp.w, bmp.h,1,bmp.bpp,bmp.mem); runtime_assert(global::bmps.bmp,(str(L"Failed to create bitmap: ") + L#bmp).c_str()) /*TODO(fran): very ugly, but I need to assert on the result of CreateBmp*/
 
 
-    create_unCap_bmps(close);//TODO(fran): why isnt this autogenerated with foreach?
-    create_unCap_bmps(maximize);
-    create_unCap_bmps(minimize);
-    create_unCap_bmps(tick);
-    create_unCap_bmps(arrow_right);
-    create_unCap_bmps(dropdown);
-    create_unCap_bmps(circle);
-    create_unCap_bmps(bin);
-    create_unCap_bmps(arrowLine_left);
-    create_unCap_bmps(arrowSimple_right);
+    create_global_bmps(close);//TODO(fran): why isnt this autogenerated with foreach?
+    create_global_bmps(maximize);
+    create_global_bmps(minimize);
+    create_global_bmps(tick);
+    create_global_bmps(arrow_right);
+    create_global_bmps(dropdown);
+    create_global_bmps(circle);
+    create_global_bmps(bin);
+    create_global_bmps(arrowLine_left);
+    create_global_bmps(arrowSimple_right);
 
-    defer{ for (auto& bmp : unCap_bmps.all) if(bmp){ DeleteObject(bmp); bmp = NULL; } };
+    defer{ for (auto& bmp : global::bmps.all) if(bmp){ DeleteObject(bmp); bmp = NULL; } };
 
     //----------------Work Folder Setup-----------------:
     cstr* work_folder; defer{ free(work_folder); };
@@ -152,15 +143,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     //-----------------Deserialization------------------:
     べんきょうSettings べんきょう_cl;
+    auto& win32_colors = global::colors;//NOTE: I avoid direclty using global::colors as the serialization name cause of the :: which could later be used as an asignment operator
     {
         const str to_deserialize = load_file_serialized(work_folder);
         _BeginDeserialize();
         _deserialize_struct(lang_mgr, to_deserialize);
         _deserialize_struct(べんきょう_cl, to_deserialize);
-        _deserialize_struct(unCap_colors, to_deserialize);
-        default_colors_if_not_set(&unCap_colors);
+        //_deserialize_struct(unCap_colors, to_deserialize);
+        //default_colors_if_not_set(&unCap_colors);
+
+        _deserialize_struct(win32_colors, to_deserialize);
+        default_colors_if_not_set(&win32_colors);
+
     }
-    defer{ for (auto& br : unCap_colors.all) if (br) { DeleteObject(br); br = NULL; } };
+    //defer{ for (auto& br : unCap_colors.all) if (br) { DeleteObject(br); br = NULL; } };
+    defer{ for (auto& br : win32_colors.all) if (br) { DeleteObject(br); br = NULL; } };
 
 
     //------------------Database Setup-------------------:
@@ -196,11 +193,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
     べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
 
-    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
     Assert(べんきょう_nc);
 
-    べんきょう::set_brushes(UNCAPNC_get_state(べんきょう_nc)->client, TRUE, unCap_colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
+    べんきょう::set_brushes(UNCAPNC_get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
 
     UpdateWindow(べんきょう_nc);
 
@@ -221,8 +218,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         str serialized;
         _BeginSerialize();
         serialized += _serialize_struct(lang_mgr);
-        serialized += _serialize_struct(unCap_colors);
+        //serialized += _serialize_struct(unCap_colors);
         serialized += _serialize_struct(べんきょう_cl);
+        serialized += _serialize_struct(win32_colors);
 
         save_to_file_serialized(serialized, work_folder);
     }

@@ -3,7 +3,7 @@
 #include <windowsx.h>
 #include <CommCtrl.h> //DefSubclassProc
 #include "win32_Helpers.h"
-#include "unCap_Global.h"
+#include "win32_Global.h"
 
 //-------------Additional Styles-------------:
 #define CBS_ROUNDRECT 0x8000L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
@@ -19,6 +19,8 @@ struct ComboProcState {
 
 //BUGs:
 //-when the user opens the combobox there's a small window of time where the text shown on top will get changed if the mouse got over some item of the list. To replicate: press combobox and quickly move the mouse straight down
+
+//TODO(fran): for comboboxes with WS_TABSTOP style it might be good to open the listbox when we ge keyboard focus
 
 LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
 
@@ -109,15 +111,15 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 		int border_thickness = 1;
 
 		BOOL ButtonState = (BOOL)SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0);
-		HBRUSH bk_br, border_br = unCap_colors.Img;
+		HBRUSH bk_br, border_br = global::colors.Img;
 		if (ButtonState) {
-			bk_br = unCap_colors.ControlBkPush;
+			bk_br = global::colors.ControlBkPush;
 		}
 		else if (state->on_mouseover) {
-			bk_br = unCap_colors.ControlBkMouseOver;
+			bk_br = global::colors.ControlBkMouseOver;
 		}
 		else {
-			bk_br = unCap_colors.ControlBk;
+			bk_br = global::colors.ControlBk;
 		}
 		SetBkColor(dc, ColorFromBrush(bk_br));
 
@@ -130,7 +132,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 
 		SelectFont(dc, (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0));
 		//SetBkColor(hdc, bkcolor);
-		SetTextColor(dc, ColorFromBrush(unCap_colors.ControlTxt));
+		SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt));
 
 		//Border and Bk
 		{
@@ -189,7 +191,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 				txt_rc.left += DISTANCE_TO_SIDE;
 				COLORREF prev_txt_clr;
 				if (cuebanner) {//TODO(fran): this double if is horrible
-					prev_txt_clr = SetTextColor(dc, ColorFromBrush(unCap_colors.ControlTxt_Disabled));
+					prev_txt_clr = SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt_Disabled));
 				}
 				DrawText(dc, buf, -1, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 				if (cuebanner) {
@@ -211,7 +213,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 				int bmp_width = bmp_height;
 				int bmp_align_width = RECTWIDTH(rc) - bmp_width - DISTANCE_TO_SIDE;
 				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
-				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, unCap_colors.Img);//TODO(fran): parametric color
+				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric color
 			}
 		}
 		
@@ -220,6 +222,19 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UI
 	case WM_ERASEBKGND:
 	{
 		return 1;
+	} break;
+	case WM_CHAR:
+	{
+		//Here we check for tab
+		TCHAR c = (TCHAR)wparam;
+		switch (c) {
+		case VK_TAB://Tab
+		{
+			SetFocus(GetNextDlgTabItem(GetParent(state->wnd), state->wnd, FALSE));
+			//INFO: GetNextDlgTabItem also check that the new item is visible and not disabled
+			//TODO(fran): return 0; ?
+		}break;
+		}
 	} break;
 	//case WM_NCDESTROY:
 	//{
@@ -240,7 +255,7 @@ LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
 	{
 		PAINTSTRUCT p;
 		HDC dc = BeginPaint(hwnd, &p);
-		FillRect(dc,&p.rcPaint,unCap_colors.ControlTxt);
+		FillRect(dc,&p.rcPaint,global::colors.ControlTxt);
 		EndPaint(hwnd, &p);
 	} break;
 #if 1 /*Remove button for opening listbox*/

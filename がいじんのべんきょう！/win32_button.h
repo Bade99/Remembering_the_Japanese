@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include "windows_sdk.h"
 #include <windowsx.h>
-#include "unCap_Global.h"
+#include "win32_Global.h"
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
 
@@ -530,6 +530,7 @@ namespace button {
 			case VK_TAB://Tab
 			{
 				SetFocus(GetNextDlgTabItem(GetParent(state->wnd), state->wnd, FALSE));
+				//INFO: GetNextDlgTabItem also check that the new item is visible and not disabled
 			}break;
 			case VK_RETURN://Received when the user presses the "enter" key //Carriage Return aka \r
 			{

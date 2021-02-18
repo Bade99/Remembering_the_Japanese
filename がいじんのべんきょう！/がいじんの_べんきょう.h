@@ -2,6 +2,7 @@
 #include "windows_sdk.h"
 #include "win32_Platform.h"
 #include "unCap_Serialization.h"
+#include "win32_Global.h"
 #include "sqlite3.h"
 #include "win32_Helpers.h"
 #include "win32_button.h"
@@ -20,6 +21,8 @@
 #include <array> //create_grid_2x2
 
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
+//TODO(fran): db: load the whole db in ram
+//TODO(fran): db: store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
@@ -27,10 +30,10 @@
 //TODO(fran): all pages: chrome style IME, the text is written directly on the control while you write
 //TODO(fran): all pages: I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
-//TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
-//TODO(fran): page landing: make it a 2x2 grid and add a stats button and page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
+//TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
+//TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
+//TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
 //TODO(fran): page new_word: pressing enter should map to the add button
-//TODO(fran): page new_word: tabstop for comboboxes doesnt seem to work
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
@@ -40,6 +43,7 @@
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 //TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji
 //TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
+//TODO(fran): BUG: page search: going to the previous page doesnt currently remove focus from whoever had it, therefore if you click on the searchbox, go to the prev page and press a key then the listbox will present the options and allow you to load the show_word page (this bug wasnt present before cause we handled searching in WM_COMMAND and check against our childs, therefore the landing page could not access controls from the search page, but now seach happens _inside_ the searchbox control and thus bypassing page checking), one quick and dirty way to solve this for now would be to check we're on the right page inside the seachbox_func_... functions, still other similar bugs could happen, best would probably be to steal focus when going back a page, or add a function that, given a page, sets focus to the desired control
 
 //TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements
 
@@ -717,7 +721,7 @@ namespace べんきょう {
 			RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 
 			//Draw border
-			HBRUSH border_br = data->answered_correctly ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
+			HBRUSH border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
 			int thickness = 3;
 #if 0
 			FillRectBorder(dc, rc, thickness, border_br,BORDERALL);
@@ -744,7 +748,7 @@ namespace べんきょう {
 #else
 			utf16_str txt = data->user_answer;//the user will remember better what they wrote rather than what they saw
 #endif
-			urender::draw_text_max_coverage(dc, rc, txt, unCap_fonts.General, unCap_colors.ControlTxt, urender::txt_align::center);
+			urender::draw_text_max_coverage(dc, rc, txt, global::fonts.General, global::colors.ControlTxt, urender::txt_align::center);
 
 		} break;
 		default: Assert(0);
@@ -766,14 +770,14 @@ namespace べんきょう {
 		utf16* txt = (decltype(txt))element;
 
 		//Draw bk
-		HBRUSH bk_br = unCap_colors.ControlBk;
-		if (flags.onSelected)bk_br = unCap_colors.ControlBkMouseOver;
-		if(flags.onClicked) bk_br = unCap_colors.ControlBkPush;
+		HBRUSH bk_br = global::colors.ControlBk;
+		if (flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
+		if(flags.onClicked) bk_br = global::colors.ControlBkPush;
 
 		FillRect(dc, &rc, bk_br);
 
 		//Draw text
-		urender::draw_text(dc, rc, to_utf16_str(txt), unCap_fonts.General, unCap_colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, rc, to_utf16_str(txt), global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
 	}
 
 	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
@@ -792,26 +796,26 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_new, 100);
 			//TODO(fran): more brushes, fore_push,... , border_mouseover,...
-			button::set_brushes(controls.list.button_new, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_new, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 			controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_practice, 101);
-			button::set_brushes(controls.list.button_practice, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_practice, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 			controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_search, 102);
-			button::set_brushes(controls.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_search, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 			controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			languages_setup_combobox(controls.list.combo_languages);
 			SetWindowSubclass(controls.list.combo_languages, ComboProc, 0, 0);
-			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			//TODO(fran): more subdued colors for the lang combo, also no border, possibly also bold text, and right aligned
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 		//---------------------New word----------------------:
 		{
@@ -819,7 +823,7 @@ namespace べんきょう {
 
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_hiragana, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_hiragana, 120);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -827,30 +831,30 @@ namespace べんきょう {
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
 			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
 			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
-			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_save, 124);
-			button::set_brushes(controls.list.button_save, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_save, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 		//---------------------Search----------------------:
 		{
@@ -872,7 +876,7 @@ namespace べんきょう {
 			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			ACC(controls.list.searchbox_search, 251);
-			searchbox::set_brushes(controls.list.searchbox_search, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled, unCap_colors.Img_Disabled);
+			searchbox::set_brushes(controls.list.searchbox_search, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled, global::colors.Img_Disabled);
 			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
 			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
 			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
@@ -880,7 +884,7 @@ namespace べんきょう {
 			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);//TODO(fran)
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 		//---------------------Show word----------------------:
 		{
@@ -888,16 +892,16 @@ namespace べんきょう {
 
 			controls.list.static_hiragana = CreateWindowW( static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
+			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -905,38 +909,38 @@ namespace べんきょう {
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
 			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
 			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
-			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_creation_date, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
+			static_oneline::set_brushes(controls.list.static_creation_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
 			controls.list.static_last_shown_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_last_shown_date, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
+			static_oneline::set_brushes(controls.list.static_last_shown_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
 			controls.list.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_score, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);
+			static_oneline::set_brushes(controls.list.static_score, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
 			controls.list.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			button::set_brushes(controls.list.button_modify, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_modify, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
 			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			button::set_brushes(controls.list.button_delete, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
-			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.bin);
+			button::set_brushes(controls.list.button_delete, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Practice----------------------:
@@ -949,7 +953,7 @@ namespace べんきょう {
 
 			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);
+			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 			
 			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -957,7 +961,7 @@ namespace べんきょう {
 
 			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 			
 			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -965,12 +969,12 @@ namespace べんきょう {
 
 			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD 
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			score::set_brushes(controls.list.score_accuracy, FALSE, unCap_colors.ControlBk, unCap_colors.Score_RingBk, unCap_colors.Score_RingFull, unCap_colors.Score_RingEmpty, unCap_colors.Score_InnerCircle);
+			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
 
 			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
-			button::set_brushes(controls.list.button_start, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_start, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 			
 			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -978,12 +982,12 @@ namespace べんきょう {
 
 			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, unCap_colors.Graph_Line, unCap_colors.Graph_BkUnderLine, unCap_colors.Graph_Bk, unCap_colors.Graph_Border);
+			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
 
 			//TODO(fran): we may want to add smth else like a total number of words practiced
 
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Practice writing----------------------:
@@ -992,20 +996,20 @@ namespace べんきょう {
 
 			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, unCap_colors.ControlBk, 0, 0, unCap_colors.ControlBk_Disabled, 0);
+			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
 			//NOTE: text color will be set according to the type of word being shown
 
 			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, 0, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, 0, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
 			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
-			button::set_brushes(controls.list.button_next, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
-			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)unCap_bmps.arrowSimple_right);
+			button::set_brushes(controls.list.button_next, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Review practice----------------------:
@@ -1014,25 +1018,25 @@ namespace べんきょう {
 
 			controls.list.static_review= CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_review, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, 0, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			static_oneline::set_brushes(controls.list.static_review, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 			AWT(controls.list.static_review, 450);
 
 			controls.list.gridview_practices = CreateWindowW(gridview::wndclass, NULL, WS_CHILD
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 //#define TEST_GRIDVIEW
 #ifndef TEST_GRIDVIEW
-			gridview::set_brushes(controls.list.gridview_practices, TRUE, unCap_colors.ControlBk, unCap_colors.ControlBk, unCap_colors.ControlBk_Disabled, unCap_colors.ControlBk_Disabled);//TODO(fran): add border brushes
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);//TODO(fran): add border brushes
 #else
-			gridview::set_brushes(controls.list.gridview_practices, TRUE, unCap_colors.CaptionBk, 0, unCap_colors.CaptionBk_Inactive, 0);
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.CaptionBk, 0, global::colors.CaptionBk_Inactive, 0);
 #endif
 			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
 
 			controls.list.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_continue, 451);
-			button::set_brushes(controls.list.button_continue, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
+			button::set_brushes(controls.list.button_continue, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 	}
 
@@ -1905,34 +1909,34 @@ namespace べんきょう {
 			case decltype(practice->practice_type)::translate_hiragana_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.hiragana.str;
-				test_word_br = unCap_colors.hiragana;
+				test_word_br = global::colors.hiragana;
 				//TODO(fran): idk if I should put "translation" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
 				answer_placeholder = RS(380);
-				answer_br = unCap_colors.translation;
+				answer_br = global::colors.translation;
 			} break;
 			case decltype(practice->practice_type)::translate_kanji_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = unCap_colors.kanji;
+				test_word_br = global::colors.kanji;
 
 				answer_placeholder = answer_hiragana;
-				answer_br = unCap_colors.hiragana;
+				answer_br = global::colors.hiragana;
 			} break;
 			case decltype(practice->practice_type)::translate_kanji_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = unCap_colors.kanji;
+				test_word_br = global::colors.kanji;
 
 				answer_placeholder = RS(380);
-				answer_br = unCap_colors.translation;
+				answer_br = global::colors.translation;
 			} break;
 			case decltype(practice->practice_type)::translate_translation_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.translation.str;
-				test_word_br = unCap_colors.translation;
+				test_word_br = global::colors.translation;
 
 				answer_placeholder = answer_hiragana;
-				answer_br = unCap_colors.hiragana;
+				answer_br = global::colors.hiragana;
 			} break;
 			default:Assert(0);
 			}
@@ -2623,9 +2627,9 @@ namespace べんきょう {
 							bool success = !StrCmpIW(correct_answer->str, user_answer.str);
 
 							//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
-							HBRUSH bk = success ? unCap_colors.Bk_right_answer : unCap_colors.Bk_wrong_answer;
-							edit_oneline::set_brushes(page.list.edit_answer, TRUE, unCap_colors.ControlTxt, bk, bk, 0, 0, 0);
-							button::set_brushes(page.list.button_next, TRUE, bk, bk, unCap_colors.ControlTxt, 0, 0);
+							HBRUSH bk = success ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+							edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
+							button::set_brushes(page.list.button_next, TRUE, bk, bk, global::colors.ControlTxt, 0, 0);
 
 							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
 
@@ -2751,26 +2755,26 @@ namespace べんきょう {
 		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
 		{
 			HDC listboxDC = (HDC)wparam;
-			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
-			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));
+			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
+			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
 
-			return (INT_PTR)unCap_colors.ControlBk;
+			return (INT_PTR)global::colors.ControlBk;
 		} break;
 		case WM_CTLCOLOREDIT: //for the combobox edit control (if I dont subclass it) //TODO(fran): this has to go
 		{
 			HDC listboxDC = (HDC)wparam;
-			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
-			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));
+			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
+			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
 
-			return (INT_PTR)unCap_colors.ControlBk;
+			return (INT_PTR)global::colors.ControlBk;
 		} break;
 		case WM_CTLCOLORSTATIC: //for the static controls //TODO(fran): this has to go, aka make my own
 		{
 			HDC listboxDC = (HDC)wparam;
-			SetBkColor(listboxDC, ColorFromBrush(unCap_colors.ControlBk));
-			SetTextColor(listboxDC, ColorFromBrush(unCap_colors.ControlTxt));//TODO(fran): maybe a lighter color to signalize non-editable?
+			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
+			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));//TODO(fran): maybe a lighter color to signalize non-editable?
 
-			return (INT_PTR)unCap_colors.ControlBk;
+			return (INT_PTR)global::colors.ControlBk;
 		} break;
 		case WM_BACK:
 		{
@@ -2863,7 +2867,7 @@ namespace べんきょう {
 		wcex.hInstance = inst;
 		wcex.hIcon = 0;
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		wcex.hbrBackground = 0; //TODO(fran): unCap_colors.ControlBk hasnt been deserialized by the point pre_post_main gets executed!
+		wcex.hbrBackground = 0; //TODO(fran): global::colors.ControlBk hasnt been deserialized by the point pre_post_main gets executed!
 		wcex.lpszMenuName = 0;
 		wcex.lpszClassName = wndclass;
 		wcex.hIconSm = 0;

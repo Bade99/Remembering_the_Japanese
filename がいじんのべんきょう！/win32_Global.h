@@ -3,11 +3,13 @@
 #include "unCap_Reflection.h"
 #include "unCap_Serialization.h"
 
-constexpr cstr app_name[] = L"がいじんのべんきょう！";
+namespace global {
 
-union UNCAP_COLORS {//TODO(fran): HBRUSH Border
-	struct {
-		//TODO(fran): add _disabled for at least txt,bk,border
+	constexpr cstr app_name[] = L"がいじんのべんきょう！";
+
+	union _colors {//TODO(fran): HBRUSH Border
+		struct {
+			//TODO(fran): add _disabled for at least txt,bk,border
 #define foreach_color(op) \
 		op(HBRUSH,ControlBk,CreateSolidBrush(RGB(40, 41, 35))) \
 		op(HBRUSH,ControlBkPush,CreateSolidBrush(RGB(0, 110, 200))) \
@@ -38,70 +40,55 @@ union UNCAP_COLORS {//TODO(fran): HBRUSH Border
 		op(HBRUSH,translation,CreateSolidBrush(RGB(142, 79, 88))) \
 		op(HBRUSH,Bk_right_answer,CreateSolidBrush(RGB(23, 206, 44))) \
 		op(HBRUSH,Bk_wrong_answer,CreateSolidBrush(RGB(206, 23, 44))) \
-		
+
 		//TODO(fran): not sure which color to choose for kanji, I use black on my studies but that wont be too visible while we keep the gray bk
 
-		foreach_color(_generate_member_no_default_init);
+			foreach_color(_generate_member_no_default_init);
 
-	};
-	HBRUSH all[0 + foreach_color(_generate_count)];
+		};
+		HBRUSH all[0 + foreach_color(_generate_count)];
 
-	_generate_default_struct_serialize(foreach_color);
+		_generate_default_struct_serialize(foreach_color);
 
-	_generate_default_struct_deserialize(foreach_color);
-};
+		_generate_default_struct_deserialize(foreach_color);
+	}static colors;
 
-static void default_colors_if_not_set(UNCAP_COLORS* c) {
+	static void default_colors_if_not_set(_colors* c) {
 #define _default_initialize(type, name,value) if(!c->name) c->name = value;
-	foreach_color(_default_initialize);
+		foreach_color(_default_initialize);
 #undef _default_initialize
-}
+	}
 
-extern UNCAP_COLORS unCap_colors;
+	union _fonts {
+		struct {
+			HFONT General;
+			HFONT Menu;
+			HFONT Caption;
+		};
+		HFONT all[3];//REMEMBER to update
 
-union UNCAP_FONTS {
-	struct {
-		HFONT General;
-		HFONT Menu;
-		HFONT Caption;
-	};
-	HFONT all[3];//REMEMBER to update
+		//NOTE: this checks for the lower bound, if all is bigger than the elements the assert wont trigger, I havent yet found a way to do the correct check, which would be against the struct, without having to put a name to it and thus destroying the whole point of it
+	private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
+	}static fonts;
 
-	//NOTE: this checks for the lower bound, if all is bigger than the elements the assert wont trigger, I havent yet found a way to do the correct check, which would be against the struct, without having to put a name to it and thus destroying the whole point of it
-private: void _(){ static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
-};
 
-extern UNCAP_FONTS unCap_fonts;
-
-//TODO(fran): now we could do the same we do with langs and colors with the bitmaps, though we really need some sort of version checking, say the user wants to change the bitmaps, they wont be able to if we write them to disk each time
+	//TODO(fran): now we could do the same we do with langs and colors with the bitmaps, though we really need some sort of version checking, say the user wants to change the bitmaps, they wont be able to if we write them to disk each time
 //	one solution can be to write the version say on the first 16 characters, eg 0000000000000001, with that we can check, and also we could add a no_update flag, eg 00000dont_update so the user can forget about getting their imgs overridden
-union UNCAP_BMPS { //1bpp 16x16 bitmaps
-	struct {
-		HBITMAP close;
-		HBITMAP maximize;
-		HBITMAP minimize;
-		HBITMAP arrow_right;
-		HBITMAP tick;
-		HBITMAP dropdown;
-		HBITMAP circle;
-		HBITMAP bin;
-		HBITMAP arrowLine_left;
-		HBITMAP arrowSimple_right;
-	};
-	HBITMAP all[10];//REMEMBER to update
+	union _bmps { //1bpp 16x16 bitmaps
+		struct {
+			HBITMAP close;
+			HBITMAP maximize;
+			HBITMAP minimize;
+			HBITMAP arrow_right;
+			HBITMAP tick;
+			HBITMAP dropdown;
+			HBITMAP circle;
+			HBITMAP bin;
+			HBITMAP arrowLine_left;
+			HBITMAP arrowSimple_right;
+		};
+		HBITMAP all[10];//REMEMBER to update
 
-private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
-};
-
-extern UNCAP_BMPS unCap_bmps;
-
-
-/*
-op(HBRUSH,Search_Bk,CreateSolidBrush(RGB(30, 31, 25))) \
-		op(HBRUSH,Search_BkPush,CreateSolidBrush(RGB(0, 120, 210))) \
-		op(HBRUSH,Search_BkMouseOver,CreateSolidBrush(RGB(0, 130, 225))) \
-		op(HBRUSH,Search_Txt,CreateSolidBrush(RGB(238, 238, 232))) \
-		op(HBRUSH,Search_Edit_Bk,CreateSolidBrush(RGB(60, 61, 65))) \
-		op(HBRUSH,Search_Edit_Txt,CreateSolidBrush(RGB(248, 248, 242))) \
-		op(HBRUSH,Search_BkSelected,CreateSolidBrush(RGB(60, 61, 55))) \
-*/
+	private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
+	}static bmps;
+}
