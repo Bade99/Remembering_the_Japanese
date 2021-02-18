@@ -1693,7 +1693,7 @@ namespace べんきょう {
 	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
 		ptr<void*> res{ 0 };
 		ProcState* state = get_state((HWND)user_extra);
-		if (user_input.sz && state) {
+		if (state && state->current_page == ProcState::page::search && user_input.sz) {
 			auto search_res = search_word_matches(state->settings->db, user_input.str, 8); defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
 			//TODO(fran): search_word_matches should return a ptr
 			res.alloc(search_res.cnt);
@@ -1971,7 +1971,7 @@ namespace べんきょう {
 
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra) {
 		ProcState* state = get_state((HWND)user_extra);
-		if (state) {
+		if (state && state->current_page == ProcState::page::search) {
 			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
 			utf16* search;
 			
