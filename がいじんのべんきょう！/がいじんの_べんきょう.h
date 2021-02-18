@@ -20,12 +20,14 @@
 #include <array> //create_grid_2x2
 
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
+//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
 //TODO(fran): all pages: chrome style IME, the text is written directly on the control while you write
 //TODO(fran): all pages: I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
+//TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: make it a 2x2 grid and add a stats button and page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
 //TODO(fran): page new_word: pressing enter should map to the add button
 //TODO(fran): page new_word: tabstop for comboboxes doesnt seem to work
@@ -38,6 +40,8 @@
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 //TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji
 //TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
+
+//TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements
 
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
@@ -244,7 +248,7 @@ void languages_setup_combobox(HWND cb) {
 //				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
 //			}
 
-#define _get_combo_sel_str(cb,any_str) \
+#define _get_combo_sel_idx_as_str(cb,any_str) \
 			{ \
 				int lex_categ = (int)SendMessageW(cb, CB_GETCURSEL, 0, 0); \
 				int sz_char = _snwprintf(nullptr, 0, L"%d", lex_categ) + 1; \
@@ -1631,7 +1635,7 @@ namespace べんきょう {
 			_get_edit_str(page.list.edit_translation, w.attributes.translation);
 			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
 
-			_get_combo_sel_str(page.list.combo_lexical_category, w.attributes.lexical_category);
+			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w.attributes.lexical_category);
 
 			learnt_word w_utf8;
 			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
@@ -1686,7 +1690,7 @@ namespace べんきょう {
 		ptr<void*> res{ 0 };
 		ProcState* state = get_state((HWND)user_extra);
 		if (user_input.sz && state) {
-			auto search_res = search_word_matches(state->settings->db, user_input.str, 5); defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			auto search_res = search_word_matches(state->settings->db, user_input.str, 8); defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
 			//TODO(fran): search_word_matches should return a ptr
 			res.alloc(search_res.cnt);
 			for (size_t i = 0; i < search_res.cnt; i++)
@@ -2026,7 +2030,7 @@ namespace べんきょう {
 			_get_edit_str(page.list.edit_kanji, w.attributes.kanji);
 			_get_edit_str(page.list.edit_translation, w.attributes.translation);
 			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
-			_get_combo_sel_str(page.list.combo_lexical_category, w.attributes.lexical_category);
+			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w.attributes.lexical_category);
 
 			learnt_word w_utf8; defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
 			for (int i = 0; i < ARRAYSIZE(w.all); i++) {

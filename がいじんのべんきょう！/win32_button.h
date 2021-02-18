@@ -43,6 +43,10 @@ namespace button {
 		return state;
 	}
 
+	void set_state(HWND wnd, ProcState* state) {//NOTE: only used on creation
+		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
+	}
+
 	//NOTE: any NULL HBRUSH remains unchanged
 	void set_brushes(HWND uncap_btn, BOOL repaint, HBRUSH border_br, HBRUSH bk_br, HBRUSH fore_br, HBRUSH bkpush_br, HBRUSH bkmouseover_br) {
 		ProcState* state = get_state(uncap_btn);
@@ -56,7 +60,7 @@ namespace button {
 		}
 	}
 
-	LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 		ProcState* state = get_state(hwnd);
 		//Assert(state); //NOTE: cannot check thanks to the grandeur of windows' msgs before WM_NCCREATE
@@ -293,7 +297,7 @@ namespace button {
 		case WM_NCCREATE: { //1st msg received
 			ProcState* st = (ProcState*)calloc(1, sizeof(ProcState));
 			Assert(st);
-			SetWindowLongPtr(hwnd, 0, (LONG_PTR)st);
+			set_state(hwnd, st);
 			CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
 			st->parent = creation_nfo->hwndParent;
 			st->wnd = hwnd;
@@ -557,7 +561,7 @@ namespace button {
 
 		cl.cbSize = sizeof(cl);
 		cl.style = CS_HREDRAW | CS_VREDRAW;
-		cl.lpfnWndProc = ButtonProc;
+		cl.lpfnWndProc = Proc;
 		cl.cbClsExtra = 0;
 		cl.cbWndExtra = sizeof(ProcState*);
 		cl.hInstance = instance;
@@ -569,17 +573,16 @@ namespace button {
 		cl.hIconSm = NULL;
 
 		ATOM class_atom = RegisterClassExW(&cl);
-		Assert(class_atom);
+		runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
 	}
 
-	struct pre_post_main_Button {
-		pre_post_main_Button() {
+	struct pre_post_main {
+		pre_post_main() {
 			init_wndclass(GetModuleHandleW(NULL));
 		}
-		~pre_post_main_Button() { //INFO: you can also use the atexit function
+		~pre_post_main() { //INFO: you can also use the atexit function
 			//Classes are de-registered automatically by the os
 		}
 	};
-	static const pre_post_main_Button PREMAIN_POSTMAIN_BUTTON;
-
+	static const pre_post_main PREMAIN_POSTMAIN;
 }

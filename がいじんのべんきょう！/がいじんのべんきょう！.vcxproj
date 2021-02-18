@@ -194,6 +194,8 @@
     <ClInclude Include="win32_new_msgs.h" />
     <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
+    <ClInclude Include="win32_page.h" />
+    <ClInclude Include="win32_printmsg.h" />
     <ClInclude Include="win32_Renderer.h" />
     <ClInclude Include="unCap_Serialization.h" />
     <ClInclude Include="unCap_Vector.h" />

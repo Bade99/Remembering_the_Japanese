@@ -104,6 +104,12 @@
     <ClInclude Include="win32_new_msgs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="win32_printmsg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_page.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">
