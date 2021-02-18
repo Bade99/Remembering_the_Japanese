@@ -11,7 +11,6 @@
 #include "unCap_Serialization.h"
 #include "unCap_Reflection.h"
 #include "windows_msg_mapper.h"
-//#include "resource.h" //TODO(fran): we shouldnt need this
 
 // ------------------------ USAGE NOTES ------------------------ //
 // - If you need menus to resize, for example when you change languages
@@ -41,6 +40,7 @@
 #define UNCAPNC_TIMER_MENUDELAY 0xf1 //A little delay before allowing the user to select a new menu, this prevents problems, eg the user trying to close the menu by selecting it again in the menu bar
 
 //TODO(fran): look at SetWindowLong(hWnd, GWL_STYLE, currStyles | WS_MAXIMIZE); maybe that helps with maximizing correctly?
+//TODO(fran): if the user maximizes the wnd and then clicks and drags the nonclient to de-maximize we get the problem of our client area not rendering, we need to find the msg that correlates to that and call invalidaterect on the client
 
 struct unCapNcLpParam {//NOTE: pass a pointer to unCapNcLpParam to set up the client area, if client_class_name is null no client is created
 	const cstr* client_class_name;
@@ -287,7 +287,7 @@ namespace nonclient {
 //TODO(fran): it'd be nice to have a way to implement good subclassing, eg letting the user assign clip regions where they can draw and we dont, things like that, more communication
 LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
-	//printf(msgToString(msg)); printf("\n");
+	printf("NONCLIENT:%s\n", msgToString(msg));
 	unCapNcProcState* state = UNCAPNC_get_state(hwnd);
 
 	{

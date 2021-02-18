@@ -7,6 +7,7 @@
 #include "win32_listbox.h"
 #include <windowsx.h>
 #include <CommCtrl.h>//SetWindowSubclass
+#include "win32_new_msgs.h"
 
 //NOTE: no ASCII support, always utf16
 

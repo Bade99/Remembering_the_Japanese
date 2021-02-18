@@ -14,12 +14,12 @@
 #include "win32_graph.h"
 #include "win32_gridview.h"
 #include "win32_searchbox.h"
+#include "win32_new_msgs.h"
 
 #include <string>
 #include <array> //create_grid_2x2
 
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
-//TODO(fran): lang mgr: add WM_SETDEFAULTTEXT
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
@@ -32,13 +32,12 @@
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
-//TODO(fran): page search: pressing enter in the edit control of the searchbox should trigger searching
-//TODO(fran): page search: window's combobox is too broken and useless, create one from scratch (search_box)
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 //TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji
+//TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
 
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
@@ -212,6 +211,16 @@ struct practice_writing_word {
 	}practice_type;
 };
 
+void languages_setup_combobox(HWND cb) {
+	auto langs = LANGUAGE_MANAGER::Instance().GetAllLanguages();
+	auto current_lang = LANGUAGE_MANAGER::Instance().GetCurrentLanguage();
+	for (const auto& lang : *langs) {
+		SendMessage(cb, CB_INSERTSTRING, -1, (LPARAM)lang.c_str());
+		if(!lang.compare(current_lang)) SendMessage(cb, CB_SETCURSEL, (int)SendMessage(cb,CB_GETCOUNT,0,0)-1, 0);
+	}
+	InvalidateRect(cb, NULL, TRUE);
+}
+
 //---------------------Macros-------------------------:
 
 #define _sqlite3_generate_columns(type,name,...) "" + #name + ","
@@ -299,6 +308,7 @@ struct べんきょうProcState {
 				type button_new;
 				type button_practice;
 				type button_search;
+				type combo_languages;
 			}list; //INFO: unfortunately in order to make 'all' auto-update we need to give a name to this struct
 			type all[sizeof(list)/sizeof(type)]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
 		} landingpage;
@@ -790,6 +800,13 @@ namespace べんきょう {
 			AWT(controls.list.button_search, 102);
 			button::set_brushes(controls.list.button_search, TRUE, unCap_colors.Img, unCap_colors.ControlBk, unCap_colors.ControlTxt, unCap_colors.ControlBkPush, unCap_colors.ControlBkMouseOver);
 
+			controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			languages_setup_combobox(controls.list.combo_languages);
+			SetWindowSubclass(controls.list.combo_languages, ComboProc, 0, 0);
+			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)unCap_bmps.dropdown, 0);
+			//TODO(fran): more subdued colors for the lang combo, also no border, possibly also bold text, and right aligned
+
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)unCap_fonts.General, TRUE);
 		}
 		//---------------------New word----------------------:
@@ -799,7 +816,7 @@ namespace べんきょう {
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_hiragana, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_hiragana, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(120));//TODO(fran): lang mgr
+			AWDT(controls.list.edit_hiragana, 120);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -812,17 +829,17 @@ namespace べんきょう {
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
+			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
+			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
+			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -850,7 +867,6 @@ namespace べんきょう {
 
 			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//SendMessage(controls.list.searchbox_search, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(251));
 			ACC(controls.list.searchbox_search, 251);
 			searchbox::set_brushes(controls.list.searchbox_search, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled, unCap_colors.Img_Disabled);
 			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
@@ -873,12 +889,12 @@ namespace べんきょう {
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_kanji, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(121));
+			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_translation, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(122));
+			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -891,7 +907,7 @@ namespace べんきょう {
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, unCap_colors.ControlTxt, unCap_colors.ControlBk, unCap_colors.Img, unCap_colors.ControlTxt_Disabled, unCap_colors.ControlBk_Disabled, unCap_colors.Img_Disabled);
-			SendMessage(controls.list.edit_mnemonic, WM_SETDEFAULTTEXT, 0, (LPARAM)RCS(125));
+			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1063,7 +1079,7 @@ namespace べんきょう {
 			auto& controls = state->controls.landingpage;
 			//One button on top of the other vertically, all buttons must be squares
 			//TODO(fran): we could, at least to try how it looks, to check whether the wnd is longer on w or h and place the controls vertically or horizontally next to each other
-			int wnd_cnt = ARRAYSIZE(controls.all);
+			int wnd_cnt = ARRAYSIZE(controls.all) -1 /*subtract the lang combobox*/;
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 
 			int max_h = h - pad_cnt * h_pad;
@@ -1091,17 +1107,24 @@ namespace べんきょう {
 			button_search.w= wnd_h;
 			button_search.h= wnd_h;
 
+			rect_i32 combo_languages;
+			combo_languages.h = wnd_h;
+			combo_languages.y = h_pad / 2;
+			combo_languages.w = min(distance(w,button_new.right()+w_pad/2), avg_str_dim((HFONT)SendMessage(controls.list.combo_languages, WM_GETFONT, 0, 0), 20).cx);
+			combo_languages.x = w - combo_languages.w - w_pad / 2;
+
 			MyMoveWindow(controls.list.button_new, button_new,FALSE);
 			MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
 			MyMoveWindow(controls.list.button_search, button_search,FALSE);
+			MyMoveWindow(controls.list.combo_languages, combo_languages,FALSE);
 		} break;
 		case ProcState::page::new_word:
 		{
 			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
 			auto& controls = state->controls.new_word;
 
-			int wnd_cnt = ARRAYSIZE(controls.all);
-			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			//int wnd_cnt = ARRAYSIZE(controls.all);
+			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
 #if 0
@@ -1168,8 +1191,8 @@ namespace べんきょう {
 			//									second row has "score" and a chart of accuracy for last 30 days for example
 
 
-			int wnd_cnt = ARRAYSIZE(controls.all);
-			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			//int wnd_cnt = ARRAYSIZE(controls.all);
+			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
 #if 0
@@ -1392,8 +1415,8 @@ namespace べんきょう {
 
 			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned, non user editable controls go below the rest
 
-			int wnd_cnt = ARRAYSIZE(controls.all) - 2;//subtract the controls that go next to one another
-			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			//int wnd_cnt = ARRAYSIZE(controls.all) - 2;//subtract the controls that go next to one another
+			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
 			int bigwnd_h = wnd_h * 4;
@@ -2357,6 +2380,25 @@ namespace べんきょう {
 					else if (child == page.list.button_search) {
 						store_previous_page(state, state->current_page);
 						set_current_page(state, ProcState::page::search);
+					}
+					else if (child == page.list.combo_languages) {
+						WORD notif = HIWORD(wparam);
+						switch (notif) {
+						case CBN_SELENDOK:
+						{
+							//user requested a language change
+							//TODO(fran): pretty sure I can reduce all this to _get_edit_str() instead of going through the listbox
+							i32 cur_sel = (i32)SendMessage(child, CB_GETCURSEL, 0, 0);
+							if (cur_sel != CB_ERR) {
+								utf16_str lang = alloc_any_str(sizeof(*lang.str) * (SendMessage(child, CB_GETLBTEXTLEN, cur_sel, 0) + 1)); defer{ if(lang.sz) free_any_str(lang.str); };
+								if (lang.sz) {
+									SendMessage(child, CB_GETLBTEXT, cur_sel, (LPARAM)lang.str);
+									LANGUAGE_MANAGER::Instance().ChangeLanguage(lang.str);
+								}
+							}
+
+						} break;
+						}
 					}
 				} break;
 				case ProcState::page::new_word:

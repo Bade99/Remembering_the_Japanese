@@ -7,6 +7,7 @@
 #include "unCap_Reflection.h"
 #include "unCap_Serialization.h"
 #include "lang.h"
+#include "win32_new_msgs.h"
 
 //Request string
 #define RS(stringID) LANGUAGE_MANAGER::Instance().RequestString(stringID)
@@ -16,6 +17,9 @@
 
 //Add window string
 #define AWT(hwnd,stringID) LANGUAGE_MANAGER::Instance().AddWindowText(hwnd, stringID)
+
+//Add window default string
+#define AWDT(hwnd,stringID) LANGUAGE_MANAGER::Instance().AddWindowDefaultText(hwnd, stringID)
 
 //Add combobox string in specific ID (Nth element of the list)
 #define ACT(hwnd,ID,stringID) LANGUAGE_MANAGER::Instance().AddComboboxText(hwnd, ID, stringID);
@@ -63,6 +67,16 @@ public:
 		return res;
 	}
 
+	//·Adds the hwnd to the list of managed hwnds and sets its default text corresponding to stringID and the current language
+	//·Many hwnds can use the same stringID
+	//·Next time there is a language change the window will be automatically updated
+	//·Returns FALSE if invalid hwnd or stringID //TODO(fran): do the stringID check
+	BOOL AddWindowDefaultText(HWND hwnd, u32 stringID) {
+		BOOL res = UpdateHwndDefault(hwnd, stringID);
+		if (res) this->HwndsDefault[hwnd] = stringID;
+		return res;
+	}
+
 	//·Updates all managed objects to the new language, all the ones added after this call will also use the new language
 	bool ChangeLanguage(str newLang)
 	{
@@ -74,6 +88,9 @@ public:
 
 			for (auto const& hwnd_sid : this->Hwnds)
 				this->UpdateHwnd(hwnd_sid.first, hwnd_sid.second);
+
+			for (auto const& hwnd_sid : this->HwndsDefault)
+				this->UpdateHwndDefault(hwnd_sid.first, hwnd_sid.second);
 
 			for (auto const& hwnd_id_sid : this->Comboboxes)
 				this->UpdateCombo(hwnd_id_sid.first.first, hwnd_id_sid.first.second, hwnd_id_sid.second);
@@ -160,6 +177,8 @@ public:
 
 	str GetCurrentLanguage() { return CurrentLanguage; };
 
+	const std::vector<str>* GetAllLanguages() { return &Langs; }
+
 	void SetLanguageFolder(str folder) {
 		LangFolder = folder;
 		Langs = load_file_lang_names((utf16*)LangFolder.c_str());
@@ -187,6 +206,7 @@ private:
 	~LANGUAGE_MANAGER() {}
 
 	std::map<HWND, UINT> Hwnds;
+	std::map<HWND, UINT> HwndsDefault;
 	std::map<HWND, UINT> DynamicHwnds;
 	std::map<std::pair<HWND, UINT>, UINT> Comboboxes;
 	std::map<HWND, UINT> ComboboxesCuebanner;
@@ -198,6 +218,13 @@ private:
 	BOOL UpdateHwnd(HWND hwnd, u32 stringID)
 	{
 		BOOL res = SendMessage(hwnd, WM_SETTEXT, 0, (LPARAM)this->RequestString(stringID).c_str()) == TRUE;
+		InvalidateRect(hwnd, NULL, TRUE);
+		return res;
+	}
+
+	BOOL UpdateHwndDefault(HWND hwnd, u32 stringID)
+	{
+		BOOL res = SendMessage(hwnd, WM_SETDEFAULTTEXT, 0, (LPARAM)this->RequestString(stringID).c_str()) == TRUE;
 		InvalidateRect(hwnd, NULL, TRUE);
 		return res;
 	}

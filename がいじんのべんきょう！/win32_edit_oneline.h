@@ -6,20 +6,21 @@
 #include <Shlwapi.h>
 #include "win32_Helpers.h"
 #include "unCap_Reflection.h"
+#include "LANGUAGE_MANAGER.h"
+#include "win32_new_msgs.h"
 
 //TODO(fran): show password button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
 //TODO(fran): paint/handle my own IME window
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
-
+//TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
 //-------------"API" (Additional Messages)-------------:
 #define editoneline_base_msg_addr (WM_USER + 1500)
 
-#define WM_SETDEFAULTTEXT (editoneline_base_msg_addr+1) /*wparam=unused ; lparam=pointer to null terminated cstring*/ /*TODO(fran): many different windows could use this msg, it should be global*/
 #define EM_SETINVALIDCHARS (editoneline_base_msg_addr+2) /*characters that you dont want the edit control to accept either trough WM_CHAR or WM_PASTE*/ /*lparam=unused ; wparam=pointer to null terminated cstring, each char will be added as invalid*/ /*INFO: overrides the previously invalid characters that were set before*/ /*TODO(fran): what to do on pasting? reject the entire string or just ignore those chars*/
 #define WM_SETTEXT_NO_NOTIFY (editoneline_base_msg_addr+3) /*wparam=unused ; lparam=null terminated utf16* */
 
@@ -48,23 +49,6 @@
 //---------Differences with default oneline edit control---------:
 //·EN_CHANGE is sent when there is a modification to the text, of any type, and it's sent immediately, not after rendering
 
-
-
-//---Helpers---:
-
-//True if "c" is in "chars", stops on the null terminator(if c == '\0' it will always return false)
-bool contains_char(cstr c, cstr* chars) {
-	bool res = false;
-	if (chars && *chars) { //TODO(fran): more compact
-		do {
-			if (c == *chars) {
-				res = true;
-				break;
-			}
-		} while (*++chars);
-	}
-	return res;
-}
 
 
 namespace edit_oneline{
@@ -1146,7 +1130,7 @@ namespace edit_oneline{
 		
 			memcpy_s(state->default_text, sizeof(state->default_text), text, (cstr_len(text) + 1) * sizeof(*text));
 
-			return 0;
+			return 1;
 		} break;
 		case EM_SETINVALIDCHARS:
 		{

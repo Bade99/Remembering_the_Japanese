@@ -89,6 +89,20 @@ static size_t find_till_no_match(str s, size_t offset, str match) {
 	return p;
 }
 
+//True if "c" is in "chars", stops on the null terminator; if c == '\0' it returns false
+static bool contains_char(cstr c, cstr* chars) {
+	bool res = false;
+	if (chars && *chars) { //TODO(fran): more compact
+		do {
+			if (c == *chars) {
+				res = true;
+				break;
+			}
+		} while (*++chars);
+	}
+	return res;
+}
+
 utf16_str to_utf16_str(utf16* s) { return { s, (cstr_len(s) + 1) * sizeof(*s) }; }
 utf8_str to_utf8_str(utf8* s) { return { s, (strlen(s) + 1) * sizeof(*s) }; }
 
