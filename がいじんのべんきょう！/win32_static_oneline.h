@@ -19,10 +19,13 @@ namespace static_oneline {
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
-		struct brushes {
+		struct {
 			HBRUSH txt, bk, border;//NOTE: for now we use the border color for the caret
 			HBRUSH txt_dis, bk_dis, border_dis; //disabled
 		}brushes;
+		struct {
+			u32 border_thickness;
+		}dimensions;
 		LOGFONT font;
 		HFONT _font;//simply cause windows msgs ask for it
 		utf16_str txt;
@@ -40,6 +43,18 @@ namespace static_oneline {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
+	void ask_for_repaint(ProcState* state){ InvalidateRect(state->wnd, NULL, TRUE); }
+
+	void set_dimensions(HWND wnd, u32 border_thickness) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (border_thickness != state->dimensions.border_thickness) {
+				state->dimensions.border_thickness = border_thickness;
+				ask_for_repaint(state);
+			}
+		}
+	}
+
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
 		ProcState* state = get_state(wnd);
@@ -50,7 +65,7 @@ namespace static_oneline {
 			if (txt_disabled)state->brushes.txt_dis = txt_disabled;
 			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
 			if (border_disabled)state->brushes.border_dis = border_disabled;
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+			if (repaint)ask_for_repaint(state);
 		}
 	}
 
@@ -129,7 +144,7 @@ namespace static_oneline {
 			BOOL redraw = LOWORD(lparam);
 			int getobjres = GetObject(font, sizeof(state->font), &state->font); Assert(getobjres == sizeof(state->font));
 			state->_font = font;
-			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+			if (redraw) ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_GETFONT:
@@ -315,7 +330,7 @@ namespace static_oneline {
 			StrCpyNW(state->txt.str, buf, (int)char_sz_with_null);
 
 			res = TRUE;
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return res;
 		}break;
 		default:

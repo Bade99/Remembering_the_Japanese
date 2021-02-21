@@ -287,7 +287,7 @@ namespace nonclient {
 //TODO(fran): it'd be nice to have a way to implement good subclassing, eg letting the user assign clip regions where they can draw and we dont, things like that, more communication
 LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
-	printf("NONCLIENT:%s\n", msgToString(msg));
+	//printf("NONCLIENT:%s\n", msgToString(msg));
 	unCapNcProcState* state = UNCAPNC_get_state(hwnd);
 
 	{

@@ -207,7 +207,13 @@ namespace page {
 			//TODO(fran): what to do
 			return 1;//we "set" the text
 		} break;
-		case WM_PAINT:
+		case WM_CTLCOLORLISTBOX:
+		case WM_CTLCOLOREDIT:
+		case WM_CTLCOLORSTATIC:
+		{
+			return SendMessage(state->parent, msg, wparam, lparam);
+		} break;
+		case WM_PAINT://NOTE: we could also do this on WM_ERASEBACKGROUND and return defwindowproc on WM_PAINT
 		{
 			PAINTSTRUCT ps;
 			RECT rc; GetClientRect(state->wnd, &rc);
@@ -227,6 +233,17 @@ namespace page {
 			EndPaint(hwnd, &ps);
 			return 0;
 		} break;
+		case WM_COMMAND:
+		{
+			HWND child = (HWND)lparam;
+			if (child) return SendMessage(state->parent, msg, wparam, lparam);//Any msg from our childs goes up to our parent
+			else Assert(0); //No msg from menus nor accelerators should come here
+		} break;
+#ifdef _DEBUG
+		Assert(0);
+#else 
+		return DefWindowProc(hwnd, msg, wparam, lparam);
+#endif
 		}
 		return 0;//TODO(fran): or sendmessage(parent)
 	}

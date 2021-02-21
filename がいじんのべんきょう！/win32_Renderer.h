@@ -818,6 +818,7 @@ namespace urender {
 	}
 
 	//GDI's RoundRect has no antialiasing
+	//TOOD(fran): Fillrect has RECT first and then HBRUSH
 	void RoundRectangleFill(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
 	{
 		//thanks http://codewee.com/view.php?idx=60

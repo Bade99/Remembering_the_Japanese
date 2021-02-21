@@ -7,6 +7,12 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+//TODO(fran): constexpr?
+#define U8MAX  ((u8)0xff)
+#define U16MAX ((u8)0xffff)
+#define U32MAX ((u8)0xffffffff)
+#define U64MAX ((u8)0xffffffffffffffff)
+
 typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;

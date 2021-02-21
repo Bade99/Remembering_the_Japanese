@@ -20,10 +20,15 @@
 #include <string>
 #include <array> //create_grid_2x2
 
+//TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
+//TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
+//TODO(fran): application icon: chidori (talk to bren)
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): db: store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+//TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
+//TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
@@ -45,8 +50,12 @@
 //TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
 //TODO(fran): BUG: page search: going to the previous page doesnt currently remove focus from whoever had it, therefore if you click on the searchbox, go to the prev page and press a key then the listbox will present the options and allow you to load the show_word page (this bug wasnt present before cause we handled searching in WM_COMMAND and check against our childs, therefore the landing page could not access controls from the search page, but now seach happens _inside_ the searchbox control and thus bypassing page checking), one quick and dirty way to solve this for now would be to check we're on the right page inside the seachbox_func_... functions, still other similar bugs could happen, best would probably be to steal focus when going back a page, or add a function that, given a page, sets focus to the desired control
 
-//TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements
+//TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
+	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtrating from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
 
+//TODO(fran): embedded page: any practice has the ability to show the embedded show_word_reduced page and to preload it with the necessary data, this page is not interactive. The page can be queried for a width and height. _Actually_ I dont think that asking an embedded page for its desired size makes sense, we dictate a space we want to give and it has to work with what it gets, it knows it's meant to be embedded, it should have multiple layouts and be resizable
+
+//TODO(fran): set page colors on preload page (for the controls known to change colors)
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
 //INFO: this window is made up of many separate ones, as if they were in different tabs, in the sense only one is shown at any single time, and there isn't any relationship between them
@@ -266,6 +275,238 @@ void languages_setup_combobox(HWND cb) {
 
 #define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
 
+union brush_group {
+	struct {
+		HBRUSH normal, disabled, mouseover, clicked;
+	};
+	HBRUSH all[4]{0};
+private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array to the correct element count!"); }
+};
+
+//Returns true if any modification was made to 'dest'
+bool copy_brush_group(brush_group* dest, const brush_group* src){
+	bool copied = false;
+	for (auto i = 0; i < ARRAYSIZE(src->all); i++) if (src->all[i]) { dest->all[i] = src->all[i]; copied = true; }
+	return copied;
+}
+
+namespace embedded {
+	namespace show_word_reduced {
+		//---------------Creation Example---------------:
+		// CreateWindowW(embedded::show_word_reduced::wndclass, 0, WS_CHILD | embedded::show_word_reduced::style::roundrect, 0, 0, 0, 0, parent, 0, 0, 0);
+		//---------------API---------------:
+		// set_theme()
+		// set_word()
+
+		constexpr cstr wndclass[] = L"がいじんの_wndclass_embedded_showwordreduced";
+		struct Theme {
+			struct {
+				brush_group txt, bk, border;
+			} brushes;
+			struct {
+				u32 border_thickness=U32MAX;
+			}dimensions;
+			HFONT font = 0;
+		};
+		enum style {
+			roundrect = (1<<0),
+
+		};
+		struct ProcState {
+			HWND wnd;
+			HWND parent;
+			Theme theme;
+			union {
+				using type = HWND;
+				struct { type hiragana, kanji, meaning, mnemonic, lexical_category; };
+				type all[5];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come update the array to the correct count!"); }
+			} controls;
+		};
+		ProcState* get_state(HWND wnd) { ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0); return state; }
+		void set_state(HWND wnd, ProcState* state) { SetWindowLongPtr(wnd, 0, (LONG_PTR)state); }
+		void ask_for_repaint(ProcState* state){ InvalidateRect(state->wnd, NULL, TRUE); }
+		void update_controls_theme(ProcState* state) {
+			for (auto& c : state->controls.all) {
+				static_oneline::set_brushes(c, true, state->theme.brushes.txt.normal, state->theme.brushes.bk.normal, state->theme.brushes.border.normal, state->theme.brushes.txt.disabled, state->theme.brushes.bk.disabled, state->theme.brushes.border.disabled);
+				static_oneline::set_dimensions(c, state->theme.dimensions.border_thickness);
+				SendMessage(c, WM_SETFONT, (WPARAM)state->theme.font, TRUE);
+			}
+		}
+		//Set only what you need, what's not set wont be used
+		//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
+		void set_theme(HWND wnd, const Theme* t) {
+			ProcState* state = get_state(wnd);
+			if (state && t) {
+				bool repaint = false;
+				repaint = copy_brush_group(&state->theme.brushes.txt, &t->brushes.txt);
+				repaint = copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
+				repaint = copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
+				
+				if (repaint = t->dimensions.border_thickness != U32MAX) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+
+				if (repaint = t->font) state->theme.font = t->font;
+
+				if (repaint) { update_controls_theme(state); ask_for_repaint(state); }
+			}
+		}
+		void resize_controls(ProcState* state) {
+			RECT r; GetClientRect(state->wnd, &r);
+			int w = RECTWIDTH(r);
+			int h = RECTHEIGHT(r);
+			int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
+			int h_pad = (int)((float)h * .05f);
+			Assert(0);
+		}
+		void show_controls(ProcState* state, bool show) {
+			for (auto& c : state->controls.all) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
+		}
+		//the word must be encoded in utf16
+		void set_word(HWND wnd, learnt_word* word) {
+			ProcState* state = get_state(wnd);
+			if (state && word) {
+				//TODO(fran): we could resize_controls in case we resize by the lenght of the strings
+				SendMessage(state->controls.hiragana, WM_SETTEXT, 0, (LPARAM)word->attributes.hiragana.str);
+				SendMessage(state->controls.kanji, WM_SETTEXT, 0, (LPARAM)word->attributes.kanji.str);
+				SendMessage(state->controls.meaning, WM_SETTEXT, 0, (LPARAM)word->attributes.translation.str);
+				SendMessage(state->controls.lexical_category, WM_SETTEXT, 0, (LPARAM)word->attributes.lexical_category.str);
+				SendMessage(state->controls.mnemonic, WM_SETTEXT, 0, (LPARAM)word->attributes.mnemonic.str);
+				//TODO(fran): ask_for_repaint(state) ?
+			}
+		}
+		LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+			ProcState* state = get_state(hwnd);
+			switch (msg) {
+				//TODO?(fran): WM_MOUSEWHEEL, we might no be able to fit all the controls
+			case WM_NCCREATE: {
+				CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
+				ProcState* st = (ProcState*)calloc(1, sizeof(ProcState)); Assert(st);
+				set_state(hwnd, st);
+				st->wnd = hwnd;
+				st->parent = creation_nfo->hwndParent;
+				return TRUE; //continue creation
+			} break;
+			case WM_NCCALCSIZE: {
+				if (wparam) {
+					NCCALCSIZE_PARAMS* calcsz = (NCCALCSIZE_PARAMS*)lparam;
+					return 0;
+				} else {
+					RECT* client_rc = (RECT*)lparam;//TODO(fran): make client_rc cover the full window area
+					return 0;
+				}
+			} break;
+			case WM_CREATE: {
+				CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
+				for (auto& c : state->controls.all) {
+					c = CreateWindowW(static_oneline::wndclass, 0, WS_CHILD | SS_CENTERIMAGE | SS_LEFT | SO_AUTOFONTSIZE
+						, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+				}
+				show_controls(state, true);
+				return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
+			} break;
+			case WM_SETFONT: {
+				HFONT font = (HFONT)wparam;
+				Theme new_theme; 
+				new_theme.font = font;
+				set_theme(state->wnd, &new_theme);
+				return 0;
+			} break;
+			case WM_SHOWWINDOW: {
+				bool show = wparam;
+				//show_controls(state,show); //TODO(fran): if we ever need controls that start hidden
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+			} break;
+			case WM_SIZE: {
+				resize_controls(state);
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+			} break;
+			case WM_NCDESTROY: {
+				free(state);
+				return 0;
+			}break;
+			case WM_PAINT:
+			{
+				PAINTSTRUCT ps;
+				RECT rc; GetClientRect(state->wnd, &rc);
+				int w = RECTW(rc), h = RECTH(rc);
+				u16 radius = (u16)(min(w, h) * .05f);
+				//ps.rcPaint
+				HDC dc = BeginPaint(state->wnd, &ps);
+				bool window_enabled = IsWindowEnabled(state->wnd);
+				LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+				HBRUSH bkbr = window_enabled ? state->theme.brushes.bk.normal : state->theme.brushes.bk.disabled;
+				HBRUSH borderbr = window_enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
+				//TODO(fran): maybe fillrect alpha is needed to allow for transparency?
+				//Bk
+				if (bkbr) {
+
+					if (style & style::roundrect) {
+						urender::RoundRectangleFill(dc, bkbr, rc, radius);
+					}
+					else {
+						FillRect(dc, &rc, bkbr);
+					}
+				}
+				//Border
+				if (borderbr) {
+
+					if (style & style::roundrect) {
+						urender::RoundRectangleBorder(dc, borderbr, rc, radius, state->theme.dimensions.border_thickness);
+					}
+					else {
+						FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, borderbr, BORDERALL);
+					}
+				}
+
+				EndPaint(hwnd, &ps);
+				return 0;
+			} break;
+			case WM_MOVE:
+			case WM_WINDOWPOSCHANGING:
+			case WM_WINDOWPOSCHANGED:
+			case WM_DESTROY:
+			case WM_SETCURSOR:
+			case WM_MOUSEMOVE:
+			{
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+			} break;
+			case WM_NCPAINT:
+			case WM_ERASEBKGND:
+			case WM_LBUTTONDOWN:
+			case WM_RBUTTONDOWN:
+			case WM_LBUTTONUP:
+			case WM_RBUTTONUP:
+			case WM_IME_SETCONTEXT:
+			case WM_GETTEXT:
+			case WM_GETTEXTLENGTH:
+			{
+				return 0;
+			} break;
+			case WM_SETTEXT:
+			{
+				return 1;
+			}
+			case WM_NCHITTEST: {
+				POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Screen coords, relative to upper-left corner
+				RECT rw; GetWindowRect(state->wnd, &rw);
+				LRESULT hittest = HTNOWHERE;
+				if (test_pt_rc(mouse, rw))hittest = HTCLIENT;
+				return hittest;
+			} break;
+			case WM_MOUSEACTIVATE: {
+				return MA_ACTIVATE;
+			} break;
+			default:
+#ifdef _DEBUG
+				Assert(0);
+#else 
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+#endif
+			}
+			return 0;
+		}
+	}
+}
 
 struct べんきょうSettings {
 
@@ -299,6 +540,9 @@ struct べんきょうProcState {
 		review_practice,
 		search,
 		show_word,
+
+		//virtual pages
+		review_practice_writing,//doesnt have controls of its own, shows some other page and steals what it needs from it
 	} current_page;
 
 	struct prev_page_fifo_queue{
@@ -356,17 +600,26 @@ struct べんきょうProcState {
 			type all[sizeof(list) / sizeof(type)];
 		} practice;
 
-		union practice_writing_controls {
+		struct practice_writing_controls {
 			using type = HWND;
-			struct {
-				type static_test_word;
+			union {
+				struct {
+					type static_test_word;
 
-				type edit_answer;
+					type edit_answer;
 
-				type button_next;//TODO(fran): not the best name
-			}list;
-			type all[sizeof(list) / sizeof(type)];
-		} practice_writing;
+					type button_next;//TODO(fran): not the best name
+
+					type button_show_word;
+				}list;
+				type all[sizeof(list) / sizeof(type)];
+			};
+			type embedded_show_word_reduced;//NOTE: not shown by default
+		}practice_writing;
+
+		/*struct review_practice_writing_controls {
+			practice_writing_controls& practice_writing;
+		}review_practice_writing;*/
 
 		union search_controls {
 			using type = HWND;
@@ -1008,6 +1261,15 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
 			button::set_brushes(controls.list.button_next, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			//TODO(fran): disabled brushes
+			button::set_brushes(controls.list.button_show_word, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD,
+				0,0,0,0,state->wnd,0,0,0);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2760,14 +3022,14 @@ namespace べんきょう {
 
 			return (INT_PTR)global::colors.ControlBk;
 		} break;
-		case WM_CTLCOLOREDIT: //for the combobox edit control (if I dont subclass it) //TODO(fran): this has to go
-		{
-			HDC listboxDC = (HDC)wparam;
-			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
-			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
+		//case WM_CTLCOLOREDIT: //for the combobox edit control (if I dont subclass it) //TODO(fran): this has to go
+		//{
+		//	HDC listboxDC = (HDC)wparam;
+		//	SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
+		//	SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
 
-			return (INT_PTR)global::colors.ControlBk;
-		} break;
+		//	return (INT_PTR)global::colors.ControlBk;
+		//} break;
 		case WM_CTLCOLORSTATIC: //for the static controls //TODO(fran): this has to go, aka make my own
 		{
 			HDC listboxDC = (HDC)wparam;

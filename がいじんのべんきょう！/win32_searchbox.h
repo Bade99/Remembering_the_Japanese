@@ -214,7 +214,7 @@ namespace searchbox {
 
 		}
 		else {
-			printf("SEARCHBOX:HIDE LISTBOX\n");
+			//printf("SEARCHBOX:HIDE LISTBOX\n");
 			ShowWindow(state->controls.listbox, SW_HIDE);
 
 			UnhookWindowsHookEx(state->impl.hookmouseclick); // remove the hook
