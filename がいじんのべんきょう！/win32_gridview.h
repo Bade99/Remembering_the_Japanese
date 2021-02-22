@@ -18,7 +18,7 @@
 //gridview::get_elem_cnt() current number of elements
 
 //--------------Extra Messages-------------:
-//Sends WM_COMMAND to the parent when the user clicks an element wparam=void* (elem data); lparam=HWND (ctrl wnd)
+//Sends WM_COMMAND to the parent when the user clicks an element wparam=void* (elem data); lparam=HWND (of the gridview)
 
 //NOTE: elements' position and sizing is calculated on resize, no calculation of such sort must ever happen on wm_paint
 //NOTE: we will implement scrolling, though I'd really like for a scrollbar to not exist, simply scrolling via scrollbar
@@ -56,6 +56,8 @@ namespace gridview {
 		std::vector<rect_i32> element_placements;
 
 		f32 scroll_y;//[0,1]
+
+		//size_t clicked_element;//idx of the element that was clicked
 	};
 	//NOTE: User seteable: border_pad.cy , element_dim , inbetween_pad
 
@@ -478,8 +480,9 @@ namespace gridview {
 			//TODO(fran): here we'll use our precalculated data to find out which element the user pressed and notify the parent, or even better we could add a msg WM_NOTIFYTO and allow the user to chose whoever they want notified
 
 			//TODO(fran): take into account scrolling
-			for (int i = 0; i < state->element_placements.size(); i++) {
+			for (size_t i = 0; i < state->element_placements.size(); i++) {
 				if (test_pt_rc(mouse, state->element_placements[i])) {
+					//state->clicked_element = i;
 					SendMessage(state->parent, WM_COMMAND, (WPARAM)state->elements[i], (LPARAM)state->wnd);//TODO(fran): PostMessage?
 					//TODO(fran): there's no good win32 msg that is a notif that allows you to sent some extra info, you got WM_COMMAND, WM_NOTIFY and WM_PARENTNOTIFY each with its limitations, we may want to make our own msg that could work for all controls
 				}

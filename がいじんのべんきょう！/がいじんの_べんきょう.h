@@ -1362,7 +1362,7 @@ namespace べんきょう {
 		}
 	}
 
-	void resize_controls(ProcState* state) {
+	void resize_controls(ProcState* state, ProcState::page page) {
 		RECT r; GetClientRect(state->wnd, &r);
 		int w = RECTWIDTH(r);
 		int h = RECTHEIGHT(r);
@@ -1370,7 +1370,7 @@ namespace べんきょう {
 		int h_pad = (int)((float)h * .05f);
 		
 		switch (state->current_page) {
-		case ProcState::page::landing: 
+		case ProcState::page::landing:
 		{
 			auto& controls = state->controls.landingpage;
 			//One button on top of the other vertically, all buttons must be squares
@@ -1820,8 +1820,16 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.list.button_delete, btn_delete, FALSE);
 
 		} break;
+		case ProcState::page::review_practice_writing:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_writing);
+		} break;
 		default:Assert(0);
 		}
+	}
+	void resize_controls(ProcState* state) {
+		resize_controls(state, state->current_page);
 	}
 
 	void save_settings(ProcState* state) {
@@ -1841,6 +1849,7 @@ namespace べんきょう {
 		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case ProcState::page::review_practice_writing: show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); break;
 		default:Assert(0);
 		}
 	}
@@ -2281,6 +2290,13 @@ namespace べんきょう {
 			for (size_t i = 0; i < practices_cnt; i++) practices_data[i] = state->pagestate.practice_review.practices[i];
 			gridview::set_elements(controls.list.gridview_practices, practices_data, practices_cnt);
 
+		} break;
+		case ProcState::page::review_practice_writing:
+		{
+			ProcState::practice_writing* pagedata = (decltype(pagedata))data;
+			pagedata->practice->practice_type;
+			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
+			Assert(0);
 		} break;
 		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
 		default: Assert(0);
@@ -3011,9 +3027,9 @@ namespace べんきょう {
 						switch (header->type) {
 						case decltype(header->type)::writing:
 						{
-							ProcState::practice_writing* pagedata;
-							Assert(0);
-							//TODO(fran): set up and switch pages
+							ProcState::practice_writing* pagedata = (decltype(pagedata))data;
+							preload_page(state, ProcState::page::review_practice_writing, pagedata);
+							set_current_page(state, ProcState::page::review_practice_writing);
 
 							//IDEA: implement ocarina of time's concept of a scene flag, the same page can be loaded in different scenes, eg on a practice page we'd have the default scene where we'd setup default colors, then the wrong_answer scene where we show a button or smth to allow the user to see the correct answer, also here we no longer accept new keyboard input beyond WM_ENTER, we also have the right_answer scene where we simply change colors and disable all user input since a timer will automatically change page. 
 							//IMPORTANT IDEA: we want individual/independent pages in the case we do reviews and similar things where we simply want to show the data but dont care about user input, eg the user presses an element in the gridview and we create a new wnd, create the corresponding controls, set them up (colors, disabled, etc) and show that window as a separate entity, that's what we want, to call add_controls on a different window and simply give it to the user, whenever the user's done they can close the window, meanwhile they can still interact with the main window, I think this is really good, the user could for example open all the words they got wrong at the same time, instead of having to open one, go back to the grid, open another; the one problem with this is where to show the new window, say we have 5 windows open, how do we choose where to show the sixth
