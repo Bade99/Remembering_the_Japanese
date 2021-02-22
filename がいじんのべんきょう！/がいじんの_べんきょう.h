@@ -26,6 +26,7 @@
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): db: store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+//TODO(fran): all pages: mouse remappable buttons: map the mouse's back button press to going back a page
 //TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
@@ -224,7 +225,7 @@ struct stored_word {
 //Structures for different practice levels
 struct practice_writing_word {
 	learnt_word word;
-	enum class type {
+	enum class type {//TODO(fran): remove the translate_ part
 		translate_hiragana_to_translation,
 		translate_translation_to_hiragana,
 		translate_kanji_to_hiragana,
@@ -1369,7 +1370,7 @@ namespace べんきょう {
 		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 		int h_pad = (int)((float)h * .05f);
 		
-		switch (state->current_page) {
+		switch (page) {
 		case ProcState::page::landing:
 		{
 			auto& controls = state->controls.landingpage;
@@ -2294,9 +2295,49 @@ namespace べんきょう {
 		case ProcState::page::review_practice_writing:
 		{
 			ProcState::practice_writing* pagedata = (decltype(pagedata))data;
-			pagedata->practice->practice_type;
+			auto& controls = state->controls.practice_writing;
+			utf16* question = pagedata->correct_answer->str;
+			HBRUSH question_br{ 0 };
+			HBRUSH answer_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
 			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
-			Assert(0);
+
+			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
+			case decltype(pagedata->practice->practice_type)::translate_hiragana_to_translation:
+			{
+				question_br = global::colors.hiragana;
+			} break;
+			case decltype(pagedata->practice->practice_type)::translate_kanji_to_hiragana:
+			{
+				question_br = global::colors.kanji;
+			} break;
+			case decltype(pagedata->practice->practice_type)::translate_kanji_to_translation:
+			{
+				question_br = global::colors.kanji;
+			} break;
+			case decltype(pagedata->practice->practice_type)::translate_translation_to_hiragana:
+			{
+				question_br = global::colors.translation;
+			} break;
+			default:Assert(0);
+			}
+			
+			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)question);
+			static_oneline::set_brushes(controls.list.static_test_word, TRUE, question_br, 0, 0, 0, 0, 0);
+
+			//TODO(fran): controls.list.edit_answer should be disabled
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, global::colors.ControlTxt, answer_bk_br, answer_bk_br, 0, 0, 0);
+			SendMessageW(controls.list.edit_answer, WM_SETTEXT, 0, (LPARAM)pagedata->user_answer.str);
+
+			button::Theme btn_next_theme;
+			btn_next_theme.brushes.bk.normal = answer_bk_br;
+			btn_next_theme.brushes.border.normal = answer_bk_br;
+			btn_next_theme.brushes.foreground.normal = global::colors.ControlTxt;
+			button::set_theme(controls.list.button_next, &btn_next_theme);
+
+			EnableWindow(controls.list.button_show_word, TRUE);
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->word);
+
 		} break;
 		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
 		default: Assert(0);
@@ -3029,6 +3070,7 @@ namespace べんきょう {
 						{
 							ProcState::practice_writing* pagedata = (decltype(pagedata))data;
 							preload_page(state, ProcState::page::review_practice_writing, pagedata);
+							store_previous_page(state, state->current_page);
 							set_current_page(state, ProcState::page::review_practice_writing);
 
 							//IDEA: implement ocarina of time's concept of a scene flag, the same page can be loaded in different scenes, eg on a practice page we'd have the default scene where we'd setup default colors, then the wrong_answer scene where we show a button or smth to allow the user to see the correct answer, also here we no longer accept new keyboard input beyond WM_ENTER, we also have the right_answer scene where we simply change colors and disable all user input since a timer will automatically change page. 
@@ -3036,6 +3078,16 @@ namespace べんきょう {
 
 						} break;
 						}
+					}
+				} break;
+				case ProcState::page::review_practice_writing:
+				{
+					auto& page = state->controls.practice_writing;
+					if (child == page.list.button_show_word) {
+						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+					}
+					else if (child == page.list.button_next) {
+						goto_previous_page(state);
 					}
 				} break;
 
