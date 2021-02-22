@@ -329,13 +329,13 @@ namespace embedded {
 			ProcState* state = get_state(wnd);
 			if (state && t) {
 				bool repaint = false;
-				repaint = copy_brush_group(&state->theme.brushes.txt, &t->brushes.txt);
-				repaint = copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
-				repaint = copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
+				repaint |= copy_brush_group(&state->theme.brushes.txt, &t->brushes.txt);
+				repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
+				repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
 				
-				if (repaint = t->dimensions.border_thickness != U32MAX) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+				if (repaint |= (t->dimensions.border_thickness != U32MAX)) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
 
-				if (repaint = t->font) state->theme.font = t->font;
+				if (repaint |= (bool)t->font) state->theme.font = t->font;
 
 				if (repaint) { update_controls_theme(state); ask_for_repaint(state); }
 			}

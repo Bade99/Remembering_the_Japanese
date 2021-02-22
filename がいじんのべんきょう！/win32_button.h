@@ -7,6 +7,9 @@
 
 //TODO(fran): new class btn_text_or_img: if the text fits then draw it, otherwise render the img, great for cool resizing that allows for the same control to take different shapes but maintain all functionality
 
+//-----------------API-----------------:
+// button::set_theme()
+
 //-------------Usage Notes-------------:
 //	this buttons can have text or an img, but not both at the same time
 //	it's important that the parent uses WS_CLIPCHILDREN to avoid horrible flickering
@@ -67,13 +70,13 @@ namespace button {
 		ProcState* state = get_state(wnd);
 		if (state && t) {
 			bool repaint = false;
-			repaint = copy_brush_group(&state->theme.brushes.foreground, &t->brushes.foreground);
-			repaint = copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
-			repaint = copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
+			repaint |= copy_brush_group(&state->theme.brushes.foreground, &t->brushes.foreground);
+			repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
+			repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
 
-			if (repaint = t->dimensions.border_thickness != U32MAX) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+			if (repaint |= (t->dimensions.border_thickness != U32MAX)) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
 
-			if (repaint = t->font) state->theme.font = t->font;
+			if (repaint |= (bool)t->font) state->theme.font = t->font;
 
 			if (repaint)  ask_for_repaint(state);
 		}
