@@ -9,9 +9,9 @@ typedef uint64_t u64;
 
 //TODO(fran): constexpr?
 #define U8MAX  ((u8)0xff)
-#define U16MAX ((u8)0xffff)
-#define U32MAX ((u8)0xffffffff)
-#define U64MAX ((u8)0xffffffffffffffff)
+#define U16MAX ((u16)0xffff)
+#define U32MAX ((u32)0xffffffff)
+#define U64MAX ((u64)0xffffffffffffffff)
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -86,3 +86,20 @@ struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
 	T& operator[](size_t i) { return mem[i]; }
 };
 //TODO(fran): it may be easier to read if we asked for the pointer directly, eg ptr<i32*> may be nicer than ptr<i32> as is now
+
+
+
+union brush_group {
+	struct {
+		HBRUSH normal, disabled, mouseover, clicked;
+	};
+	HBRUSH all[4]{ 0 };
+private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array to the correct element count!"); }
+};
+
+//Returns true if any modification was made to 'dest'
+bool copy_brush_group(brush_group* dest, const brush_group* src) {
+	bool copied = false;
+	for (auto i = 0; i < ARRAYSIZE(src->all); i++) if (src->all[i]) { dest->all[i] = src->all[i]; copied = true; }
+	return copied;
+}

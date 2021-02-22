@@ -15,10 +15,24 @@
 
 
 //-------------Additional Styles-------------:
-#define BS_ROUNDRECT 0x0010L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
+// button::style::roundrect : Border is made of a rounded rectangle
 
 namespace button {
 	constexpr cstr wndclass[] = TEXT("unCap_wndclass_button");
+
+	struct Theme {
+		struct {
+			brush_group foreground, bk, border;
+		} brushes;
+		struct {
+			u32 border_thickness = U32MAX;
+		}dimensions;
+		HFONT font = 0;
+	};
+
+	enum style {
+		roundrect = (1 << 1),
+	};
 
 	struct ProcState { //NOTE: must be initialized to zero
 		HWND wnd;
@@ -30,9 +44,7 @@ namespace button {
 
 		UINT msg_to_send;
 
-		HFONT font;
-
-		HBRUSH br_border, br_bk, br_fore, br_bkpush, br_bkmouseover;
+		Theme theme;
 
 		HICON icon;
 		HBITMAP bmp;
@@ -47,16 +59,23 @@ namespace button {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
-	//NOTE: any NULL HBRUSH remains unchanged
-	void set_brushes(HWND uncap_btn, BOOL repaint, HBRUSH border_br, HBRUSH bk_br, HBRUSH fore_br, HBRUSH bkpush_br, HBRUSH bkmouseover_br) {
-		ProcState* state = get_state(uncap_btn);
-		if (state) {
-			if (border_br)state->br_border = border_br;
-			if (bk_br)state->br_bk = bk_br;
-			if (fore_br)state->br_fore = fore_br;
-			if (bkpush_br)state->br_bkpush = bkpush_br;
-			if (bkmouseover_br)state->br_bkmouseover = bkmouseover_br;
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	//Set only what you need, what's not set wont be used
+	//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
+	void set_theme(HWND wnd, const Theme* t) {
+		ProcState* state = get_state(wnd);
+		if (state && t) {
+			bool repaint = false;
+			repaint = copy_brush_group(&state->theme.brushes.foreground, &t->brushes.foreground);
+			repaint = copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
+			repaint = copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
+
+			if (repaint = t->dimensions.border_thickness != U32MAX) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+
+			if (repaint = t->font) state->theme.font = t->font;
+
+			if (repaint)  ask_for_repaint(state);
 		}
 	}
 
@@ -69,14 +88,14 @@ namespace button {
 		{
 			SIZE* sz = (SIZE*)lparam;//NOTE: all sizes are relative to the entire button, not just the img or text
 			DWORD style = (DWORD)GetWindowLongPtr(state->wnd, GWL_STYLE);
+			HFONT font = state->theme.font;
 			if (sz->cx) { //calculate cy based on cx
 				if (style & BS_ICON || style & BS_BITMAP) {
 					sz->cy = sz->cx; //we always assume that imgs are square
 				}
 				else { //we got text
-					HFONT font = state->font;
 					HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-					if (font) (HFONT)SelectObject(dc, (HGDIOBJ)font);
+					SelectFont(dc, font);
 					TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 					sz->cy = (int)((float)tm.tmHeight * 1.2f);
 				}
@@ -94,7 +113,7 @@ namespace button {
 				}
 				else { //we got text
 					HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-					if (state->font) (HFONT)SelectObject(dc, (HGDIOBJ)state->font);
+					SelectFont(dc, font);
 					TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 
 					TCHAR Text[40]; //TODO(fran): this could not be more stupid, I should have the text, at least with a str
@@ -347,29 +366,27 @@ namespace button {
 			RECT rc; GetClientRect(state->wnd, &rc);
 			int w = RECTW(rc), h = RECTH(rc);
 			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			int border_thickness_pen = 0;//means 1px when creating pens
-			int border_thickness = 1;
-
+			bool enabled = IsWindowEnabled(state->wnd);
+			HFONT font = state->theme.font;
 			//TODO(fran): Check that we are going to paint something new
-			HBRUSH bk_br, border_br = state->br_border, txt_br = state->br_fore;
-			if (state->onMouseOver && state->onLMouseClick) {
-				bk_br = state->br_bkpush;
+			HBRUSH border_br = enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
+			HBRUSH txt_br = enabled ? state->theme.brushes.foreground.normal : state->theme.brushes.foreground.disabled;
+			HBRUSH bk_br;
+			if (enabled) {
+				if (state->onMouseOver && state->onLMouseClick) bk_br = state->theme.brushes.bk.clicked;
+				else if (state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd)) bk_br = state->theme.brushes.bk.mouseover;
+				else bk_br = state->theme.brushes.bk.normal;
 			}
-			else if (state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd)) {
-				bk_br = state->br_bkmouseover;
-			}
-			else {
-				bk_br = state->br_bk;
-			}
+			else bk_br = state->theme.brushes.bk.disabled;
 			SetBkColor(dc, ColorFromBrush(bk_br));
 			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc, oldbr); };
 
 			{
 				//Border and Bk
-				HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+				HPEN pen = CreatePen(PS_SOLID, state->theme.dimensions.border_thickness, ColorFromBrush(border_br)); defer{ DeletePen(pen); };//INFO: pens with zero thickness get 1px thickness, so we gotta manually avoid using the pen
 				HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
 
-				if (style & BS_ROUNDRECT) {
+				if (style & style::roundrect) {
 					i32 extent = min(w, h);
 					bool is_small = extent < 50;
 					i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
@@ -392,11 +409,14 @@ namespace button {
 #elif 1
 						//Bk
 						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-						//Border Arcs
-						urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)border_thickness);
-						//Border Lines
-						urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)border_thickness+1);
-						//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
+						//Border
+						if (state->theme.dimensions.border_thickness != 0) {
+							//Border Arcs
+							urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+							//Border Lines
+							urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness + 1);
+							//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
+						}
 #else
 						HDC highresdc = CreateCompatibleDC(dc); defer{ DeleteDC(highresdc); };
 						HBRUSH oldbr = SelectBrush(highresdc, bk_br); defer{ SelectBrush(highresdc,oldbr); };
@@ -415,7 +435,11 @@ namespace button {
 					}
 				}
 				else {
-					Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
+					//Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
+					//Bk
+					FillRect(dc, &rc, bk_br);
+					//Border
+					FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, bk_br, BORDERALL);
 				}
 			}
 
@@ -445,12 +469,11 @@ namespace button {
 					int bmp_width = bmp_height;
 					int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
 					int bmp_align_width = (RECTWIDTH(rc) - bmp_width) / 2;
-					urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, state->bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, state->br_fore);
+					urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, state->bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, txt_br);
 				}
 			}
 			else { //Here will go buttons that only have text
-				HFONT font = state->font;
-				HFONT oldfont = (HFONT)SelectObject(dc, (HGDIOBJ)font); defer{ SelectObject(dc,oldfont); };
+				HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
 				SetTextColor(dc, ColorFromBrush(txt_br));
 				TCHAR Text[40];
 				int len = (int)SendMessage(state->wnd, WM_GETTEXT, ARRAYSIZE(Text), (LPARAM)Text);
@@ -481,15 +504,16 @@ namespace button {
 			// Notifies that the style was changed, you cant do nothing here
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
-		case WM_SETFONT:
-		{
-			state->font = (HFONT)wparam;
-			if ((BOOL)LOWORD(lparam) == TRUE) InvalidateRect(state->wnd, NULL, TRUE);
+		case WM_SETFONT: {
+			HFONT font = (HFONT)wparam;
+			Theme new_theme;
+			new_theme.font = font;
+			set_theme(state->wnd, &new_theme);
 			return 0;
 		} break;
 		case WM_GETFONT:
 		{
-			return (LRESULT)state->font;
+			return (LRESULT)state->theme.font;
 		} break;
 		case WM_GETICON:
 		{

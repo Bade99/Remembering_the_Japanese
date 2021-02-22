@@ -82,7 +82,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(272,"Score:")
 	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
 	lang_entry(274,"Never")
-	lang_entry(280,"Confirm to delete")
+	lang_entry(280,"Confirm deletion?")
 
 	//TODO(fran): get fmt and change Word to %1 (would probably generate a security vulnerability?)
 	lang_entry(300,"Word not found, would you like to add it?")

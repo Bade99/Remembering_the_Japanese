@@ -280,21 +280,6 @@ void languages_setup_combobox(HWND cb) {
 
 #define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
 
-union brush_group {
-	struct {
-		HBRUSH normal, disabled, mouseover, clicked;
-	};
-	HBRUSH all[4]{0};
-private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array to the correct element count!"); }
-};
-
-//Returns true if any modification was made to 'dest'
-bool copy_brush_group(brush_group* dest, const brush_group* src){
-	bool copied = false;
-	for (auto i = 0; i < ARRAYSIZE(src->all); i++) if (src->all[i]) { dest->all[i] = src->all[i]; copied = true; }
-	return copied;
-}
-
 namespace embedded {
 	namespace show_word_reduced {
 		//---------------Creation Example---------------:
@@ -1093,8 +1078,22 @@ namespace べんきょう {
 	}
 
 	void add_controls(ProcState* state) {
-		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT;
-		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | BS_ROUNDRECT | BS_BITMAP;
+		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
+		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
+		button::Theme base_btn_theme;
+		base_btn_theme.dimensions.border_thickness = 1;
+		base_btn_theme.brushes.bk.normal    = global::colors.ControlBk;
+		base_btn_theme.brushes.bk.disabled  = global::colors.ControlBk_Disabled;
+		base_btn_theme.brushes.bk.clicked   = global::colors.ControlBkPush;
+		base_btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+		base_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+		base_btn_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+		base_btn_theme.brushes.border.normal = global::colors.Img;//TODO(fran): global::colors.ControlBorder
+		//TODO(fran): use the extra brushes, fore_push,... , border_mouseover,...
+
+		button::Theme img_btn_theme = base_btn_theme;
+		img_btn_theme.brushes.foreground.normal = global::colors.Img;
+
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
@@ -1102,18 +1101,17 @@ namespace べんきょう {
 			controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_new, 100);
-			//TODO(fran): more brushes, fore_push,... , border_mouseover,...
-			button::set_brushes(controls.list.button_new, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_new, &base_btn_theme);
 
 			controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_practice, 101);
-			button::set_brushes(controls.list.button_practice, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_practice, &base_btn_theme);
 
 			controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_search, 102);
-			button::set_brushes(controls.list.button_search, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_search, &base_btn_theme);
 
 			controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1159,7 +1157,7 @@ namespace べんきょう {
 			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_save, 124);
-			button::set_brushes(controls.list.button_save, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_save, &base_btn_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -1239,12 +1237,12 @@ namespace べんきょう {
 			controls.list.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			button::set_brushes(controls.list.button_modify, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_modify, &base_btn_theme);
 
 			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
-			button::set_brushes(controls.list.button_delete, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_delete, &img_btn_theme);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1281,7 +1279,7 @@ namespace べんきょう {
 			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
-			button::set_brushes(controls.list.button_start, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_start, &base_btn_theme);
 			
 			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1316,8 +1314,7 @@ namespace べんきょう {
 
 			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-			//TODO(fran): disabled brushes
-			button::set_brushes(controls.list.button_show_word, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
 			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD |  embedded::show_word_reduced::style::roundrect,
@@ -1359,7 +1356,7 @@ namespace べんきょう {
 			controls.list.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_continue, 451);
-			button::set_brushes(controls.list.button_continue, TRUE, global::colors.Img, global::colors.ControlBk, global::colors.ControlTxt, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::set_theme(controls.list.button_continue, &base_btn_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2257,7 +2254,13 @@ namespace べんきょう {
 			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 
-			button::set_brushes(controls.list.button_next, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+			button::Theme btn_theme;
+			btn_theme.brushes.bk.normal = global::colors.ControlBk;
+			btn_theme.brushes.border.normal = global::colors.ControlBk;
+			btn_theme.brushes.foreground.normal = global::colors.Img;
+			btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+			btn_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+			button::set_theme(controls.list.button_next, &btn_theme);
 
 			EnableWindow(controls.list.button_show_word, FALSE);
 
@@ -2946,7 +2949,11 @@ namespace べんきょう {
 								//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
 								HBRUSH bk = success ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
 								edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
-								button::set_brushes(page.list.button_next, TRUE, bk, bk, global::colors.ControlTxt, 0, 0);
+								button::Theme btn_theme;
+								btn_theme.brushes.bk.normal = bk;
+								btn_theme.brushes.border.normal = bk;
+								btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+								button::set_theme(page.list.button_next, &btn_theme);
 
 								//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
 

@@ -364,25 +364,25 @@ LRESULT CALLBACK UncapNcProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 			TextOut(dc, icon_x + icon_width + max(icon_align_width,1), yPos, title, sz);
 
-			HBRUSH btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover;
+			button::Theme btn_theme;
+			btn_theme.dimensions.border_thickness = 0;
+
 			if (state->active) {
-				btn_border = global::colors.CaptionBk;
-				btn_bk = global::colors.CaptionBk;
-				btn_fore = global::colors.Img;
-				btn_bk_push = global::colors.ControlBkPush;
-				btn_bk_mouseover = global::colors.ControlBkMouseOver;
+				btn_theme.brushes.bk.normal = global::colors.CaptionBk;
+				btn_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+				btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+				btn_theme.brushes.foreground.normal = global::colors.Img;
 			}
 			else {
-				btn_border = global::colors.CaptionBk_Inactive;
-				btn_bk = global::colors.CaptionBk_Inactive;
-				btn_fore = global::colors.Img_Inactive;
-				btn_bk_push = global::colors.ControlBkPush;
-				btn_bk_mouseover = global::colors.ControlBkMouseOver;
+				btn_theme.brushes.bk.normal = global::colors.CaptionBk_Inactive;
+				btn_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+				btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+				btn_theme.brushes.foreground.normal = global::colors.Img_Inactive;
 			}
-			button::set_brushes(state->btn_close, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			button::set_brushes(state->btn_min, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			button::set_brushes(state->btn_max, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
-			button::set_brushes(state->btn_back, TRUE, btn_border, btn_bk, btn_fore, btn_bk_push, btn_bk_mouseover);
+			button::set_theme(state->btn_close, &btn_theme);
+			button::set_theme(state->btn_min,   &btn_theme);
+			button::set_theme(state->btn_max,   &btn_theme);
+			button::set_theme(state->btn_back,  &btn_theme);
 		}
 
 		//TODO(fran): move the menu up to get more screen real state, visual studio differentiates the menu items from the window title by rendering a darker square around the latter
