@@ -41,6 +41,7 @@
 
 //TODO(fran): look at SetWindowLong(hWnd, GWL_STYLE, currStyles | WS_MAXIMIZE); maybe that helps with maximizing correctly?
 //TODO(fran): if the user maximizes the wnd and then clicks and drags the nonclient to de-maximize we get the problem of our client area not rendering, we need to find the msg that correlates to that and call invalidaterect on the client
+//TODO(fran): BUG: reproduction: user drags the wnd and moves it to the right till half of it goes outside the screen and then drags it back into view, now the imgs are all distorted
 
 struct unCapNcLpParam {//NOTE: pass a pointer to unCapNcLpParam to set up the client area, if client_class_name is null no client is created
 	const cstr* client_class_name;

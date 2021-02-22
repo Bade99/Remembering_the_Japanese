@@ -546,6 +546,12 @@ namespace button {
 			InvalidateRect(state->wnd, NULL, TRUE);
 			return 0;
 		} break;
+		case WM_ENABLE:
+		{
+			BOOL enable = (BOOL)wparam;
+			InvalidateRect(state->wnd, NULL, TRUE);
+			return 0;
+		} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);

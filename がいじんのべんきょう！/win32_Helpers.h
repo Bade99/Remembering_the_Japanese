@@ -728,3 +728,34 @@ BOOL SetCaretPos(POINT p) {
 	BOOL res = SetCaretPos(p.x, p.y);
 	return res;
 }
+
+
+//----------------------GRID-----------------------:
+#include <array> //create_grid_2x2
+
+//returns a 2x2 configuration or 4x1 if there isnt enough max_w
+	//w is used for horizontal centering only
+	//TODO(fran): maybe creating a struct with 4 rect_i32 is less compiler expensive and less c++isy
+	//NOTE: we dont handle the case when there's not enough height since it'll look too long if all the things are next to each other and you probably wont have the space anyway
+std::array<std::array<rect_i32, 2>, 2> create_grid_2x2(i32 cell_h, i32 cell_w, i32 grid_y, i32 grid_w_pad, i32 grid_h_pad, i32 max_w, i32 w) {
+	std::array<std::array<rect_i32, 2>, 2> res;
+	for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { res[i][j].w = cell_w; res[i][j].h = cell_h; }
+	bool two_by_two = (cell_w * 2 + grid_w_pad) <= max_w;
+
+	if (two_by_two) {
+		res[0][0].left = w / 2 - grid_w_pad / 2 - res[0][0].w;	res[0][0].top = grid_y;
+		res[0][1].left = w / 2 + grid_w_pad / 2;					res[0][1].top = res[0][0].top;
+
+		res[1][0].left = res[0][0].left;						res[1][0].top = res[0][0].bottom() + grid_h_pad;
+		res[1][1].left = res[0][1].left;						res[1][1].top = res[1][0].top;
+	}
+	else {
+		for (int next_y = grid_y, i = 0; i < 2; i++)
+			for (int j = 0; j < 2; j++) {
+				res[i][j].left = (w - res[i][j].w) / 2;
+				res[i][j].top = next_y;
+				next_y = res[i][j].bottom() + grid_h_pad;
+			}
+	}
+	return res;
+}

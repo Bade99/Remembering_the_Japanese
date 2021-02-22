@@ -18,7 +18,6 @@
 #include "win32_new_msgs.h"
 
 #include <string>
-#include <array> //create_grid_2x2
 
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
@@ -62,6 +61,12 @@
 //INFO: the hiragana aid on top of kanji is called furigana
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
+
+
+
+#define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
+
+#define MyMoveWindow_offset(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
 
 
 #define _SQL(x) (#x)
@@ -356,12 +361,38 @@ namespace embedded {
 			int h = RECTHEIGHT(r);
 			int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 			int h_pad = (int)((float)h * .05f);
-			Assert(0);
+			int max_w = w - w_pad * 2;
+			int start_y = 0;
+
+			auto& controls = state->controls;
+
+			//Hiragana, kanji and lexical category on the left, meaning, notes, mnemonic on the right
+			int cell_w = (max_w-w_pad/2)/2;
+			auto grid = create_grid_2x2(30, cell_w, start_y, w_pad / 2, h_pad / 2, max_w, w);
+			//TODO(fran): I think 4x1 config is better cause the wnd isnt expected to be very wide
+
+			rect_i32 hiragana = grid[0][0];
+			rect_i32 kanji = grid[0][1];
+			rect_i32 meaning = grid[1][0];
+			rect_i32 mnemonic = grid[1][1];
+
+			//TODO(fran): do I wanna put the lexical_category? it actually feels kinda pointless
+
+			rect_i32 bottom_most_control = mnemonic;
+
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.hiragana, hiragana, FALSE);
+			MyMoveWindow_offset(controls.kanji, kanji, FALSE);
+			MyMoveWindow_offset(controls.meaning, meaning, FALSE);
+			MyMoveWindow_offset(controls.mnemonic, mnemonic, FALSE);
 		}
 		void show_controls(ProcState* state, bool show) {
 			for (auto& c : state->controls.all) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
 		}
 		//the word must be encoded in utf16
+		//NOTE: a copy of the word is kept internally
 		void set_word(HWND wnd, learnt_word* word) {
 			ProcState* state = get_state(wnd);
 			if (state && word) {
@@ -451,7 +482,7 @@ namespace embedded {
 				if (borderbr) {
 
 					if (style & style::roundrect) {
-						urender::RoundRectangleBorder(dc, borderbr, rc, radius, state->theme.dimensions.border_thickness);
+						urender::RoundRectangleBorder(dc, borderbr, rc, radius, (f32)state->theme.dimensions.border_thickness);
 					}
 					else {
 						FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, borderbr, BORDERALL);
@@ -479,6 +510,7 @@ namespace embedded {
 			case WM_IME_SETCONTEXT:
 			case WM_GETTEXT:
 			case WM_GETTEXTLENGTH:
+			case WM_PARENTNOTIFY:
 			{
 				return 0;
 			} break;
@@ -505,6 +537,28 @@ namespace embedded {
 			}
 			return 0;
 		}
+		void init_wndclass(HINSTANCE instance) {
+			WNDCLASSEXW cl;
+			cl.cbSize = sizeof(cl);
+			cl.style = CS_HREDRAW | CS_VREDRAW;
+			cl.lpfnWndProc = Proc;
+			cl.cbClsExtra = 0;
+			cl.cbWndExtra = sizeof(ProcState*);
+			cl.hInstance = instance;
+			cl.hIcon = NULL;
+			cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
+			cl.hbrBackground = NULL;
+			cl.lpszMenuName = NULL;
+			cl.lpszClassName = wndclass;
+			cl.hIconSm = NULL;
+			ATOM class_atom = RegisterClassExW(&cl);
+			runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
+		}
+
+		struct pre_post_main {
+			pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
+			~pre_post_main() { }
+		}static const PREMAIN_POSTMAIN;
 	}
 }
 
@@ -1254,12 +1308,10 @@ namespace べんきょう {
 
 			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, 0, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
 			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
-			button::set_brushes(controls.list.button_next, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
 
 			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
@@ -1268,8 +1320,19 @@ namespace べんきょう {
 			button::set_brushes(controls.list.button_show_word, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
 			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
 
-			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD,
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD |  embedded::show_word_reduced::style::roundrect,
 				0,0,0,0,state->wnd,0,0,0);
+			embedded::show_word_reduced::Theme eswr_theme;
+			brush_group eswr_bk, eswr_txt, eswr_border;
+			eswr_bk.normal = global::colors.ControlBk;
+			eswr_txt.normal = global::colors.ControlTxt;
+			eswr_border.normal = global::colors.ControlTxt;
+			eswr_theme.font = global::fonts.General;
+			eswr_theme.dimensions.border_thickness = 1;
+			eswr_theme.brushes.bk = eswr_bk;
+			eswr_theme.brushes.txt = eswr_txt;
+			eswr_theme.brushes.border = eswr_border;
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -1302,34 +1365,6 @@ namespace べんきょう {
 		}
 	}
 
-	//returns a 2x2 configuration or 1x4 if there isnt enough max_w
-	//w is used for horizontal centering only
-	//grid_h and grid_w identify the size of one cell //TODO(fran): why dont I call it cell_w and _h?
-	//TODO(fran): maybe creating a struct with 4 rect_i32 is less compiler expensive and less c++isy
-	//NOTE: we dont handle the case when there's not enough height since it'll look too long if all the things are next to each other and you probably wont have the space anyway
-	std::array<std::array<rect_i32,2>,2> create_grid_2x2(i32 grid_h, i32 grid_w, i32 grid_y, i32 grid_w_pad, i32 grid_h_pad, i32 max_w, i32 w) {
-		std::array<std::array<rect_i32, 2>, 2> res;
-		for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { res[i][j].w = grid_w; res[i][j].h = grid_h; }
-		bool two_by_two = (grid_w * 2 + grid_w_pad) <= max_w;
-
-		if (two_by_two) {
-			res[0][0].left = w / 2 - grid_w_pad / 2 - res[0][0].w;	res[0][0].top = grid_y;
-			res[0][1].left = w / 2 + grid_w_pad / 2;					res[0][1].top = res[0][0].top;
-
-			res[1][0].left = res[0][0].left;						res[1][0].top = res[0][0].bottom() + grid_h_pad;
-			res[1][1].left = res[0][1].left;						res[1][1].top = res[1][0].top;
-		}
-		else {
-			for (int next_y = grid_y, i = 0; i < 2; i++)
-				for (int j = 0; j < 2; j++) {
-					res[i][j].left = (w - res[i][j].w) / 2;
-					res[i][j].top = next_y;
-					next_y = res[i][j].bottom() + grid_h_pad;
-				}
-		}
-		return res;
-	}
-
 	void resize_controls(ProcState* state) {
 		RECT r; GetClientRect(state->wnd, &r);
 		int w = RECTWIDTH(r);
@@ -1337,12 +1372,6 @@ namespace べんきょう {
 		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 		int h_pad = (int)((float)h * .05f);
 		
-//#define _MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh##_x, xywh##_y, xywh##_w, xywh##_h, repaint)
-#define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
-
-#define _MyMoveWindow2(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
-#define MyMoveWindow_offset _MyMoveWindow2
-
 		switch (state->current_page) {
 		case ProcState::page::landing: 
 		{
@@ -1586,12 +1615,26 @@ namespace べんきょう {
 			button_next.w = min(button_next.h, max(0, edit_answer.w-4/*avoid covering rounded borders*/));
 			button_next.x = edit_answer.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
 
-			rect_i32 bottom_most_control = edit_answer;
+			rect_i32 button_show_word;
+			button_show_word.h = (i32)(wnd_h * .8f);
+			button_show_word.y = edit_answer.bottom() + 3;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = edit_answer.center_x() - button_show_word.w / 2;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 bottom_most_control = button_show_word;
 
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 			MyMoveWindow_offset(controls.list.static_test_word, static_test_word, FALSE);
 			MyMoveWindow_offset(controls.list.edit_answer, edit_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 			MyMoveWindow(controls.list.button_next, button_next, FALSE);
 
 		} break;
@@ -1794,7 +1837,10 @@ namespace べんきょう {
 		case ProcState::page::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::practice_writing: for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case ProcState::page::practice_writing: 
+			for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); 
+			ShowWindow(state->controls.practice_writing.embedded_show_word_reduced, SW_HIDE);
+			break;
 		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case ProcState::page::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
@@ -2207,8 +2253,15 @@ namespace べんきょう {
 			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
 			
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, 0, 0, 0, 0, 0);
+
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
+
+			button::set_brushes(controls.list.button_next, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.Img, global::colors.ControlBkPush, global::colors.ControlBkMouseOver);
+
+			EnableWindow(controls.list.button_show_word, FALSE);
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->word);
 
 		} break;
 		case ProcState::page::review_practice:
@@ -2857,69 +2910,80 @@ namespace べんきょう {
 					auto& pagestate = state->pagestate.practice_writing;
 					WORD notif = HIWORD(wparam);
 					if (child == page.list.button_next || (child == page.list.edit_answer && notif == EN_ENTER)) {
-						utf16_str user_answer; _get_edit_str(page.list.edit_answer, user_answer);
-						if (user_answer.sz_char() != 1) {
-							const utf16_str* correct_answer{ 0 };
-							const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
-							switch (pagestate.practice->practice_type) {
-							case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
-							{
-								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
-								question = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
-							} break;
-							case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
-							{
-								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
-								question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
-							} break;
-							case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
-							{
-								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
-								question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
+						bool already_answered = IsWindowEnabled(page.list.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
+						if (!already_answered) {
+							utf16_str user_answer; _get_edit_str(page.list.edit_answer, user_answer);
+							if (user_answer.sz_char() != 1) {
+								const utf16_str* correct_answer{ 0 };
+								const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
+								switch (pagestate.practice->practice_type) {
+								case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
+								{
+									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
+									question = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+								} break;
+								case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
+								{
+									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
+									question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
+								} break;
+								case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
+								{
+									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+									question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
 
-							} break;
-							case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
-							{
-								correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
-								question = (utf16_str*)&pagestate.practice->word.attributes.translation;
-							} break;
-							default:Assert(0);
+								} break;
+								case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
+								{
+									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
+									question = (utf16_str*)&pagestate.practice->word.attributes.translation;
+								} break;
+								default:Assert(0);
+								}
+
+								bool success = !StrCmpIW(correct_answer->str, user_answer.str);
+
+								//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
+								HBRUSH bk = success ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+								edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
+								button::set_brushes(page.list.button_next, TRUE, bk, bk, global::colors.ControlTxt, 0, 0);
+
+								//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
+
+								//Update word stats
+								//TODO(fran): if we knew had the old values in the word object we could simply update those and batch update the whole word
+								word_update_last_shown_date(state->settings->db, pagestate.practice->word);
+								word_increment_times_shown(state->settings->db, pagestate.practice->word);
+								if (success) word_increment_times_right(state->settings->db, pagestate.practice->word);
+
+								//Add this practice to the list of current completed ones
+								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));//TODO(fran): free once there's a new review
+								p->header.type = decltype(p->header.type)::writing;
+								p->practice = state->pagestate.practice_writing.practice;
+								state->pagestate.practice_writing.practice = nullptr;//clear the pointer just in case
+								p->user_answer = user_answer;
+								p->correct_answer = correct_answer;
+								p->answered_correctly = success;
+								p->question = question;
+
+								state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
+
+								//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
+
+								EnableWindow(page.list.button_show_word, TRUE);
+								if (success) next_practice_level(state);
 							}
-
-							bool success = !StrCmpIW(correct_answer->str, user_answer.str);
-
-							//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
-							HBRUSH bk = success ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-							edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
-							button::set_brushes(page.list.button_next, TRUE, bk, bk, global::colors.ControlTxt, 0, 0);
-
-							//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
-
-							//Update word stats
-							//TODO(fran): if we knew had the old values in the word object we could simply update those and batch update the whole word
-							word_update_last_shown_date(state->settings->db,pagestate.practice->word);
-							word_increment_times_shown(state->settings->db,pagestate.practice->word);
-							if(success) word_increment_times_right(state->settings->db,pagestate.practice->word);
-
-							//Add this practice to the list of current completed ones
-							ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));//TODO(fran): free once there's a new review
-							p->header.type = decltype(p->header.type)::writing;
-							p->practice = state->pagestate.practice_writing.practice;
-							state->pagestate.practice_writing.practice = nullptr;//clear the pointer just in case
-							p->user_answer = user_answer;
-							p->correct_answer = correct_answer;
-							p->answered_correctly = success;
-							p->question = question;
-
-							state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
-
-							//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
-
-							next_practice_level(state);
+							else {
+								free_any_str(user_answer.str);
+							}
 						}
 						else {
-							free_any_str(user_answer.str);
+							//The user already answered and got it wrong, they checked what was wrong and pressed continue again
+							next_practice_level(state);
 						}
+					}
+					else if (child == page.list.button_show_word) {
+						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
 					}
 				} break;
 				case ProcState::page::review_practice:
