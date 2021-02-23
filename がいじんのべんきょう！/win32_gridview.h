@@ -88,12 +88,12 @@ namespace gridview {
 		int w = max(state->element_dim.cx, RECTW(rc));//NOTE: make w at least be able to hold one element
 		//NOTE: we dont care bout height, we can go as low as we want and simply allow scrolling
 		int elems_per_row = min((int)state->elements.size(), safe_ratio1(w,state->element_dim.cx));//NOTE: and then you floor() the result, but since this are integers and always positive the division already performs flooring
-		//NOTE: I use safe_ratio1 instead of the correct safe_ratio0 just to avoid having other divisions fail as well, since the loop inst gonna run this values are meaningless anyway
+		//NOTE: I use safe_ratio1 instead of the correct safe_ratio0 just to avoid having other divisions fail as well, since the loop isnt gonna run this values are meaningless anyway
 
 		//Correction factor for elems_per_row
 		{
 			for (int i=0;i<10 /*safeguard*/;i++) {
-				int pad_cnt = elems_per_row - 1; //TODO(fran): check what happens when there's only one elem per row
+				int pad_cnt = elems_per_row - 1;
 				if ((elems_per_row * state->element_dim.cx + pad_cnt * state->inbetween_pad.cx) <= w) break;
 				else elems_per_row--;
 			}

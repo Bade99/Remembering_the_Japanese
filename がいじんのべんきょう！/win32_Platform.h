@@ -18,6 +18,15 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
+#define I8MIN  (-127i8 - 1)
+#define I8MAX  127i8
+#define I16MIN (-32767i16 - 1)
+#define I16MAX 32767i16
+#define I32MIN (-2147483647i32 - 1)
+#define I32MAX 2147483647i32
+#define I64MIN (-9223372036854775807i64 - 1)
+#define I64MAX 9223372036854775807i64
+
 typedef float f32;
 typedef double f64;
 

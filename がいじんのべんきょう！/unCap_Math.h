@@ -48,7 +48,8 @@ static i32 safe_ratio0(i32 dividend, i32 divisor) {
 	return safe_ratioN(dividend, divisor, 0);
 }
 
-static i32 clamp(i32 min, i32 n, i32 max) { //clamps between [min,max]
+//clamps between [min,max]
+static i32 clamp(i32 min, i32 n, i32 max) {
 	i32 res = n;
 	if (res < min) res = min;
 	else if (res > max) res = max;

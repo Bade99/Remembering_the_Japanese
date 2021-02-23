@@ -14,6 +14,9 @@
 // Favors rows before columns
 // No ASCII support, always utf16
 
+//-------------Additional Messages-------------:
+//Sends WM_COMMAND to the parent when the user clicks an element wparam=(size_t)idx (of the elem); lparam=HWND (of the gridview)
+
 //-------------Additional Styles-------------:
 // multibutton::style::roundrect : Border is made of a rounded rectangle
 
@@ -30,8 +33,11 @@ namespace multibutton {
 			brush_group bk, border;
 		} brushes;
 		struct {
-			u32 border_thickness = U32MAX;
+			u32 border_thickness = U32MAX;//Border of the container
+			SIZE btn = { I32MAX ,I32MAX };//Size for a button, all buttons have the same size
+			SIZE inbetween_pad = { I32MAX ,I32MAX };//Spacing in between two buttons
 		}dimensions;
+		//TODO(fran): we should add a bool preferRows; //In order to allow for both row and column preference
 	};
 
 	enum style {
@@ -47,6 +53,8 @@ namespace multibutton {
 
 		//TODO(fran): allow the user to choose button styles
 
+		//NOTE: border_pad is automatically calculated so the buttons are perfectly centered on the wnd
+
 		std::vector<HWND> buttons;
 	};
 
@@ -59,6 +67,39 @@ namespace multibutton {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
+	void resize_controls(ProcState* state) {
+		RECT rc; GetClientRect(state->wnd, &rc);
+		int h = RECTH(rc);
+		int w = max(state->theme.dimensions.btn.cx, RECTW(rc));//NOTE: make w at least be able to hold one element
+		//NOTE: we dont care bout height, we can go as low as we want and simply allow scrolling
+
+		//TODO(fran) prioritize rows
+		int row_cnt = clamp(1, safe_ratio1((i32)(h-(state->buttons.size()-1)*state->theme.dimensions.inbetween_pad.cy), state->theme.dimensions.btn.cy), (i32)state->buttons.size());
+
+		int elems_per_row = (i32)ceilf(safe_ratio1((f32)state->buttons.size(),(f32)row_cnt));
+
+		SIZE border_pad;
+		//NOTE: elements are centered with relation to the wnd
+		border_pad.cx = (w - (elems_per_row * state->theme.dimensions.btn.cx + (elems_per_row - 1) * state->theme.dimensions.inbetween_pad.cx)) / 2;//border for left and right
+		border_pad.cy = (h - (row_cnt *state->theme.dimensions.btn.cy + (row_cnt-1) * state->theme.dimensions.inbetween_pad.cy)) / 2;
+
+
+		//TODO(fran): perfect centering for the last row, which will most probably have less elements
+		size_t elem_cnt = state->buttons.size();
+		rect_i32 elem_rc;
+		elem_rc.xy = { 0,border_pad.cy };
+		elem_rc.wh = { state->theme.dimensions.btn.cx, state->theme.dimensions.btn.cy };
+		for (int y = 0, i = 0; y < row_cnt; y++) {
+			elem_rc.x = border_pad.cx;
+			for (int x = 0; x < elems_per_row && elem_cnt; x++) {
+				MoveWindow(state->buttons[i++], elem_rc.x, elem_rc.y, elem_rc.w, elem_rc.h, TRUE);
+				elem_rc.x += state->theme.dimensions.btn.cx + state->theme.dimensions.inbetween_pad.cx;
+				elem_cnt--;
+			}
+			elem_rc.y += state->theme.dimensions.btn.cy + state->theme.dimensions.inbetween_pad.cy;
+		}
+	}
+
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
 
 	//Set only what you need, what's not set wont be used
@@ -66,22 +107,40 @@ namespace multibutton {
 	void set_theme(HWND wnd, const Theme* t) {
 		ProcState* state = get_state(wnd);
 		if (state && t) {
-			bool repaint = false;
+			bool repaint = false, resize = false;
 			repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
 			repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
 
-			if (repaint |= (t->dimensions.border_thickness != U32MAX)) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+			if (t->dimensions.border_thickness != U32MAX) {
+				state->theme.dimensions.border_thickness = t->dimensions.border_thickness; repaint = true;
+			}
 
+			if (t->dimensions.btn.cx != INT32_MAX && t->dimensions.btn.cx != state->theme.dimensions.btn.cx) {
+				state->theme.dimensions.btn.cx = t->dimensions.btn.cx; resize = true;
+			}
+			if (t->dimensions.btn.cy != INT32_MAX && t->dimensions.btn.cy != state->theme.dimensions.btn.cy) {
+				state->theme.dimensions.btn.cy = t->dimensions.btn.cy; resize = true;
+			}
+
+			if (t->dimensions.inbetween_pad.cx != INT32_MAX && t->dimensions.inbetween_pad.cx != state->theme.dimensions.inbetween_pad.cx) {
+				state->theme.dimensions.inbetween_pad.cx = t->dimensions.inbetween_pad.cx; resize = true;
+			}
+			if (t->dimensions.inbetween_pad.cy != INT32_MAX && t->dimensions.inbetween_pad.cy != state->theme.dimensions.inbetween_pad.cy) {
+				state->theme.dimensions.inbetween_pad.cy = t->dimensions.inbetween_pad.cy; resize = true;
+			}
+
+			if (resize) resize_controls(state);
 			if (repaint)  ask_for_repaint(state);
 		}
 	}
 
 	//Set the theme for all buttons (set only what you need, what's not set wont be used)
+	//IMPORTANT: Buttons added after this call will also use the new theme
 	void set_button_theme(HWND wnd, const button::Theme* t) {
 		ProcState* state = get_state(wnd);
 		if (state && t) {
 			for (auto& b : state->buttons)button::set_theme(b, t);
-			state->button_theme = *t;//HACK: should probably update the theme, not override it, but that code lives inside button::set_theme()
+			button::_copy_theme(&state->button_theme, t);//semi HACK: we should standardise this functionality for every control
 		}
 	}
 
@@ -105,13 +164,14 @@ namespace multibutton {
 		if (state) {
 			remove_buttons(state);
 			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			DWORD style_button_txt = WS_CHILD | WS_TABSTOP | (style & style::roundrect ? button::style::roundrect : 0);
+			DWORD style_button_txt = WS_CHILD | WS_TABSTOP | WS_VISIBLE | (style & style::roundrect ? button::style::roundrect : 0);
 			for (auto& b_str : buttons) {
 				HWND btn = CreateWindowW(button::wndclass, b_str, style_button_txt
 					, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 				button::set_theme(btn, &state->button_theme);
 				state->buttons.push_back(btn);
 			}
+			resize_controls(state);
 		}
 	}
 
@@ -149,6 +209,7 @@ namespace multibutton {
 		}
 		case WM_SIZE: //4th
 		{
+			resize_controls(state);
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOVE: //5th, This msg is received _after_ the window was moved
@@ -181,11 +242,10 @@ namespace multibutton {
 			return 0; //If you return 0 then on WM_PAINT fErase will be true, aka paint the background there
 		} break;
 		case WM_SETFONT: {
-			/*HFONT font = (HFONT)wparam;
-			Theme new_theme;
+			HFONT font = (HFONT)wparam;
+			button::Theme new_theme;
 			new_theme.font = font;
-			set_theme(state->wnd, &new_theme);*/
-			//TODO(fran): do I want to do a global setfont for all my buttons?
+			set_button_theme(state->wnd, &new_theme);
 			return 0;
 		} break;
 		case WM_GETFONT:
@@ -327,6 +387,21 @@ namespace multibutton {
 
 			EndPaint(state->wnd, &ps);
 			return 0;
+		} break;
+		case WM_PARENTNOTIFY:
+		{
+			return 0;
+		} break;
+		case WM_COMMAND:
+		{
+			HWND child = (HWND)lparam;
+			Assert(std::find(state->buttons.begin(), state->buttons.end(), child) != state->buttons.end());
+			size_t idx = 0;
+			for (; idx < state->buttons.size(); idx++) {
+				if (child == state->buttons[idx]) break;
+			}
+			//TODO(fran): we should actually check that the idx is valid
+			SendMessage(state->parent, WM_COMMAND, (WPARAM)idx, (LPARAM)state->wnd);
 		} break;
 
 		default:

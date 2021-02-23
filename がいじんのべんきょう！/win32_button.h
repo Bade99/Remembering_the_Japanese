@@ -64,19 +64,26 @@ namespace button {
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
 
+	bool _copy_theme(Theme* dst, const Theme* src) {
+		bool repaint = false;
+		repaint |= copy_brush_group(&dst->brushes.foreground, &src->brushes.foreground);
+		repaint |= copy_brush_group(&dst->brushes.bk, &src->brushes.bk);
+		repaint |= copy_brush_group(&dst->brushes.border, &src->brushes.border);
+
+		if (src->dimensions.border_thickness != U32MAX) {
+			dst->dimensions.border_thickness = src->dimensions.border_thickness; repaint = true;
+		}
+
+		if (src->font) { dst->font = src->font; repaint = true; }
+		return repaint;
+	}
+
 	//Set only what you need, what's not set wont be used
 	//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
 	void set_theme(HWND wnd, const Theme* t) {
 		ProcState* state = get_state(wnd);
 		if (state && t) {
-			bool repaint = false;
-			repaint |= copy_brush_group(&state->theme.brushes.foreground, &t->brushes.foreground);
-			repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
-			repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
-
-			if (repaint |= (t->dimensions.border_thickness != U32MAX)) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
-
-			if (repaint |= (bool)t->font) state->theme.font = t->font;
+			bool repaint = _copy_theme(&state->theme, t);
 
 			if (repaint)  ask_for_repaint(state);
 		}

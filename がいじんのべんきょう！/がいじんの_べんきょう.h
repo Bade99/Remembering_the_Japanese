@@ -244,6 +244,7 @@ enum class learnt_word_elem : u32{
 
 struct practice_multiplechoice_word {
 	learnt_word question;/*#free*/ learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
+	utf16* question_str;//Points to some element inside of 'question'
 	ptr<utf16*> choices; learnt_word_elem choices_type;//#free
 	u32 idx_answer;//index of the correct answer in the 'choices' array, starting from 0
 };
@@ -348,9 +349,11 @@ namespace embedded {
 				repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
 				repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
 				
-				if (repaint |= (t->dimensions.border_thickness != U32MAX)) state->theme.dimensions.border_thickness = t->dimensions.border_thickness;
+				if (t->dimensions.border_thickness != U32MAX) {
+					state->theme.dimensions.border_thickness = t->dimensions.border_thickness; repaint = true;
+				}
 
-				if (repaint |= (bool)t->font) state->theme.font = t->font;
+				if (t->font) { state->theme.font = t->font; repaint = true; }
 
 				if (repaint) { update_controls_theme(state); ask_for_repaint(state); }
 			}
@@ -744,6 +747,12 @@ struct べんきょうProcState {
 		const utf16_str* correct_answer;//points to some element inside practice.word
 		bool answered_correctly;//precalculated value so strcmp is used only once
 	};
+	struct practice_multiplechoice {
+		practice_header header;
+		practice_multiplechoice_word* practice;//#free
+		size_t user_answer_idx;
+		bool answered_correctly;//precalculated value
+	};
 
 	struct {
 
@@ -756,6 +765,10 @@ struct べんきょうProcState {
 		struct practice_writing_state {
 			practice_writing_word* practice;
 		}practice_writing;//TODO(fran): if we already had the entire practices array from the start we could simplify this to a simple size_t idx and the multipage_mem.temp_practices[pagestate.practice_writing.idx]
+
+		struct practice_multiplechoice_state {
+			practice_multiplechoice_word* practice;
+		}practice_multiplechoice;
 
 	} pagestate;
 
@@ -1355,10 +1368,14 @@ namespace べんきょう {
 			//NOTE: text color will be set according to the type of word being shown
 			
 			//TODO(fran): should I simply use a gridview instead?
-			controls.list.multibutton_choices = CreateWindowW(multibutton::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN 
+			controls.list.multibutton_choices = CreateWindowW(multibutton::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN | multibutton::style::roundrect
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//NOTE: text color and default text will be set according to the type of word that has to be written
-			//TODO(fran): the multibutton class will have support for setting individual buttons' colors via their index
+			multibutton::Theme multibutton_choices_theme;
+			multibutton_choices_theme.dimensions.border_thickness = 1;
+			multibutton_choices_theme.brushes.bk.normal = global::colors.ControlBk;//TODO(fran): try with a different color to make it destacar
+			multibutton_choices_theme.brushes.border.normal = global::colors.Img;
+			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
+			//NOTE: buttons' colors will be set according to the type of word that has to be written
 
 			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1418,6 +1435,7 @@ namespace べんきょう {
 		RECT r; GetClientRect(state->wnd, &r);
 		int w = RECTWIDTH(r);
 		int h = RECTHEIGHT(r);
+		int half_w = w / 2;
 		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 		int h_pad = (int)((float)h * .05f);
 		
@@ -1704,21 +1722,27 @@ namespace べんきょう {
 
 			rect_i32 multibutton_choices;
 			multibutton_choices.y = static_question.bottom() + h_pad;
-			multibutton_choices.h = wnd_h;
+			multibutton_choices.h = bigwnd_h;
 			multibutton_choices.w = max_w;
 			multibutton_choices.x = (w - multibutton_choices.w) / 2;
+
+			multibutton::Theme multibutton_choices_theme;
+			multibutton_choices_theme.dimensions.btn = { avg_str_dim((HFONT)SendMessage(controls.list.multibutton_choices, WM_GETFONT, 0, 0), 15).cx,wnd_h };
+			multibutton_choices_theme.dimensions.inbetween_pad = { 3,3 };
+			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
 
 			rect_i32 button_next;
 			button_next.y = multibutton_choices.bottom() + h_pad;
 			button_next.h = wnd_h;
 			button_next.w = button_next.h;
-			button_next.x = (w + w_pad)/2;
 
 			rect_i32 button_show_word;
 			button_show_word.h = button_next.h;
 			button_show_word.y = button_next.y;
 			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = (w - button_show_word.w - w_pad) / 2;
+			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
+
+			button_next.x = button_show_word.right() + 1;
 
 			rect_i32 embedded_show_word_reduced;
 			embedded_show_word_reduced.w = max_w;
@@ -1941,17 +1965,21 @@ namespace べんきょう {
 
 	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
-		case ProcState::page::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::practice_writing: 
+		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::practice_writing: 
 			for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); 
 			ShowWindow(state->controls.practice_writing.embedded_show_word_reduced, SW_HIDE);
 			break;
-		case ProcState::page::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case ProcState::page::review_practice_writing: show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); break;
+		case decltype(p)::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::review_practice_writing: show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); break;
+		case decltype(p)::practice_multiplechoice:
+			for (auto ctl : state->controls.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->controls.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
+			break;
 		default:Assert(0);
 		}
 	}
@@ -2214,7 +2242,7 @@ namespace べんきょう {
 	void preload_page(ProcState* state, ProcState::page page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
 		switch (page) {
-		case ProcState::page::new_word:
+		case decltype(page)::new_word:
 		{
 			learnt_word* new_word = (decltype(new_word))data;//NOTE: since we are in UI we expect utf16 strings
 			auto controls = state->controls.new_word;
@@ -2233,7 +2261,7 @@ namespace べんきょう {
 			SendMessageW(controls.list.combo_lexical_category, CB_SETCURSEL, lex_categ_sel, 0);
 
 		} break;
-		case ProcState::page::show_word:
+		case decltype(page)::show_word:
 		{
 			stored_word* word_to_show = (decltype(word_to_show))data;
 			auto controls = state->controls.show_word;
@@ -2273,7 +2301,7 @@ namespace べんきょう {
 			}
 
 		} break;
-		case ProcState::page::practice:
+		case decltype(page)::practice:
 		{
 			user_stats* stats = (decltype(stats))data;
 			auto controls = state->controls.practice;
@@ -2306,13 +2334,13 @@ namespace べんきょう {
 			//BOOL can_practice = stats->word_cnt > 0;
 			//EnableWindow(controls.list.button_start, can_practice);
 		} break;
-		case ProcState::page::practice_writing:
+		case decltype(page)::practice_writing:
 		{
 			//TODO(fran): shouldnt preload_page also call clear_page?
 			practice_writing_word* practice = (decltype(practice))data;
 			auto controls = state->controls.practice_writing;
 			//store data for future proof checking
-			state->pagestate.practice_writing.practice = practice;//TODO(fran): free the object this points to and the word inside the object
+			state->pagestate.practice_writing.practice = practice;
 
 			utf16* test_word{0};//NOTE: compiler cant know that these guys will always be initialized so I gotta zero them
 			HBRUSH test_word_br{0};
@@ -2357,7 +2385,6 @@ namespace べんきょう {
 			default:Assert(0);
 			}
 
-			//TODO(fran): setup control colors, text and default text, etc
 			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
 			
@@ -2378,7 +2405,7 @@ namespace べんきょう {
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->word);
 
 		} break;
-		case ProcState::page::review_practice:
+		case decltype(page)::review_practice:
 		{
 			std::vector<ProcState::practice_header*>* practices = (decltype(practices))data;
 			auto controls = state->controls.review_practice;
@@ -2393,7 +2420,7 @@ namespace べんきょう {
 			gridview::set_elements(controls.list.gridview_practices, practices_data, practices_cnt);
 
 		} break;
-		case ProcState::page::review_practice_writing:
+		case decltype(page)::review_practice_writing:
 		{
 			ProcState::practice_writing* pagedata = (decltype(pagedata))data;
 			auto& controls = state->controls.practice_writing;
@@ -2438,6 +2465,62 @@ namespace べんきょう {
 			EnableWindow(controls.list.button_show_word, TRUE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->word);
+
+		} break;
+		case decltype(page)::practice_multiplechoice:
+		{
+			practice_multiplechoice_word* practice = (decltype(practice))data;
+			auto controls = state->controls.practice_multiplechoice;
+			state->pagestate.practice_multiplechoice.practice = practice;
+			
+			auto brush_for_learnt_word_elem = [](learnt_word_elem type) {
+				HBRUSH res{0};//NOTE: compiler cant know this will always be initialized so I gotta zero it
+				switch (type) {
+				case decltype(type)::hiragana: {
+					res = global::colors.hiragana;
+				} break;
+				case decltype(practice->question_type)::kanji: {
+					res = global::colors.kanji;
+				} break;
+				case decltype(practice->question_type)::meaning: {
+					res = global::colors.translation;
+				} break;
+				default:Assert(0);
+				}
+				return res;
+			};
+
+			HBRUSH question_txt_br = brush_for_learnt_word_elem(practice->question_type);
+			HBRUSH choice_txt_br = brush_for_learnt_word_elem(practice->choices_type);
+
+
+			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+
+
+			multibutton::set_buttons(controls.list.multibutton_choices, practice->choices);
+			button::Theme multibutton_button;
+			multibutton_button.brushes.foreground.normal = choice_txt_br;
+			multibutton_button.brushes.bk.normal = global::colors.ControlBk;
+			multibutton_button.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+			multibutton_button.brushes.bk.clicked = global::colors.ControlBkPush;
+			multibutton_button.brushes.border.normal = global::colors.Img;//TODO(fran): = choice_txt_br ?
+			multibutton::set_button_theme(controls.list.multibutton_choices, &multibutton_button);
+			
+
+			button::Theme button_next_theme;
+			button_next_theme.brushes.bk.normal = global::colors.ControlBk;
+			button_next_theme.brushes.border.normal = global::colors.Img;
+			button_next_theme.brushes.foreground.normal = global::colors.Img;
+			button_next_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+			button_next_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+			button::set_theme(controls.list.button_next, &button_next_theme);
+
+
+			EnableWindow(controls.list.button_show_word, FALSE);
+
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
 
 		} break;
 		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
@@ -2746,9 +2829,11 @@ namespace べんきょう {
 
 			//Move all the choices plus the correct choice into the new array
 			for (int i = 0, j = 0; i < data->choices.cnt; i++) {
-				if (i == data->idx_answer) data->choices[i] = _wcsdup(elem_ptr_for(&data->question, data->question_type));//TODO(fran): replace for my own duplication method
+				if (i == data->idx_answer) data->choices[i] = _wcsdup(elem_ptr_for(&data->question, data->choices_type));//TODO(fran): replace for my own duplication method
 				else data->choices[i] = _choices[j++];
 			}
+
+			data->question_str = elem_ptr_for(&data->question, data->question_type);
 			
 			res.page = ProcState::page::practice_multiplechoice;
 			res.data = data;
@@ -3211,16 +3296,16 @@ namespace べんきょう {
 								//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
 
 								//Update word stats
-								//TODO(fran): if we knew had the old values in the word object we could simply update those and batch update the whole word
+								//TODO(fran): if we knew we had the old values in the word object we could simply update those and batch update the whole word
 								word_update_last_shown_date(state->settings->db, pagestate.practice->word);
 								word_increment_times_shown(state->settings->db, pagestate.practice->word);
 								if (success) word_increment_times_right(state->settings->db, pagestate.practice->word);
 
 								//Add this practice to the list of current completed ones
-								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));//TODO(fran): free once there's a new review
+								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));
 								p->header.type = decltype(p->header.type)::writing;
-								p->practice = state->pagestate.practice_writing.practice;
-								state->pagestate.practice_writing.practice = nullptr;//clear the pointer just in case
+								p->practice = pagestate.practice;
+								pagestate.practice = nullptr;//clear the pointer just in case
 								p->user_answer = user_answer;
 								p->correct_answer = correct_answer;
 								p->answered_correctly = success;
@@ -3284,6 +3369,65 @@ namespace べんきょう {
 					}
 					else if (child == page.list.button_next) {
 						goto_previous_page(state);
+					}
+				} break;
+				case ProcState::page::practice_multiplechoice:
+				{
+					auto& page = state->controls.practice_multiplechoice;
+					auto& pagestate = state->pagestate.practice_multiplechoice;
+					bool already_answered = IsWindowEnabled(page.list.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
+					if (child == page.list.multibutton_choices) {
+						//The user has selected a choice
+						if (!already_answered) {
+							size_t user_answer_idx = wparam;
+							bool answered_correctly = pagestate.practice->idx_answer == user_answer_idx;
+
+
+							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+							button::Theme multibtn_btn_theme;
+							multibtn_btn_theme.brushes.bk.normal = bk;
+							multibtn_btn_theme.brushes.border.normal = bk;
+							multibtn_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+							multibutton::set_button_theme(page.list.multibutton_choices, &multibtn_btn_theme, user_answer_idx);
+							//TODO(fran): when the user answers incorrectly we want to visually show the correct answer too, maybe with a lower brightness global::colors.Bk_right_answer or a yellow
+
+							button::Theme btn_theme;
+							btn_theme.brushes.bk.normal = bk;
+							btn_theme.brushes.border.normal = bk;
+							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+							button::set_theme(page.list.button_next, &btn_theme);
+
+							//Update word stats
+							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
+							word_increment_times_shown(state->settings->db, pagestate.practice->question);
+							if (answered_correctly) word_increment_times_right(state->settings->db, pagestate.practice->question);
+
+							//Add this practice to the list of current completed ones
+							ProcState::practice_multiplechoice* p = (decltype(p))malloc(sizeof(*p));
+							p->header.type = decltype(p->header.type)::multiplechoice;
+							p->practice = pagestate.practice;
+							pagestate.practice = nullptr;//clear the pointer just in case
+							p->answered_correctly = answered_correctly;
+							p->user_answer_idx = user_answer_idx;
+
+							state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
+
+							EnableWindow(page.list.button_show_word, TRUE);
+							if (answered_correctly) next_practice_level(state);
+						}
+					}
+					else if (child == page.list.button_next) {
+						if (already_answered) {
+							next_practice_level(state);
+						}
+					}
+					else if (child == page.list.button_show_word) {
+						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+					}
+					else
+					{
+						printf("FIX ERROR\n");
+						//NOTE: we're getting an EN_KILLFOCUS from the edit control in practice_writing, TODO(fran): do like windows and add a msg to specify which notifications you want to receive from a specific control
 					}
 				} break;
 
