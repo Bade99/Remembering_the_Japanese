@@ -16,6 +16,7 @@
 #include "win32_gridview.h"
 #include "win32_searchbox.h"
 #include "win32_new_msgs.h"
+#include "win32_multibutton.h"
 
 #include <string>
 
@@ -26,6 +27,7 @@
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): db: store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+//TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
 //TODO(fran): all pages: mouse remappable buttons: map the mouse's back button press to going back a page
 //TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
@@ -224,14 +226,26 @@ struct stored_word {
 
 //Structures for different practice levels
 struct practice_writing_word {
-	learnt_word word;
-	enum class type {//TODO(fran): remove the translate_ part
-		translate_hiragana_to_translation,
-		translate_translation_to_hiragana,
-		translate_kanji_to_hiragana,
-		translate_kanji_to_translation,
+	learnt_word word;//TODO(fran): change name to 'question' and add extra param 'answer' that points to an element inside of 'question'
+	enum class type {//TODO(fran): the type differentiation is kinda pointless, instead I could bake all the differences into variables, eg to check the right answer have a separate pointer to the needed string inside the learnt_word
+		hiragana_to_translation,
+		translation_to_hiragana,
+		kanji_to_hiragana,
+		kanji_to_translation,
 		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correclty
 	}practice_type;
+};
+
+enum class learnt_word_elem : u32{
+	hiragana = (1 << 0),
+	kanji    = (1 << 1),
+	meaning  = (1 << 2),
+};
+
+struct practice_multiplechoice_word {
+	learnt_word question;/*#free*/ learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
+	ptr<utf16*> choices; learnt_word_elem choices_type;//#free
+	u32 idx_answer;//index of the correct answer in the 'choices' array, starting from 0
 };
 
 void languages_setup_combobox(HWND cb) {
@@ -657,16 +671,27 @@ struct べんきょうProcState {
 			type embedded_show_word_reduced;//NOTE: not shown by default
 		}practice_writing;
 
-		/*struct review_practice_writing_controls {
-			practice_writing_controls& practice_writing;
-		}review_practice_writing;*/
+		struct practice_multiplechoice_controls {
+			using type = HWND;
+			union {
+				struct {
+					type static_question;
+
+					type multibutton_choices;
+
+					type button_next;//#disabled by default
+
+					type button_show_word;//#disabled by default
+				}list;
+				type all[sizeof(list) / sizeof(type)];
+			};
+			type embedded_show_word_reduced;//#hidden by default
+		}practice_multiplechoice;
 
 		union search_controls {
 			using type = HWND;
 			struct {
-				//type combo_search;
 				type searchbox_search;
-				//and a list for the results
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} search;
@@ -1135,7 +1160,6 @@ namespace べんきょう {
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
-			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
 			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
@@ -1166,19 +1190,6 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.search;
 
-			//controls.list.combo_search = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP | CBS_ROUNDRECT /*TODO(fran):is CBS_HASSTRINGS necessary?*/
-			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//ACC(controls.list.combo_search, 250); //TODO(fran): allow from multiple searching, eg if kanji detected search by kanji, if neither hiragana nor kanji search translation
-			//SetWindowSubclass(controls.list.combo_search, TESTComboProc, 0, 0);
-#if 0
-			COMBOBOXINFO info = { sizeof(info) };
-			GetComboBoxInfo(controls.list.combo_search, &info);
-			//SetWindowSubclass(info.hwndItem, PrintMsgProc, 0, (DWORD_PTR)"Combo Edit");
-			SetWindowSubclass(info.hwndList, PrintMsgProc, 0, (DWORD_PTR)"Combo List");
-#endif
-			//cstr listclass[100];
-			//GetClassNameW(info.hwndList, listclass, 100); //INFO: class is ComboLBox, one interesting class windows has and it is hidden
-
 			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			ACC(controls.list.searchbox_search, 251);
@@ -1187,7 +1198,7 @@ namespace べんきょう {
 			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
 			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
 			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
-			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);//TODO(fran)
+			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1213,7 +1224,6 @@ namespace べんきょう {
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			lexical_category_setup_combobox(controls.list.combo_lexical_category);
-			//SendMessage(controls.list.combo_lexical_category, CB_SETCURSEL, 0, 0);
 			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
@@ -1296,7 +1306,7 @@ namespace べんきょう {
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
-		//---------------------Practice writing----------------------:
+		//---------------------Practice Writing----------------------:
 		{
 			auto& controls = state->controls.practice_writing;
 
@@ -1320,6 +1330,47 @@ namespace べんきょう {
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD |  embedded::show_word_reduced::style::roundrect,
 				0,0,0,0,state->wnd,0,0,0);
+			embedded::show_word_reduced::Theme eswr_theme;
+			brush_group eswr_bk, eswr_txt, eswr_border;
+			eswr_bk.normal = global::colors.ControlBk;
+			eswr_txt.normal = global::colors.ControlTxt;
+			eswr_border.normal = global::colors.ControlTxt;
+			eswr_theme.font = global::fonts.General;
+			eswr_theme.dimensions.border_thickness = 1;
+			eswr_theme.brushes.bk = eswr_bk;
+			eswr_theme.brushes.txt = eswr_txt;
+			eswr_theme.brushes.border = eswr_border;
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice Multiplechoice----------------------:
+		{
+			auto& controls = state->controls.practice_multiplechoice;
+
+			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+			
+			//TODO(fran): should I simply use a gridview instead?
+			controls.list.multibutton_choices = CreateWindowW(multibutton::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN 
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//NOTE: text color and default text will be set according to the type of word that has to be written
+			//TODO(fran): the multibutton class will have support for setting individual buttons' colors via their index
+
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
+				0, 0, 0, 0, state->wnd, 0, 0, 0);
 			embedded::show_word_reduced::Theme eswr_theme;
 			brush_group eswr_bk, eswr_txt, eswr_border;
 			eswr_bk.normal = global::colors.ControlBk;
@@ -1634,6 +1685,56 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
 			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 			MyMoveWindow(controls.list.button_next, button_next, FALSE);
+
+		} break;
+		case ProcState::page::practice_multiplechoice:
+		{
+			auto& controls = state->controls.practice_multiplechoice;
+
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_question;
+			static_question.y = start_y;
+			static_question.h = bigwnd_h;
+			static_question.w = w;
+			static_question.x = (w - static_question.w) / 2;
+
+			rect_i32 multibutton_choices;
+			multibutton_choices.y = static_question.bottom() + h_pad;
+			multibutton_choices.h = wnd_h;
+			multibutton_choices.w = max_w;
+			multibutton_choices.x = (w - multibutton_choices.w) / 2;
+
+			rect_i32 button_next;
+			button_next.y = multibutton_choices.bottom() + h_pad;
+			button_next.h = wnd_h;
+			button_next.w = button_next.h;
+			button_next.x = (w + w_pad)/2;
+
+			rect_i32 button_show_word;
+			button_show_word.h = button_next.h;
+			button_show_word.y = button_next.y;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = (w - button_show_word.w - w_pad) / 2;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 bottom_most_control = button_show_word;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
+			MyMoveWindow_offset(controls.list.multibutton_choices, multibutton_choices, FALSE);
+			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 
 		} break;
 		case ProcState::page::review_practice:
@@ -2221,7 +2322,7 @@ namespace べんきょう {
 			str answer_hiragana = str(L"こたえ");
 
 			switch (practice->practice_type) {
-			case decltype(practice->practice_type)::translate_hiragana_to_translation:
+			case decltype(practice->practice_type)::hiragana_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.hiragana.str;
 				test_word_br = global::colors.hiragana;
@@ -2229,7 +2330,7 @@ namespace べんきょう {
 				answer_placeholder = RS(380);
 				answer_br = global::colors.translation;
 			} break;
-			case decltype(practice->practice_type)::translate_kanji_to_hiragana:
+			case decltype(practice->practice_type)::kanji_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
 				test_word_br = global::colors.kanji;
@@ -2237,7 +2338,7 @@ namespace べんきょう {
 				answer_placeholder = answer_hiragana;
 				answer_br = global::colors.hiragana;
 			} break;
-			case decltype(practice->practice_type)::translate_kanji_to_translation:
+			case decltype(practice->practice_type)::kanji_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
 				test_word_br = global::colors.kanji;
@@ -2245,7 +2346,7 @@ namespace べんきょう {
 				answer_placeholder = RS(380);
 				answer_br = global::colors.translation;
 			} break;
-			case decltype(practice->practice_type)::translate_translation_to_hiragana:
+			case decltype(practice->practice_type)::translation_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.translation.str;
 				test_word_br = global::colors.translation;
@@ -2302,19 +2403,19 @@ namespace べんきょう {
 			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
 
 			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
-			case decltype(pagedata->practice->practice_type)::translate_hiragana_to_translation:
+			case decltype(pagedata->practice->practice_type)::hiragana_to_translation:
 			{
 				question_br = global::colors.hiragana;
 			} break;
-			case decltype(pagedata->practice->practice_type)::translate_kanji_to_hiragana:
+			case decltype(pagedata->practice->practice_type)::kanji_to_hiragana:
 			{
 				question_br = global::colors.kanji;
 			} break;
-			case decltype(pagedata->practice->practice_type)::translate_kanji_to_translation:
+			case decltype(pagedata->practice->practice_type)::kanji_to_translation:
 			{
 				question_br = global::colors.kanji;
 			} break;
-			case decltype(pagedata->practice->practice_type)::translate_translation_to_hiragana:
+			case decltype(pagedata->practice->practice_type)::translation_to_hiragana:
 			{
 				question_br = global::colors.translation;
 			} break;
@@ -2530,6 +2631,51 @@ namespace べんきょう {
 		return res;
 	}
 
+	//NOTE: can return less than 'cnt' if not enough elements exist in the db
+	ptr<utf16*> get_word_choices(sqlite3* db, learnt_word_elem request, u32 cnt, const learnt_word* filter) {
+		ptr<utf16*> res; res.alloc(cnt); res.cnt = 0;
+
+		utf8* filter_elem; defer{ free_any_str(filter_elem); };
+		std::string req_column;
+		switch (request) {
+		case decltype(request)::hiragana: 
+			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.hiragana.str, (int)filter->attributes.hiragana.sz).str;
+			req_column = "hiragana";
+			break;
+		case decltype(request)::kanji:
+			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.kanji.str, (int)filter->attributes.kanji.sz).str;
+			req_column = "kanji";
+			break;
+		case decltype(request)::meaning:
+			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.translation.str, (int)filter->attributes.translation.sz).str;
+			req_column = "translation";
+			break;
+		default: Assert(0);
+		}
+		//TODO(fran): prioritize choosing words of the same lexical category as 'filter'
+		std::string select_word_choices =
+			" SELECT " + req_column + " FROM " べんきょう_table_words
+			" WHERE " + req_column + "<>" "'" + filter_elem + "'"
+			" ORDER BY RANDOM() LIMIT " + std::to_string(cnt) + ";" //TODO(fran): I dont know how random this really is, probably not good enough
+		;
+
+		auto parse_select_word_choices_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			ptr<utf16*>* res = (decltype(res))extra_param;
+			Assert(column_cnt == 1);
+			Assert(results);
+			
+			(*res)[res->cnt++] = (std::remove_reference<decltype(*res)>::type::value_type)convert_utf8_to_utf16(*results, (int)strlen(*results) + 1).str;
+
+			return 0;
+		};
+
+		char* errmsg;
+		sqlite3_exec(db, select_word_choices.c_str(), parse_select_word_choices_result, &res, &errmsg);
+		sqlite_exec_runtime_check(errmsg);
+
+		return res;
+	}
+
 	struct practice_data {
 		ProcState::page page;
 		void* data;
@@ -2538,12 +2684,11 @@ namespace べんきょう {
 		practice_data res;
 		ProcState::available_practices practices[]{
 			ProcState::available_practices::writing,
-			//ProcState::available_practices::multiplechoice
+			ProcState::available_practices::multiplechoice
 		};
-
-		ProcState::available_practices practice = practices[random_between(0,ARRAYSIZE(practices)-1)];
+		
+		ProcState::available_practices practice = practices[random_between(0u,(u32)ARRAYSIZE(practices)-1)];
 		learnt_word practice_word = get_practice_word(state->settings->db);//we always get a target word
-		//TODO(fran): the corresponding practice page will take care of freeing the contents of this
 
 		switch (practice) {
 		case ProcState::available_practices::writing:
@@ -2554,15 +2699,61 @@ namespace べんきょう {
 
 			std::vector<practice_writing_word::type> practice_types;
 			bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
-			practice_types.push_back(practice_writing_word::type::translate_hiragana_to_translation);//we always add a default to make sure there can never be no items
-			if (hiragana && translation) practice_types.push_back(practice_writing_word::type::translate_translation_to_hiragana);
-			if (hiragana && kanji) practice_types.push_back(practice_writing_word::type::translate_kanji_to_hiragana);
-			if (kanji && translation) practice_types.push_back(practice_writing_word::type::translate_kanji_to_translation);
+			practice_types.push_back(practice_writing_word::type::hiragana_to_translation);//we always add a default to make sure there can never be no items
+			if (hiragana && translation) practice_types.push_back(practice_writing_word::type::translation_to_hiragana);
+			if (hiragana && kanji) practice_types.push_back(practice_writing_word::type::kanji_to_hiragana);
+			if (kanji && translation) practice_types.push_back(practice_writing_word::type::kanji_to_translation);
 
 			data->practice_type = practice_types[random_between(0, (i32)(practice_types.size() - 1))];
 			res.page = ProcState::page::practice_writing;
 			res.data = data;
 		} break;
+		case ProcState::available_practices::multiplechoice:
+		{
+			practice_multiplechoice_word* data = (decltype(data))malloc(sizeof(*data));
+
+			auto get_hiragana_kanji_meaning = [](learnt_word* w)->u32 {
+				u32 res=0;
+				if (w) {
+					if (w->attributes.hiragana.str && *((utf16*)w->attributes.hiragana.str)) res |= (u32)learnt_word_elem::hiragana;
+					if (w->attributes.kanji.str && *((utf16*)w->attributes.kanji.str)) res |= (u32)learnt_word_elem::kanji;
+					if (w->attributes.translation.str && *((utf16*)w->attributes.translation.str)) res |= (u32)learnt_word_elem::meaning;
+					//TODO(fran): learnt_word should have a defined str type, we cant be guessing here. Another option is to not allocate nulls and that way we can simply check for .sz
+				}
+				return res;
+			};
+			data->question = std::move(practice_word);
+			u32 q_and_a = get_hiragana_kanji_meaning(&data->question);//NOTE: the type of the question and choices is limited by our target word
+			data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
+			data->choices_type = (decltype(data->question_type))random_bit_set(q_and_a & (~(u32)data->question_type));
+			
+			ptr<utf16*> _choices = get_word_choices(state->settings->db, data->choices_type, 5, &data->question); defer{ _choices.free(); };
+			data->idx_answer = random_between(0u, (u32)_choices.cnt);
+			
+			data->choices = { 0 };//clear it to avoid free() problems, TODO(fran): I dont like the free() inside alloc() idea, maaybe we could create two functions alloc() and alloc_free_prev()
+			data->choices.alloc(_choices.cnt + 1);
+
+			auto elem_ptr_for = [](learnt_word* word, learnt_word_elem type)->utf16* {
+				utf16* res=0;//NOTE: I need to initialize this only because of mr complaining compiler
+				switch (type) {
+				case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana.str; break;
+				case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji.str; break;
+				case decltype(type)::meaning: res = (decltype(res))word->attributes.translation.str; break;
+				default:Assert(0);
+				}
+				return res;
+			};
+
+			//Move all the choices plus the correct choice into the new array
+			for (int i = 0, j = 0; i < data->choices.cnt; i++) {
+				if (i == data->idx_answer) data->choices[i] = _wcsdup(elem_ptr_for(&data->question, data->question_type));//TODO(fran): replace for my own duplication method
+				else data->choices[i] = _choices[j++];
+			}
+			
+			res.page = ProcState::page::practice_multiplechoice;
+			res.data = data;
+		} break;
+
 		default: Assert(0);
 		}
 		return res;
@@ -2598,6 +2789,11 @@ namespace べんきょう {
 			_clear_static(controls.list.static_test_word);
 			_clear_edit(controls.list.edit_answer);
 			//TODO(fran): I really need to destroy the controls and call add_controls, I cant be restoring colors here when that's already done there
+		} break;
+		case decltype(page)::practice_multiplechoice:
+		{
+			auto& controls = state->controls.practice_multiplechoice;
+			//TODO(fran): do we wanna clear smth here?
 		} break;
 		default:Assert(0);
 		}
@@ -2977,23 +3173,23 @@ namespace べんきょう {
 								const utf16_str* correct_answer{ 0 };
 								const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
 								switch (pagestate.practice->practice_type) {
-								case decltype(pagestate.practice->practice_type)::translate_hiragana_to_translation:
+								case decltype(pagestate.practice->practice_type)::hiragana_to_translation:
 								{
 									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
 									question = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
 								} break;
-								case decltype(pagestate.practice->practice_type)::translate_kanji_to_translation:
+								case decltype(pagestate.practice->practice_type)::kanji_to_translation:
 								{
 									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.translation;
 									question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
 								} break;
-								case decltype(pagestate.practice->practice_type)::translate_kanji_to_hiragana:
+								case decltype(pagestate.practice->practice_type)::kanji_to_hiragana:
 								{
 									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
 									question = (utf16_str*)&pagestate.practice->word.attributes.kanji;
 
 								} break;
-								case decltype(pagestate.practice->practice_type)::translate_translation_to_hiragana:
+								case decltype(pagestate.practice->practice_type)::translation_to_hiragana:
 								{
 									correct_answer = (utf16_str*)&pagestate.practice->word.attributes.hiragana;
 									question = (utf16_str*)&pagestate.practice->word.attributes.translation;
@@ -3091,6 +3287,7 @@ namespace べんきょう {
 					}
 				} break;
 
+				default:Assert(0);
 				}
 			}
 			else {

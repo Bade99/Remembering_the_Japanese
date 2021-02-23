@@ -59,8 +59,22 @@ static i32 clamp(i32 min, i32 n, i32 max) { //clamps between [min,max]
 #include <random>//TODO(fran):remove
 static i32 random_between(i32 min, i32 max) { //NOTE: random integer between user specified range [min,max]
 	i32 res;
-	static std::mt19937 generator((u32)time(NULL));
-	std::uniform_int_distribution<> distribution{ min,max };
+	static std::mt19937 generator((u32)time(0));
+	std::uniform_int_distribution<i32> distribution{ min,max };
+	res = distribution(generator);
+	return res;
+}
+static u32 random_between(u32 min, u32 max) { //NOTE: random integer between user specified range [min,max]
+	u32 res;
+	static std::mt19937 generator((u32)time(0));
+	std::uniform_int_distribution<u32> distribution{ min,max };
+	res = distribution(generator);
+	return res;
+}
+static u64 random_between(u64 min, u64 max) { //NOTE: random integer between user specified range [min,max]
+	u64 res;
+	static std::mt19937 generator((u32)time(0));
+	std::uniform_int_distribution<u64> distribution{ min,max };
 	res = distribution(generator);
 	return res;
 }
@@ -70,6 +84,24 @@ static i32 random_between(i32 min, i32 max) { //NOTE: random integer between use
 //	i32 res = min + (i32)( ((f64)rand() / (f64)RAND_MAX) * (f64)(max - min) );
 //	return res;
 //}
+
+#include <immintrin.h>
+static u64 nthset(u64 val, unsigned n) {
+	//Thanks https://stackoverflow.com/questions/7669057/find-nth-set-bit-in-an-int
+	return _pdep_u64(1ULL << n, val);
+}
+
+//Usage example: val = 1101 1000 0100 1100 1000 1010, we find the 4th bit set and return 0000 0000 0000 0100 0000 0000
+static u64 random_bit_set(u64 val) {
+	//TODO(fran): #optimize
+	u64 res=0;
+	u32 cnt = (u32)__popcnt64(val);
+	if (cnt) {
+		auto idx = random_between(0u, cnt-1);
+		res = nthset(val, idx);
+	}
+	return res;
+}
 
 //f32
 static f32 safe_ratioN(f32 dividend, f32 divisor, f32 n) {

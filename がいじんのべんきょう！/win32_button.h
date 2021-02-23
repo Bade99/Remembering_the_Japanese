@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include "windows_sdk.h"
+#include "win32_Platform.h"
 #include <windowsx.h>
-#include "win32_Global.h"
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
 

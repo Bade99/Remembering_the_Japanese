@@ -103,7 +103,7 @@ namespace static_oneline {
 
 			if (createnfo->lpszName) PostMessage(state->wnd, WM_SETTEXT, 0, (LPARAM)createnfo->lpszName);
 
-			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
+			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does (probably sends WM_PARENTNOTIFY)
 		} break;
 		case WM_SIZE: //4th
 		{
@@ -370,7 +370,6 @@ namespace static_oneline {
 		~pre_post_main() { //INFO: you can also use the atexit function
 			//Classes are de-registered automatically by the os
 		}
-	};
-	static const pre_post_main PREMAIN_POSTMAIN;
+	} static const PREMAIN_POSTMAIN;
 
 }

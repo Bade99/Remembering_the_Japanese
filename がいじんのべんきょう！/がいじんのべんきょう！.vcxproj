@@ -191,6 +191,7 @@
     <ClInclude Include="win32_Global.h" />
     <ClInclude Include="unCap_Math.h" />
     <ClInclude Include="win32_listbox.h" />
+    <ClInclude Include="win32_multibutton.h" />
     <ClInclude Include="win32_new_msgs.h" />
     <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
