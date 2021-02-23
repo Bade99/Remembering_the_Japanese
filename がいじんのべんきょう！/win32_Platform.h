@@ -84,6 +84,14 @@ struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
 	//void operator[](size_t i) const { return mem[i]; }
 
 	T& operator[](size_t i) { return mem[i]; }
+
+	T* begin() {
+		return this->cnt ? &(*this)[0] : nullptr;
+	}
+
+	T* end() {
+		return this->cnt ? &(*this)[0] + this->cnt : nullptr; //ptr one past the last element
+	}
 };
 //TODO(fran): it may be easier to read if we asked for the pointer directly, eg ptr<i32*> may be nicer than ptr<i32> as is now
 

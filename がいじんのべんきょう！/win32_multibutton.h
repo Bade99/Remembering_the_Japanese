@@ -8,6 +8,7 @@
 //-----------------API-----------------:
 // multibutton::set_theme() : sets the theme for the container of the buttons
 // multibutton::set_button_theme() : sets the theme at the button level, for all or only a specific one
+// multibutton::set_buttons() : sets the currently interactive buttons and removes any already existing ones
 
 //-------------Usage Notes-------------:
 // Favors rows before columns
@@ -17,10 +18,13 @@
 // multibutton::style::roundrect : Border is made of a rounded rectangle
 
 //TODO(fran): rename to buttongroup ?
+//TODO(fran): set_buttons() / set_button() for bitmap and icon
+//TODO(fran): this is probably a pointless control, we should find a nicer way of creating what's basically arrays/lists of elements
 
 namespace multibutton {
 	constexpr cstr wndclass[] = TEXT("win32_wndclass_multibutton");
 
+	//TODO(fran): the theme should probably hold the styles too
 	struct Theme {
 		struct {
 			brush_group bk, border;
@@ -40,6 +44,8 @@ namespace multibutton {
 
 		Theme theme;
 		button::Theme button_theme;//used for initializing new buttons, updates from all global set_button_theme() calls
+
+		//TODO(fran): allow the user to choose button styles
 
 		std::vector<HWND> buttons;
 	};
@@ -83,9 +89,29 @@ namespace multibutton {
 	//'idx' is zero-based
 	void set_button_theme(HWND wnd, const button::Theme* t, size_t idx) {
 		ProcState* state = get_state(wnd);
-		if (state && t) {
-			for (auto& b : state->buttons)button::set_theme(b, t);
-			state->button_theme = *t;//HACK: should probably update the theme, not override it, but that code lives inside button::set_theme()
+		if (state && t && idx < state->buttons.size()) {
+			button::set_theme(state->buttons[idx], t);
+		}
+	}
+
+	void remove_buttons(ProcState* state) {
+		for (auto& b : state->buttons) DestroyWindow(b);
+		state->buttons.clear();
+	}
+
+	//NOTE: a separate copy of the strings in 'buttons' is kept internally
+	void set_buttons(HWND wnd, ptr<utf16*> buttons) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			remove_buttons(state);
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			DWORD style_button_txt = WS_CHILD | WS_TABSTOP | (style & style::roundrect ? button::style::roundrect : 0);
+			for (auto& b_str : buttons) {
+				HWND btn = CreateWindowW(button::wndclass, b_str, style_button_txt
+					, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				button::set_theme(btn, &state->button_theme);
+				state->buttons.push_back(btn);
+			}
 		}
 	}
 
@@ -176,10 +202,6 @@ namespace multibutton {
 			free(state);
 			return 0;
 		}break;
-		case WM_PAINT:
-		{
-			Assert(0);
-		} break;
 		case WM_NCHITTEST://When the mouse goes over us this is 1st msg received
 		{
 			//Received when the mouse goes over the window, on mouse press or release, and on WindowFromPoint
@@ -259,8 +281,6 @@ namespace multibutton {
 			//TODO(fran): idk if I also need to disable my buttons or that's done automatically
 			return 0;
 		} break;
-
-
 		case WM_PAINT:
 		{
 			PAINTSTRUCT ps; //TODO(fran): we arent using the rectangle from the ps, I think we should for performance
