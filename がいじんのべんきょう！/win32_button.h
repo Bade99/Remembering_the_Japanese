@@ -586,6 +586,10 @@ namespace button {
 			InvalidateRect(state->wnd, NULL, TRUE);
 			return 0;
 		} break;
+		case WM_UAHDESTROYWINDOW:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
 		default:
 #ifdef _DEBUG
 			Assert(0);

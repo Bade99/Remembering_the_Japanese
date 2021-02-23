@@ -154,7 +154,7 @@ namespace multibutton {
 	}
 
 	void remove_buttons(ProcState* state) {
-		for (auto& b : state->buttons) DestroyWindow(b);
+		for (auto& b : state->buttons) DestroyWindow(b);//TODO(fran): why does this send a WM_UAHDESTROYWINDOW msg to the button?
 		state->buttons.clear();
 	}
 

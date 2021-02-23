@@ -243,9 +243,11 @@ enum class learnt_word_elem : u32{
 };
 
 struct practice_multiplechoice_word {
-	learnt_word question;/*#free*/ learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
+	learnt_word question;//#free
+	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
 	utf16* question_str;//Points to some element inside of 'question'
-	ptr<utf16*> choices; learnt_word_elem choices_type;//#free
+	ptr<utf16*> choices; //#free
+	learnt_word_elem choices_type;
 	u32 idx_answer;//index of the correct answer in the 'choices' array, starting from 0
 };
 
@@ -598,8 +600,9 @@ struct べんきょうProcState {
 		search,
 		show_word,
 
-		//virtual pages
-		review_practice_writing,//doesnt have controls of its own, shows some other page and steals what it needs from it
+		//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
+		review_practice_writing,
+		review_practice_multiplechoice
 	} current_page;
 
 	struct prev_page_fifo_queue{
@@ -1043,47 +1046,65 @@ namespace べんきょう {
 	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
 	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element) {
 		ProcState::practice_header* header = (decltype(header))element;
-		//TODO(fran): actually the drawing code could be done at the end, and use the switches to get the string to render and the color of the border
+
+		//------Render Setup------:
+		HBRUSH border_br{ 0 };
+		utf16_str txt{ 0 };
+
 		switch (header->type) {
 		case decltype(header->type)::writing:
 		{
 			ProcState::practice_writing* data = (decltype(data))header;
-			int w = r.w, h = r.h;
-			RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
-
-			//Draw border
-			HBRUSH border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-			int thickness = 3;
-#if 0
-			FillRectBorder(dc, rc, thickness, border_br,BORDERALL);
-#elif 0
-			{
-				int roundedness = (int)ceilf(min((f32)w * .1f, (f32)h * .1f));
-				//NOTE: border == pen, bk == brush
-				HPEN border_pen = CreatePen(PS_SOLID, thickness, ColorFromBrush(border_br)); defer{ DeletePen(border_pen); };
-				HPEN oldpen = SelectPen(dc, border_pen); defer{ SelectPen(dc,oldpen); };
-				HBRUSH oldbr = SelectBrush(dc, GetStockBrush(HOLLOW_BRUSH)); defer{ SelectBrush(dc,oldbr); };
-				RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
-			}
+			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+#if 1 //TODO(fran): idk which is better
+			txt = *data->question;
 #else
-			u16 degrees = 20;
-			//TODO(fran): I dont quite love how this looks
-			urender::RoundRectangleFill(dc, border_br, rc, degrees);
+			txt = data->user_answer;//the user will remember better what they wrote rather than what they saw
 #endif
-			InflateRect(&rc, -thickness, -thickness);
-
-			//Draw text
-			//TODO(fran): idk whether I want to show the question or what the user answered
-#if 0
-			utf16_str txt = *data->question;
+		} break;
+		case decltype(header->type)::multiplechoice:
+		{
+			ProcState::practice_multiplechoice* data = (decltype(data))header;
+			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+#if 1
+			txt.str = data->practice->question_str;
+			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
 #else
-			utf16_str txt = data->user_answer;//the user will remember better what they wrote rather than what they saw
+			txt.str = data->practice->choices[data->user_answer_idx];
+			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
 #endif
-			urender::draw_text_max_coverage(dc, rc, txt, global::fonts.General, global::colors.ControlTxt, urender::txt_align::center);
-
 		} break;
 		default: Assert(0);
 		}
+
+		//------Rendering------:
+		int w = r.w, h = r.h;
+		RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+
+		//Draw border
+		int thickness = 3;
+#if 0
+		FillRectBorder(dc, rc, thickness, border_br, BORDERALL);
+#elif 0
+		{
+			int roundedness = (int)ceilf(min((f32)w * .1f, (f32)h * .1f));
+			//NOTE: border == pen, bk == brush
+			HPEN border_pen = CreatePen(PS_SOLID, thickness, ColorFromBrush(border_br)); defer{ DeletePen(border_pen); };
+			HPEN oldpen = SelectPen(dc, border_pen); defer{ SelectPen(dc,oldpen); };
+			HBRUSH oldbr = SelectBrush(dc, GetStockBrush(HOLLOW_BRUSH)); defer{ SelectBrush(dc,oldbr); };
+			RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+		}
+#else
+		u16 degrees = 20;
+		//TODO(fran): I dont quite love how this looks
+		urender::RoundRectangleFill(dc, border_br, rc, degrees);
+#endif
+		InflateRect(&rc, -thickness, -thickness);
+
+		//Draw text
+		//TODO(fran): idk whether I want to show the question or what the user answered
+		urender::draw_text_max_coverage(dc, rc, txt, global::fonts.General, global::colors.ControlTxt, urender::txt_align::center);
+
 	}
 
 	//Page Search: Searchbox functions
@@ -1951,6 +1972,11 @@ namespace べんきょう {
 			//TODO(fran): different layout?
 			resize_controls(state, ProcState::page::practice_writing);
 		} break;
+		case ProcState::page::review_practice_multiplechoice:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_multiplechoice);
+		} break;
 		default:Assert(0);
 		}
 	}
@@ -1980,6 +2006,7 @@ namespace べんきょう {
 			for (auto ctl : state->controls.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
 			ShowWindow(state->controls.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
 			break;
+		case decltype(p)::review_practice_multiplechoice: show_page(state, ProcState::page::practice_multiplechoice, ShowWindow_cmd); break;
 		default:Assert(0);
 		}
 	}
@@ -2231,12 +2258,36 @@ namespace べんきょう {
 				for (auto& _ : data->practice->word.all)free_any_str(_.str);
 				free(data->practice);
 			} break;
+			case decltype(p->type)::multiplechoice:
+			{
+				ProcState::practice_multiplechoice* data = (decltype(data))p;
+				data->practice->choices.free();
+				for (auto& _ : data->practice->question.all)free_any_str(_.str);
+				free(data->practice);
+			} break;
 			default: Assert(0);
 			}
 			free(p);//the object, no matter what type, can always be freed the same way since p is the ptr returned by the allocator
 		}
 		practices.clear();
 	}
+
+	HBRUSH brush_for_learnt_word_elem(learnt_word_elem type) {
+		HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
+		switch (type) {
+		case decltype(type)::hiragana: {
+			res = global::colors.hiragana;
+		} break;
+		case decltype(type)::kanji: {
+			res = global::colors.kanji;
+		} break;
+		case decltype(type)::meaning: {
+			res = global::colors.translation;
+		} break;
+		default:Assert(0);
+		}
+		return res;
+	};
 
 	//Sets the items in the corresponding page to the values on *data
 	void preload_page(ProcState* state, ProcState::page page, void* data) {
@@ -2473,23 +2524,6 @@ namespace べんきょう {
 			auto controls = state->controls.practice_multiplechoice;
 			state->pagestate.practice_multiplechoice.practice = practice;
 			
-			auto brush_for_learnt_word_elem = [](learnt_word_elem type) {
-				HBRUSH res{0};//NOTE: compiler cant know this will always be initialized so I gotta zero it
-				switch (type) {
-				case decltype(type)::hiragana: {
-					res = global::colors.hiragana;
-				} break;
-				case decltype(practice->question_type)::kanji: {
-					res = global::colors.kanji;
-				} break;
-				case decltype(practice->question_type)::meaning: {
-					res = global::colors.translation;
-				} break;
-				default:Assert(0);
-				}
-				return res;
-			};
-
 			HBRUSH question_txt_br = brush_for_learnt_word_elem(practice->question_type);
 			HBRUSH choice_txt_br = brush_for_learnt_word_elem(practice->choices_type);
 
@@ -2521,6 +2555,44 @@ namespace べんきょう {
 
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
+
+		} break;
+		case decltype(page)::review_practice_multiplechoice:
+		{
+			ProcState::practice_multiplechoice* pagedata = (decltype(pagedata))data;
+			auto& controls = state->controls.practice_multiplechoice;
+
+			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
+			HBRUSH choice_txt_br = brush_for_learnt_word_elem(pagedata->practice->choices_type);
+			HBRUSH user_choice_txt_br = global::colors.ControlTxt;
+			HBRUSH user_choice_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			HBRUSH user_choice_border_br = user_choice_bk_br;
+
+			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+			
+			//TODO(fran): controls.list.multibutton_choices should be disabled
+			multibutton::set_buttons(controls.list.multibutton_choices, pagedata->practice->choices);
+			button::Theme multibutton_button_theme;
+			multibutton_button_theme.brushes.foreground.normal = choice_txt_br;
+			multibutton::set_button_theme(controls.list.multibutton_choices, &multibutton_button_theme);
+
+			button::Theme multibutton_user_choice_button_theme;
+			multibutton_user_choice_button_theme.brushes.foreground.normal = user_choice_txt_br;
+			multibutton_user_choice_button_theme.brushes.bk.normal = user_choice_bk_br;
+			multibutton_user_choice_button_theme.brushes.border.normal = user_choice_border_br;
+			multibutton::set_button_theme(controls.list.multibutton_choices, &multibutton_user_choice_button_theme,pagedata->user_answer_idx);
+
+
+			button::Theme btn_next_theme;
+			btn_next_theme.brushes.bk.normal = user_choice_bk_br;
+			btn_next_theme.brushes.border.normal = user_choice_bk_br;
+			btn_next_theme.brushes.foreground.normal = global::colors.Img;
+			button::set_theme(controls.list.button_next, &btn_next_theme);
+
+			EnableWindow(controls.list.button_show_word, TRUE);
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
 
 		} break;
 		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
@@ -3358,6 +3430,14 @@ namespace べんきょう {
 							//IMPORTANT IDEA: we want individual/independent pages in the case we do reviews and similar things where we simply want to show the data but dont care about user input, eg the user presses an element in the gridview and we create a new wnd, create the corresponding controls, set them up (colors, disabled, etc) and show that window as a separate entity, that's what we want, to call add_controls on a different window and simply give it to the user, whenever the user's done they can close the window, meanwhile they can still interact with the main window, I think this is really good, the user could for example open all the words they got wrong at the same time, instead of having to open one, go back to the grid, open another; the one problem with this is where to show the new window, say we have 5 windows open, how do we choose where to show the sixth
 
 						} break;
+						case decltype(header->type)::multiplechoice:
+						{
+							ProcState::practice_multiplechoice* pagedata = (decltype(pagedata))data;
+							preload_page(state, ProcState::page::review_practice_multiplechoice, pagedata);
+							store_previous_page(state, state->current_page);
+							set_current_page(state, ProcState::page::review_practice_multiplechoice);
+						} break;
+						default: Assert(0);
 						}
 					}
 				} break;
@@ -3428,6 +3508,16 @@ namespace べんきょう {
 					{
 						printf("FIX ERROR\n");
 						//NOTE: we're getting an EN_KILLFOCUS from the edit control in practice_writing, TODO(fran): do like windows and add a msg to specify which notifications you want to receive from a specific control
+					}
+				} break;
+				case ProcState::page::review_practice_multiplechoice:
+				{
+					auto& page = state->controls.practice_multiplechoice;
+					if (child == page.list.button_show_word) {
+						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+					}
+					else if (child == page.list.button_next) {
+						goto_previous_page(state);
 					}
 				} break;
 
