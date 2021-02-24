@@ -449,7 +449,7 @@ namespace edit_oneline{
 		case WM_SHOWWINDOW: //6th. On startup I received this cause of WS_VISIBLE flag
 		{
 			//Sent when window is about to be hidden or shown, doesnt let it clear if we are in charge of that or it's going to happen no matter what we do
-			BOOL show = wparam;
+			BOOL show = (BOOL)wparam;
 			if (!show) {
 				//We're going to be hidden, we must also hide our tooltips
 				SendMessage(state->wnd, WM_TIMER, EDITONELINE_tooltip_timer_id, 0); //TODO(fran): #robustness, we should know which timers are active to only disable those, also replace this crude SendMessage with a hide_tooltips()

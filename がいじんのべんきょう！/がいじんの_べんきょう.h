@@ -1021,11 +1021,11 @@ namespace べんきょう {
 			utf8 test_insert_words[] = SQL(
 				INSERT INTO _べんきょう_table_words(hiragana,kanji,translation,mnemonic,lexical_category)
 				VALUES
-					('ha','ha','ha','a',-1)comma
-					('he','he','he','a',-1)comma
-					('hi','hi','hi','a',-1)comma
-					('ho','ho','ho','a',-1)comma
-					('hu','hu','hu','a',-1);
+					('はな','話','Flower','Flowernote',-1)comma
+					('なに','何','What','Nani?!',-1)comma
+					('ひと','人','Person','Note...',-1)comma
+					('べんきょう','勉強','Study','Emm...',-1)comma
+					('おかしい','','Strange','ちょっとおかしくないですか',-1);
 			);
 			sqlite3_exec(db, test_insert_words, 0, 0, &errmsg);
 			sqlite_exec_runtime_assert(errmsg);
@@ -2810,9 +2810,9 @@ namespace べんきょう {
 		//TODO(fran): prioritize choosing words of the same lexical category as 'filter'
 		std::string select_word_choices =
 			" SELECT " + req_column + " FROM " べんきょう_table_words
-			" WHERE " + req_column + "<>" "'" + filter_elem + "'"
+			" WHERE " + req_column + " <> " "''" " AND " + req_column + "<>" "'" + filter_elem + "'"
 			" ORDER BY RANDOM() LIMIT " + std::to_string(cnt) + ";" //TODO(fran): I dont know how random this really is, probably not good enough
-		;
+		;//TODO(fran): idk whether to store on the db the empty string '' (as we do currently) or straight null, storing nulls would mean lots of extra checks in other sections of the code, what we _do_ need is a standard, either one or the other but _not_ both
 
 		auto parse_select_word_choices_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
 			ptr<utf16*>* res = (decltype(res))extra_param;
