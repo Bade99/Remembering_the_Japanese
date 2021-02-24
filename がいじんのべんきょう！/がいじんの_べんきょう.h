@@ -914,7 +914,7 @@ namespace べんきょう {
 		}
 
 		//Triggers 
-		//TODO(fran): here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean the should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
+		//TODO(fran): here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean they should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
 		{
 			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 			utf8 create_trigger_increment_word_cnt[] = SQL(
@@ -2230,7 +2230,7 @@ namespace べんきょう {
 				free_any_str(res->word.application_defined.attributes.creation_date.str);
 				
 			   	std::time_t temp = unixtime;
-			   	std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to aninternal unique object
+			   	std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
 			   	res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
 			   	wcsftime((utf16*)res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
 			}

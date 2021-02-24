@@ -449,6 +449,11 @@ namespace edit_oneline{
 		case WM_SHOWWINDOW: //6th. On startup I received this cause of WS_VISIBLE flag
 		{
 			//Sent when window is about to be hidden or shown, doesnt let it clear if we are in charge of that or it's going to happen no matter what we do
+			BOOL show = wparam;
+			if (!show) {
+				//We're going to be hidden, we must also hide our tooltips
+				SendMessage(state->wnd, WM_TIMER, EDITONELINE_tooltip_timer_id, 0); //TODO(fran): #robustness, we should know which timers are active to only disable those, also replace this crude SendMessage with a hide_tooltips()
+			}
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_NCPAINT://7th
@@ -985,22 +990,22 @@ namespace edit_oneline{
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
 			return 0;
 		} break;
-			case WM_TIMER:
+		case WM_TIMER:
+		{
+			WPARAM timerID = wparam;
+			switch (timerID) {
+			case EDITONELINE_tooltip_timer_id:
 			{
-				WPARAM timerID = wparam;
-				switch (timerID) {
-				case EDITONELINE_tooltip_timer_id:
-				{
-					KillTimer(state->wnd, timerID);
-					TOOLINFO toolInfo{ sizeof(toolInfo) };
-					toolInfo.hwnd = state->wnd;
-					toolInfo.uId = (UINT_PTR)state->wnd;
-					SendMessage(state->controls.tooltip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&toolInfo);
-					return 0;
-				} break;
-				default: return DefWindowProc(hwnd, msg, wparam, lparam);
-				}
+				KillTimer(state->wnd, timerID);
+				TOOLINFO toolInfo{ sizeof(toolInfo) };
+				toolInfo.hwnd = state->wnd;
+				toolInfo.uId = (UINT_PTR)state->wnd;
+				SendMessage(state->controls.tooltip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&toolInfo);
+				return 0;
 			} break;
+			default: return DefWindowProc(hwnd, msg, wparam, lparam);
+			}
+		} break;
 		case WM_KEYUP:
 		{
 			//TODO(fran): smth to do here?
