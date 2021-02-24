@@ -93,7 +93,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(353,"Accuracy")//TODO(fran): or "Score" / "Lifetime score"
 	lang_entry(354,"Progress")//TODO(fran): something clearer (progress of what)
 
-	lang_entry(360,"Add more words before you can practice")
+	lang_entry(360,"Add some words before you can practice")
 
 	lang_entry(380,"Answer")
 

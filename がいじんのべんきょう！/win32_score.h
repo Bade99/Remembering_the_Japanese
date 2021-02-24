@@ -111,7 +111,7 @@ namespace score {
 			state->anim.ring.score_start = 0.f;
 			state->anim.ring.score = state->score;
 			u32 refresh = win32_get_refresh_rate_hz(state->wnd);
-			state->anim.ring.frames_cnt = refresh / 2;
+			state->anim.ring.frames_cnt = refresh;
 			state->anim.ring.frame_idx = 0;
 		} break;
 		}

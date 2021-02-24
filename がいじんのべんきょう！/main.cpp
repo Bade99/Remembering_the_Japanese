@@ -1,4 +1,5 @@
 ﻿//-------------------General TODOs-------------------:
+//TODO(fran): double buffer everything, fast systems dont flicker with the current setup but slower ones, or at least older versions of windows (specifically w7) definitely do, although that may be because w7 is handled differently, look into that
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
 //TODO(fran): batch file for compiling that way too
 //TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work

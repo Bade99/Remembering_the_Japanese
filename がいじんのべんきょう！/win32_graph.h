@@ -8,9 +8,11 @@
 
 //NOTE: no ASCII support, always utf16
 
+//TODO(fran) animation duration must be user settable
 //TODO(fran): we really need to Assert(state) on get_state, we cant cause it will fail the first time, but we can solve it via taking WM_NCCREATE out of the switch, the question now is which one is more performant
 //TODO(fran): respond on mouse move, we could put an indicator with a tooltip filled by the user
 //TODO(fran): add graph generation animation
+//TODO(fran): values at zero should probably be shown as one pixel, to at least show they exist, otherwise the graph looks ugly, probably the same should be done with max values, shown a pixel below, but idk
 
 //----------------Styles----------------:
 #define GP_LINE		0x0001 //Points are connected by straight lines
@@ -376,7 +378,7 @@ namespace graph {
 		case ANIM_GRAPH_left_to_right:
 		{
 			u32 refresh = win32_get_refresh_rate_hz(state->wnd);
-			state->anim.left_to_right.frames_cnt = refresh / 2;
+			state->anim.left_to_right.frames_cnt = refresh;
 			state->anim.left_to_right.frame_idx = 0;
 		} break;
 		}
