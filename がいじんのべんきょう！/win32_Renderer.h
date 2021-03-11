@@ -779,6 +779,55 @@ namespace urender {
 #endif
 	}
 
+	void draw_text_debug(HDC dc, POINT p, const char* _txt, i32 font_h, COLORREF col, txt_align alignment) {
+		//TODO(fran): we can do this with gdi
+#ifdef UNCAP_GDIPLUS
+		utf16_str txt = convert_utf8_to_utf16(_txt, (i32)(strlen(_txt) + 1)); defer{ free_any_str(txt.str); };
+		Gdiplus::Graphics graphics(dc);
+		graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
+
+		Gdiplus::FontFamily   fontFamily(L"Arial");
+
+		int FontStyle_flags = Gdiplus::FontStyle::FontStyleRegular;
+
+		Gdiplus::Font         font(&fontFamily, (f32)font_h, FontStyle_flags, Gdiplus::UnitPixel);
+
+		Gdiplus::RectF r;
+		graphics.MeasureString(txt.str, (INT)(txt.sz_char() - 1), &font, { 0,0 }, & r);
+		int w = (i32)r.Width, h = (i32)r.Height;
+
+		Gdiplus::StringFormat stringFormat;
+		stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);//align vertically always
+
+		i32 pad = 3;
+		Gdiplus::PointF		  pointF;
+		Gdiplus::StringAlignment str_alignment;
+		switch (alignment) {
+		case decltype(alignment)::center:
+		{
+			pointF = { (f32)p.x, (f32)p.y - h * .8f };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentCenter;
+		} break;
+		case decltype(alignment)::left:
+		{
+			pointF = { (f32)p.x - w - pad, (f32)p.y };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentNear;//TODO(fran): im not sure if this is it
+		} break;
+		case decltype(alignment)::right:
+		{
+			pointF = { (f32)p.x + w + pad, (f32)p.y };
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentFar;//TODO(fran): im not sure if this is it
+		} break;
+		}
+
+		stringFormat.SetAlignment(str_alignment);
+
+		COLORREF txt_color = col;
+		Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
+		graphics.DrawString(txt.str, (INT)(txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
+#endif
+	}
+
 	//Intended for a single line of text
 	void draw_text(HDC dc, const RECT& r, utf16_str txt, HFONT f,HBRUSH txt_br, HBRUSH bk_br, txt_align alignment, i32 pad_x) {
 

@@ -100,6 +100,10 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(450,"Review")
 	lang_entry(451,"Continue")
+
+	lang_entry(500,"I got it right")//TODO(fran): shorter text
+	lang_entry(501,"I got it wrong?!")
+
 ;
 
 constexpr static utf16 lang_español_entries[] =

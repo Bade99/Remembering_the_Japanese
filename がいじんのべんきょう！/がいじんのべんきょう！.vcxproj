@@ -196,6 +196,7 @@
     <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
     <ClInclude Include="win32_page.h" />
+    <ClInclude Include="win32_paint.h" />
     <ClInclude Include="win32_printmsg.h" />
     <ClInclude Include="win32_Renderer.h" />
     <ClInclude Include="unCap_Serialization.h" />

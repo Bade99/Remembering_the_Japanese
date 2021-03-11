@@ -523,6 +523,11 @@ static BOOL SetMenuItemString(HMENU hmenu, UINT item, BOOL fByPositon, const cst
 
 //----------------------HWND-----------------------:
 
+static void flip_visibility(HWND wnd) {
+	bool visible = IsWindowVisible(wnd);
+	ShowWindow(wnd, visible ? SW_HIDE : SW_SHOW);
+}
+
 static void SetText_txt_app(HWND wnd, const cstr* new_txt, const cstr* new_appname, bool txt_first = true) {
 	if (new_txt == NULL || *new_txt == NULL) {
 		SetWindowTextW(wnd, new_appname);

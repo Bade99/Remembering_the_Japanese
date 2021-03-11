@@ -17,6 +17,7 @@
 #include "win32_searchbox.h"
 #include "win32_new_msgs.h"
 #include "win32_multibutton.h"
+#include "win32_paint.h"
 
 #include <string>
 
@@ -48,9 +49,10 @@
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
-//TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji
+//TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
 //TODO(fran): BUG: page search: going to the previous page doesnt currently remove focus from whoever had it, therefore if you click on the searchbox, go to the prev page and press a key then the listbox will present the options and allow you to load the show_word page (this bug wasnt present before cause we handled searching in WM_COMMAND and check against our childs, therefore the landing page could not access controls from the search page, but now seach happens _inside_ the searchbox control and thus bypassing page checking), one quick and dirty way to solve this for now would be to check we're on the right page inside the seachbox_func_... functions, still other similar bugs could happen, best would probably be to steal focus when going back a page, or add a function that, given a page, sets focus to the desired control
+//TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
 
 //TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
 	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtrating from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
@@ -232,7 +234,7 @@ struct practice_writing_word {
 		translation_to_hiragana,
 		kanji_to_hiragana,
 		kanji_to_translation,
-		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correclty
+		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correctly
 	}practice_type;
 };
 
@@ -242,6 +244,23 @@ enum class learnt_word_elem : u32{
 	meaning  = (1 << 2),
 };
 
+HBRUSH brush_for_learnt_word_elem(learnt_word_elem type) {
+	HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
+	switch (type) {
+	case decltype(type)::hiragana: {
+		res = global::colors.hiragana;
+	} break;
+	case decltype(type)::kanji: {
+		res = global::colors.kanji;
+	} break;
+	case decltype(type)::meaning: {
+		res = global::colors.translation;
+	} break;
+	default:Assert(0);
+	}
+	return res;
+};
+
 struct practice_multiplechoice_word {
 	learnt_word question;//#free
 	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
@@ -249,6 +268,12 @@ struct practice_multiplechoice_word {
 	ptr<utf16*> choices; //#free
 	learnt_word_elem choices_type;
 	u32 idx_answer;//index of the correct answer in the 'choices' array, starting from 0
+};
+
+struct practice_drawing_word {
+	learnt_word question;//#free
+	utf16* question_str;//Points to some element inside of 'question'
+	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
 };
 
 void languages_setup_combobox(HWND cb) {
@@ -595,14 +620,16 @@ struct べんきょうProcState {
 		new_word,
 		practice,
 		practice_writing,
-		practice_multiplechoice,//TODO(fran)
+		practice_multiplechoice,
+		practice_drawing,//drawing kanji
 		review_practice,
 		search,
 		show_word,
 
 		//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
 		review_practice_writing,
-		review_practice_multiplechoice
+		review_practice_multiplechoice,
+		review_practice_drawing,
 	} current_page;
 
 	struct prev_page_fifo_queue{
@@ -694,6 +721,28 @@ struct べんきょうProcState {
 			type embedded_show_word_reduced;//#hidden by default
 		}practice_multiplechoice;
 
+		struct practice_drawing_controls {
+			using type = HWND;
+			union {
+				struct {
+					type static_question;
+
+					type paint_answer;
+
+					type button_next;//#disabled by default (gets enabled when the user drew smth)
+					type button_show_word;//#disabled
+
+					type static_correct_answer;//#hidden
+					//NOTE: working on a good handwriting recognition pipeline so this can be automatically checked (probably google translate style)
+
+					type button_right, button_wrong;//#hidden //the user tells us how they did
+
+				}list;
+				type all[sizeof(list) / sizeof(type)];
+			};
+			type embedded_show_word_reduced;//#hidden by default
+		}practice_drawing;
+
 		union search_controls {
 			using type = HWND;
 			struct {
@@ -737,6 +786,7 @@ struct べんきょうProcState {
 	enum class available_practices {
 		writing,
 		multiplechoice,
+		drawing,
 	};
 
 	struct practice_header {
@@ -756,6 +806,12 @@ struct べんきょうProcState {
 		size_t user_answer_idx;
 		bool answered_correctly;//precalculated value
 	};
+	struct practice_drawing {
+		practice_header header;
+		practice_drawing_word* practice;//#free
+		HBITMAP user_answer;//#free (DeleteBitmap)
+		bool answered_correctly;//precalculated value
+	};
 
 	struct {
 
@@ -772,6 +828,10 @@ struct べんきょうProcState {
 		struct practice_multiplechoice_state {
 			practice_multiplechoice_word* practice;
 		}practice_multiplechoice;
+
+		struct practice_drawing_state {
+			practice_drawing_word* practice;
+		}practice_drawing;
 
 	} pagestate;
 
@@ -1051,6 +1111,7 @@ namespace べんきょう {
 		HBRUSH border_br{ 0 };
 		utf16_str txt{ 0 };
 
+		//TODO(fran): we can bake this switch into the header by adding the params answered_correctly and question_str there
 		switch (header->type) {
 		case decltype(header->type)::writing:
 		{
@@ -1073,6 +1134,13 @@ namespace べんきょう {
 			txt.str = data->practice->choices[data->user_answer_idx];
 			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
 #endif
+		} break;
+		case decltype(header->type)::drawing:
+		{
+			ProcState::practice_drawing* data = (decltype(data))header;
+			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			txt.str = data->practice->question_str;
+			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
 		} break;
 		default: Assert(0);
 		}
@@ -1153,6 +1221,17 @@ namespace べんきょう {
 
 		button::Theme img_btn_theme = base_btn_theme;
 		img_btn_theme.brushes.foreground.normal = global::colors.Img;
+
+		embedded::show_word_reduced::Theme eswr_theme;
+		brush_group eswr_bk, eswr_txt, eswr_border;
+		eswr_bk.normal = global::colors.ControlBk;
+		eswr_txt.normal = global::colors.ControlTxt;
+		eswr_border.normal = global::colors.ControlTxt;
+		eswr_theme.font = global::fonts.General;
+		eswr_theme.dimensions.border_thickness = 1;
+		eswr_theme.brushes.bk = eswr_bk;
+		eswr_theme.brushes.txt = eswr_txt;
+		eswr_theme.brushes.border = eswr_border;
 
 		//---------------------Landing page----------------------:
 		{
@@ -1364,16 +1443,6 @@ namespace べんきょう {
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD |  embedded::show_word_reduced::style::roundrect,
 				0,0,0,0,state->wnd,0,0,0);
-			embedded::show_word_reduced::Theme eswr_theme;
-			brush_group eswr_bk, eswr_txt, eswr_border;
-			eswr_bk.normal = global::colors.ControlBk;
-			eswr_txt.normal = global::colors.ControlTxt;
-			eswr_border.normal = global::colors.ControlTxt;
-			eswr_theme.font = global::fonts.General;
-			eswr_theme.dimensions.border_thickness = 1;
-			eswr_theme.brushes.bk = eswr_bk;
-			eswr_theme.brushes.txt = eswr_txt;
-			eswr_theme.brushes.border = eswr_border;
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1409,16 +1478,52 @@ namespace べんきょう {
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, state->wnd, 0, 0, 0);
-			embedded::show_word_reduced::Theme eswr_theme;
-			brush_group eswr_bk, eswr_txt, eswr_border;
-			eswr_bk.normal = global::colors.ControlBk;
-			eswr_txt.normal = global::colors.ControlTxt;
-			eswr_border.normal = global::colors.ControlTxt;
-			eswr_theme.font = global::fonts.General;
-			eswr_theme.dimensions.border_thickness = 1;
-			eswr_theme.brushes.bk = eswr_bk;
-			eswr_theme.brushes.txt = eswr_txt;
-			eswr_theme.brushes.border = eswr_border;
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice Drawing----------------------:
+		{
+			auto& controls = state->controls.practice_drawing;
+			
+			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			button::set_theme(controls.list.button_next, &base_btn_theme);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+
+			controls.list.button_right = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_right, 500);
+			button::set_theme(controls.list.button_right, &base_btn_theme);//TODO(fran): maybe green bk
+
+			controls.list.button_wrong = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_wrong, 501);
+			button::set_theme(controls.list.button_wrong, &base_btn_theme);//TODO(fran): maybe red bk
+
+			controls.list.paint_answer = CreateWindow(paint::wndclass, 0, WS_CHILD | WS_VISIBLE //TODO(fran): rounded?
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			paint::set_brushes(controls.list.paint_answer, true, brush_for_learnt_word_elem(learnt_word_elem::kanji), global::colors.ControlBk, global::colors.Img, global::colors.Img_Disabled);
+			paint::set_dimensions(controls.list.paint_answer, 7);//TODO(fran): find good brush size
+
+			controls.list.static_correct_answer = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_correct_answer, TRUE, brush_for_learnt_word_elem(learnt_word_elem::kanji), global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
+				0, 0, 0, 0, state->wnd, 0, 0, 0);//TODO(fran): must be shown on top of all the other wnds
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1782,6 +1887,79 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 
 		} break;
+		case ProcState::page::practice_drawing:
+		{
+			auto& controls = state->controls.practice_drawing;
+
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_question;
+			static_question.y = start_y;
+			static_question.h = bigwnd_h;
+			static_question.w = w;
+			static_question.x = (w - static_question.w) / 2;
+
+			rect_i32 paint_answer;
+			paint_answer.y = static_question.bottom() + h_pad;
+			paint_answer.h = bigwnd_h*2;
+			paint_answer.w = max_w;
+			paint_answer.x = (w - paint_answer.w) / 2;
+
+			rect_i32 button_next;
+			button_next.y = paint_answer.bottom() + h_pad;
+			button_next.h = wnd_h;
+			button_next.w = button_next.h;
+
+			rect_i32 button_show_word;
+			button_show_word.h = button_next.h;
+			button_show_word.y = button_next.y;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
+
+			button_next.x = button_show_word.right() + 1;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 static_correct_answer;
+			static_correct_answer.y = button_next.bottom() + h_pad;
+			static_correct_answer.h = bigwnd_h-wnd_h;
+			static_correct_answer.w = w;
+			static_correct_answer.x = (w - static_correct_answer.w) / 2;
+
+			rect_i32 button_wrong;
+			button_wrong.y = static_correct_answer.bottom() + h_pad;
+			button_wrong.h = wnd_h;
+			button_wrong.w = min(max_w/2, avg_str_dim((HFONT)SendMessage(controls.list.button_wrong, WM_GETFONT, 0, 0), 20).cx);
+			button_wrong.x = half_w - w_pad / 2 - button_wrong.w;
+
+			rect_i32 button_right;
+			button_right.y = static_correct_answer.bottom() + h_pad;
+			button_right.h = wnd_h;
+			button_right.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.list.button_right, WM_GETFONT, 0, 0), 20).cx);
+			button_right.x = half_w + w_pad / 2;
+
+			rect_i32 bottom_most_control = button_right;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
+			MyMoveWindow_offset(controls.list.paint_answer, paint_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
+			MyMoveWindow_offset(controls.list.static_correct_answer, static_correct_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_wrong, button_wrong, FALSE);
+			MyMoveWindow_offset(controls.list.button_right, button_right, FALSE);
+
+
+		} break;
 		case ProcState::page::review_practice:
 		{
 			auto& controls = state->controls.review_practice;
@@ -1977,6 +2155,11 @@ namespace べんきょう {
 			//TODO(fran): different layout?
 			resize_controls(state, ProcState::page::practice_multiplechoice);
 		} break;
+		case ProcState::page::review_practice_drawing:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_drawing);
+		} break;
 		default:Assert(0);
 		}
 	}
@@ -2007,6 +2190,14 @@ namespace べんきょう {
 			ShowWindow(state->controls.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
 			break;
 		case decltype(p)::review_practice_multiplechoice: show_page(state, ProcState::page::practice_multiplechoice, ShowWindow_cmd); break;
+		case decltype(p)::practice_drawing:
+			for (auto ctl : state->controls.practice_drawing.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->controls.practice_drawing.list.static_correct_answer, SW_HIDE);//HACK:we should have some sort of separation between hidden and shown controls
+			ShowWindow(state->controls.practice_drawing.list.button_wrong, SW_HIDE);
+			ShowWindow(state->controls.practice_drawing.list.button_right, SW_HIDE);
+			ShowWindow(state->controls.practice_drawing.embedded_show_word_reduced, SW_HIDE);
+			break;
+		case decltype(p)::review_practice_drawing: show_page(state, ProcState::page::practice_drawing, ShowWindow_cmd); break;
 		default:Assert(0);
 		}
 	}
@@ -2265,29 +2456,19 @@ namespace べんきょう {
 				for (auto& _ : data->practice->question.all)free_any_str(_.str);
 				free(data->practice);
 			} break;
+			case decltype(p->type)::drawing:
+			{
+				ProcState::practice_drawing* data = (decltype(data))p;
+				for (auto& _ : data->practice->question.all)free_any_str(_.str);
+				DeleteBitmap(data->user_answer);
+				free(data->practice);
+			} break;
 			default: Assert(0);
 			}
 			free(p);//the object, no matter what type, can always be freed the same way since p is the ptr returned by the allocator
 		}
 		practices.clear();
 	}
-
-	HBRUSH brush_for_learnt_word_elem(learnt_word_elem type) {
-		HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
-		switch (type) {
-		case decltype(type)::hiragana: {
-			res = global::colors.hiragana;
-		} break;
-		case decltype(type)::kanji: {
-			res = global::colors.kanji;
-		} break;
-		case decltype(type)::meaning: {
-			res = global::colors.translation;
-		} break;
-		default:Assert(0);
-		}
-		return res;
-	};
 
 	//Sets the items in the corresponding page to the values on *data
 	void preload_page(ProcState* state, ProcState::page page, void* data) {
@@ -2595,7 +2776,66 @@ namespace べんきょう {
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
 
 		} break;
-		//TODO(fran): for kanji practice it'd be nice to add a drawing feature, I give you the translation and you draw the kanji
+		case decltype(page)::practice_drawing:
+		{
+			practice_drawing_word* practice = (decltype(practice))data;
+			auto controls = state->controls.practice_drawing;
+			state->pagestate.practice_drawing.practice = practice;
+
+			HBRUSH question_txt_br = brush_for_learnt_word_elem(practice->question_type);
+
+			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+
+			button::Theme button_next_theme;
+			button_next_theme.brushes.bk.normal = global::colors.ControlBk;
+			button_next_theme.brushes.border.normal = global::colors.Img;
+			button_next_theme.brushes.foreground.normal = global::colors.Img;
+			button_next_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+			button_next_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+			button::set_theme(controls.list.button_next, &button_next_theme);
+
+			SendMessageW(controls.list.static_correct_answer, WM_SETTEXT, 0, (LPARAM)practice->question.attributes.kanji.str /*TODO(fran): add answer_str*/);
+			
+
+			EnableWindow(controls.list.paint_answer, TRUE);
+			EnableWindow(controls.list.button_show_word, FALSE);
+			EnableWindow(controls.list.button_next, FALSE);
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
+
+		} break;
+		case decltype(page)::review_practice_drawing:
+		{
+			ProcState::practice_drawing* pagedata = (decltype(pagedata))data;
+			auto& controls = state->controls.practice_drawing;
+
+			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
+			HBRUSH user_choice_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			HBRUSH user_choice_border_br = user_choice_bk_br;
+
+			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+
+			paint::clear_canvas(controls.list.paint_answer);
+			paint::set_placeholder(controls.list.paint_answer, pagedata->user_answer);
+
+			button::Theme btn_next_theme;
+			btn_next_theme.brushes.bk.normal = user_choice_bk_br;
+			btn_next_theme.brushes.border.normal = user_choice_bk_br;
+			btn_next_theme.brushes.foreground.normal = global::colors.Img;
+			button::set_theme(controls.list.button_next, &btn_next_theme);
+
+			SendMessageW(controls.list.static_correct_answer, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question.attributes.kanji.str /*TODO(fran): add answer_str*/);
+
+			EnableWindow(controls.list.paint_answer, FALSE);
+			EnableWindow(controls.list.button_show_word, TRUE);
+			EnableWindow(controls.list.button_next, TRUE);
+
+			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
+
+		} break;
+
 		default: Assert(0);
 		}
 	}
@@ -2709,9 +2949,8 @@ namespace べんきょう {
 		return res;
 	}
 
-	learnt_word get_practice_word(sqlite3* db) {
+	learnt_word get_practice_word(sqlite3* db, bool hiragana_req=false,bool kanji_req=false,bool meaning_req=false) {
 		learnt_word res{0};
-		//TODO(fran)
 
 //Algorithms to decide which words to show:
 //Baseline:
@@ -2728,6 +2967,16 @@ namespace べんきょう {
 
 		//TODO(fran): we probably want to speed up this searches via adding indexes to times_shown and last_shown_date
 
+		std::string where_req("");
+		if (hiragana_req || kanji_req || meaning_req) {
+			where_req = " WHERE ";
+			bool first = true;
+			auto do_first_and_others = [&]() { if (first) first = !first; else where_req += " AND "; };
+			if (hiragana_req) { do_first_and_others(); where_req += "hiragana" " <> " "''"; }
+			if (kanji_req) { do_first_and_others(); where_req += "kanji" " <> " "''"; }
+			if (meaning_req) { do_first_and_others(); where_req += "translation" " <> " "''"; }
+		}
+
 		std::string select_practice_word =
 			" SELECT * FROM "
 			"("
@@ -2735,7 +2984,7 @@ namespace べんきょう {
 				" SELECT * FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
 				"("
 					" SELECT * FROM "
-						"(" " SELECT " + columns + " FROM " べんきょう_table_words " ORDER BY times_shown ASC LIMIT 30" ")"
+						"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY times_shown ASC LIMIT 30" ")"
 					"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
 				")"
 				" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
@@ -2743,7 +2992,7 @@ namespace べんきょう {
 				" SELECT * FROM "
 				"("
 					" SELECT * FROM "
-						"(" " SELECT " + columns + " FROM " べんきょう_table_words " ORDER BY last_shown_date ASC LIMIT 30"  ")"
+						"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY last_shown_date ASC LIMIT 30"  ")"
 					"ORDER BY RANDOM() LIMIT 5"
 				")"
 			")"
@@ -2839,17 +3088,40 @@ namespace べんきょう {
 		practice_data res;
 		ProcState::available_practices practices[]{
 			ProcState::available_practices::writing,
-			ProcState::available_practices::multiplechoice
+			ProcState::available_practices::multiplechoice,
+			ProcState::available_practices::drawing,
 		};
 		
 		ProcState::available_practices practice = practices[random_between(0u,(u32)ARRAYSIZE(practices)-1)];
-		learnt_word practice_word = get_practice_word(state->settings->db);//we always get a target word
+
+		auto get_hiragana_kanji_meaning = [](learnt_word* w)->u32 { /*Says which parts of the word are filled/valid*/
+			u32 res = 0;
+			if (w) {
+				if (w->attributes.hiragana.str && *((utf16*)w->attributes.hiragana.str)) res |= (u32)learnt_word_elem::hiragana;
+				if (w->attributes.kanji.str && *((utf16*)w->attributes.kanji.str)) res |= (u32)learnt_word_elem::kanji;
+				if (w->attributes.translation.str && *((utf16*)w->attributes.translation.str)) res |= (u32)learnt_word_elem::meaning;
+				//TODO(fran): learnt_word should have a defined str type, we cant be guessing here. Another option is to not allocate nulls and that way we can simply check for .sz
+			}
+			return res;
+		};
+
+		auto elem_ptr_for = [](learnt_word* word, learnt_word_elem type)->utf16* {
+			utf16* res = 0;//NOTE: I need to initialize this only because of mr complaining compiler
+			switch (type) {
+			case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana.str; break;
+			case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji.str; break;
+			case decltype(type)::meaning: res = (decltype(res))word->attributes.translation.str; break;
+			default:Assert(0);
+			}
+			return res;
+		};
 
 		switch (practice) {
 		case ProcState::available_practices::writing:
 		{
 			//NOTE: writing itself has many different practices
 			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): MEMLEAK practice_writing page will take care of freeing this once the page completes its practice
+			learnt_word practice_word = get_practice_word(state->settings->db);//get a target word
 			data->word = std::move(practice_word);
 
 			std::vector<practice_writing_word::type> practice_types;
@@ -2867,16 +3139,7 @@ namespace べんきょう {
 		{
 			practice_multiplechoice_word* data = (decltype(data))malloc(sizeof(*data));
 
-			auto get_hiragana_kanji_meaning = [](learnt_word* w)->u32 {
-				u32 res=0;
-				if (w) {
-					if (w->attributes.hiragana.str && *((utf16*)w->attributes.hiragana.str)) res |= (u32)learnt_word_elem::hiragana;
-					if (w->attributes.kanji.str && *((utf16*)w->attributes.kanji.str)) res |= (u32)learnt_word_elem::kanji;
-					if (w->attributes.translation.str && *((utf16*)w->attributes.translation.str)) res |= (u32)learnt_word_elem::meaning;
-					//TODO(fran): learnt_word should have a defined str type, we cant be guessing here. Another option is to not allocate nulls and that way we can simply check for .sz
-				}
-				return res;
-			};
+			learnt_word practice_word = get_practice_word(state->settings->db);//get a target word
 			data->question = std::move(practice_word);
 			u32 q_and_a = get_hiragana_kanji_meaning(&data->question);//NOTE: the type of the question and choices is limited by our target word
 			data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
@@ -2888,17 +3151,6 @@ namespace べんきょう {
 			data->choices = { 0 };//clear it to avoid free() problems, TODO(fran): I dont like the free() inside alloc() idea, maaybe we could create two functions alloc() and alloc_free_prev()
 			data->choices.alloc(_choices.cnt + 1);
 
-			auto elem_ptr_for = [](learnt_word* word, learnt_word_elem type)->utf16* {
-				utf16* res=0;//NOTE: I need to initialize this only because of mr complaining compiler
-				switch (type) {
-				case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana.str; break;
-				case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji.str; break;
-				case decltype(type)::meaning: res = (decltype(res))word->attributes.translation.str; break;
-				default:Assert(0);
-				}
-				return res;
-			};
-
 			//Move all the choices plus the correct choice into the new array
 			for (int i = 0, j = 0; i < data->choices.cnt; i++) {
 				if (i == data->idx_answer) data->choices[i] = _wcsdup(elem_ptr_for(&data->question, data->choices_type));//TODO(fran): replace for my own duplication method
@@ -2908,6 +3160,20 @@ namespace べんきょう {
 			data->question_str = elem_ptr_for(&data->question, data->question_type);
 			
 			res.page = ProcState::page::practice_multiplechoice;
+			res.data = data;
+		} break;
+		case ProcState::available_practices::drawing:
+		{
+			practice_drawing_word* data = (decltype(data))malloc(sizeof(*data));
+			learnt_word practice_word = get_practice_word(state->settings->db,false,true,false);//get a target word
+			//TODO(fran): check the word is valid, otherwise recursively call this function
+			data->question = std::move(practice_word);
+			
+			u32 q_elems = get_hiragana_kanji_meaning(&data->question);
+			data->question_type = (decltype(data->question_type))random_bit_set(q_elems & (~(u32)learnt_word_elem::kanji));
+			data->question_str = elem_ptr_for(&data->question, data->question_type);
+
+			res.page = ProcState::page::practice_drawing;
 			res.data = data;
 		} break;
 
@@ -2952,6 +3218,13 @@ namespace べんきょう {
 			auto& controls = state->controls.practice_multiplechoice;
 			//TODO(fran): do we wanna clear smth here?
 		} break;
+		case decltype(page)::practice_drawing:
+		{
+			auto& controls = state->controls.practice_drawing;
+			paint::clear_canvas(controls.list.paint_answer);
+			paint::set_placeholder(controls.list.paint_answer, nullptr);
+		} break;
+
 		default:Assert(0);
 		}
 	}
@@ -3400,7 +3673,7 @@ namespace べんきょう {
 						}
 					}
 					else if (child == page.list.button_show_word) {
-						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+						flip_visibility(page.embedded_show_word_reduced);
 					}
 				} break;
 				case ProcState::page::review_practice:
@@ -3418,7 +3691,7 @@ namespace べんきょう {
 						//The user clicked an element
 						void* data = (void*)wparam;
 						ProcState::practice_header* header = (decltype(header))data;
-						switch (header->type) {
+						switch (header->type) {//TODO(fran): pointless code repetition, why would we do smth different for each case
 						case decltype(header->type)::writing:
 						{
 							ProcState::practice_writing* pagedata = (decltype(pagedata))data;
@@ -3437,6 +3710,13 @@ namespace べんきょう {
 							store_previous_page(state, state->current_page);
 							set_current_page(state, ProcState::page::review_practice_multiplechoice);
 						} break;
+						case decltype(header->type)::drawing:
+						{
+							ProcState::practice_drawing* pagedata = (decltype(pagedata))data;
+							preload_page(state, ProcState::page::review_practice_drawing, pagedata);
+							store_previous_page(state, state->current_page);
+							set_current_page(state, ProcState::page::review_practice_drawing);
+						} break;
 						default: Assert(0);
 						}
 					}
@@ -3445,7 +3725,7 @@ namespace べんきょう {
 				{
 					auto& page = state->controls.practice_writing;
 					if (child == page.list.button_show_word) {
-						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+						flip_visibility(page.embedded_show_word_reduced);
 					}
 					else if (child == page.list.button_next) {
 						goto_previous_page(state);
@@ -3502,7 +3782,7 @@ namespace べんきょう {
 						}
 					}
 					else if (child == page.list.button_show_word) {
-						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+						flip_visibility(page.embedded_show_word_reduced);
 					}
 					else
 					{
@@ -3514,7 +3794,98 @@ namespace べんきょう {
 				{
 					auto& page = state->controls.practice_multiplechoice;
 					if (child == page.list.button_show_word) {
-						ShowWindow(page.embedded_show_word_reduced, SW_SHOW);
+						flip_visibility(page.embedded_show_word_reduced);
+					}
+					else if (child == page.list.button_next) {
+						goto_previous_page(state);
+					}
+				} break;
+				case ProcState::page::practice_drawing:
+				{
+					auto& page = state->controls.practice_drawing;
+					auto& pagestate = state->pagestate.practice_drawing;
+					bool already_answered = IsWindowEnabled(page.list.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
+					bool can_answer = paint::get_stroke_count(page.list.paint_answer);
+
+					if (child == page.list.paint_answer) {//Notifies when a change finished on the canvas (eg the user drew a complete stroke)
+						EnableWindow(page.list.button_next, can_answer);
+					}
+					else if (child == page.list.button_next) {
+						if (already_answered) {
+							next_practice_level(state);
+						}
+						else {
+							EnableWindow(page.list.paint_answer, FALSE);
+							ShowWindow(page.list.static_correct_answer, SW_SHOW);
+							ShowWindow(page.list.button_wrong, SW_SHOW);
+							ShowWindow(page.list.button_right, SW_SHOW);
+						}
+					}
+					else if (child == page.list.button_right || child == page.list.button_wrong) {
+						if (!already_answered) {
+							bool answered_correctly = child == page.list.button_right;
+
+							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+							button::Theme btn_theme;
+							btn_theme.brushes.bk.normal = bk;
+							btn_theme.brushes.border.normal = bk;
+							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+							button::set_theme(page.list.button_next, &btn_theme);
+
+							//Update word stats
+							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
+							word_increment_times_shown(state->settings->db, pagestate.practice->question);
+							if (answered_correctly) word_increment_times_right(state->settings->db, pagestate.practice->question);
+
+							//Add this practice to the list of current completed ones
+							ProcState::practice_drawing* p = (decltype(p))malloc(sizeof(*p));
+							p->header.type = decltype(p->header.type)::drawing;
+							p->practice = pagestate.practice;
+							pagestate.practice = nullptr;//clear the pointer just in case
+							p->answered_correctly = answered_correctly;
+							//Get what the user drew
+							{
+								auto canvas = paint::get_canvas(page.list.paint_answer);//TODO(fran): canvas.bmp could be selected into the paint dc, we need a paint::copy_canvas(RECT) function
+								BITMAP bmnfo; GetObject(canvas.bmp, sizeof(bmnfo), &bmnfo);
+								runtime_assert(bmnfo.bmBitsPixel == 32, L"Invalid Bitmap Format, bpp != 32, what system is this?");
+								InflateRect(&canvas.rc_used, 20, 20);
+								canvas.rc_used.left = clamp(1, canvas.rc_used.left, canvas.dim.cx - 1);
+								canvas.rc_used.right = clamp(1, canvas.rc_used.right, canvas.dim.cx - 1);
+								canvas.rc_used.top = clamp(1, canvas.rc_used.top, canvas.dim.cy - 1);
+								canvas.rc_used.bottom = clamp(1, canvas.rc_used.bottom, canvas.dim.cy - 1);
+
+								//Crop the image
+								i32 cropped_w = RECTW(canvas.rc_used);
+								i32 cropped_h = RECTH(canvas.rc_used);
+								i32 cropped_Bpp = 4;
+								HBITMAP cropbmp;
+								{
+									HDC _mydc = GetDC(state->wnd);
+									HDC fulldc = CreateCompatibleDC(_mydc); defer{ DeleteDC(fulldc); };
+									HDC cropdc = CreateCompatibleDC(_mydc); defer{ DeleteDC(cropdc); };
+									cropbmp = CreateCompatibleBitmap(_mydc, cropped_w, cropped_h);
+									ReleaseDC(state->wnd, _mydc);
+									HBITMAP oldcrop = SelectBitmap(cropdc, cropbmp); defer{ SelectBitmap(cropdc, oldcrop); };
+									HBITMAP oldfull = SelectBitmap(fulldc, canvas.bmp); defer{ SelectBitmap(fulldc, oldfull); };
+									BitBlt(cropdc, 0, 0, cropped_w, cropped_h, fulldc, canvas.rc_used.left, canvas.rc_used.top, SRCCOPY);
+								}
+								p->user_answer = cropbmp;
+							}
+							state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
+
+							EnableWindow(page.list.button_show_word, TRUE);
+							if (answered_correctly) next_practice_level(state);
+						}
+					}
+					else if (child == page.list.button_show_word) {
+						flip_visibility(page.embedded_show_word_reduced);
+					}
+				} break;
+				case ProcState::page::review_practice_drawing:
+				{
+					auto& page = state->controls.practice_drawing;
+					if (child == page.list.button_show_word) {
+						flip_visibility(page.embedded_show_word_reduced);
 					}
 					else if (child == page.list.button_next) {
 						goto_previous_page(state);

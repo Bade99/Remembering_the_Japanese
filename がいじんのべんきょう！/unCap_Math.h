@@ -140,6 +140,11 @@ static f32 length(v2 v) {
 	return res;
 }
 
+v2 normalize(v2 v) {
+	v2 res = v / length(v); //TODO(fran): beware of division by zero
+	return res;
+}
+
 f32 lerp(f32 n1, f32 t, f32 n2) {
 	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
 	return (1.f - t) * n1 + t * n2;
@@ -192,6 +197,12 @@ v4 clamp01(v4 v) {
 	return res;
 }
 
+v2 perp(v2 v) {//generate orthogonal vector (counter clockwise)
+	v2 res;
+	res.x = -v.y;
+	res.y = v.x;
+	return res;
+}
 
 //f64
 
