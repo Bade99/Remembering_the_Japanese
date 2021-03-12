@@ -271,6 +271,15 @@ union rect_i32 {
 	i32 center_y() const { return top + h / 2; }
 };
 
+RECT toRECT(rect_i32 r) {
+	RECT res;
+	res.left = r.left;
+	res.top = r.top;
+	res.right= r.right();
+	res.bottom = r.bottom();
+	return res;
+}
+
 static bool test_pt_rc(POINT p, const rect_i32& r) {
 	bool res = false;
 	if (p.y >= r.top &&//top

@@ -27,7 +27,6 @@
 //TODO(fran): multilevel undo and redo feature
 //TODO(fran): if the user goes outside the canvas and then tries to go back inside (with the button still pressed) we've already canceled their ability to draw and have to lift the button and click again, this shouldnt happen
 //TODO(fran): change mouse img to simbolize drawing, photoshop shows a circle the size of the dot it paints
-//TODO(fran): dont erase the backbuffer on resize, instead center it into the new backbuffer size
 
 namespace paint {
 
@@ -226,11 +225,60 @@ namespace paint {
 	void backbuffer_resize(ProcState* state) {
 		RECT rc; GetClientRect(state->wnd, &rc);
 		state->backbuffer_dim = { RECTW(rc), RECTH(rc) };
+#if 0
 		if (state->backbuffer) DeleteBitmap(state->backbuffer);
 		HDC targetdc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,targetdc); };
 		state->backbuffer = CreateCompatibleBitmap(targetdc, state->backbuffer_dim.cx, state->backbuffer_dim.cy);//IMPORTANT: you cannot use createcompbitmap with the backbuffer cause it'll either have an invalid hbitmap or a monochrome one
 		backbuffer_clear(state);
 		//TODO(fran): instead of clearing fit the current contents of the backbuffer into the new one, we'll need to know in which directions we're being resized and the prev and new rc sizes
+#else
+		//TODO(fran): check the oldbackbuffer is valid, otherwise we simply wanna execute the code in #if 0 (maybe we can get away with setting state->backbuffer_used to 0 at the start and run this code for both paths)
+		//Draw old backbuffer into the new one
+		HDC targetdc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,targetdc); };
+
+		HDC oldbackbufferdc = CreateCompatibleDC(targetdc); defer{ DeleteDC(oldbackbufferdc); };
+		HBITMAP oldbackbuffer = state->backbuffer; defer{ DeleteBitmap(oldbackbuffer); };
+		
+		HDC newbackbuffer_dc = state->backbuffer_dc;
+		HBITMAP newbackbuffer = CreateCompatibleBitmap(targetdc, state->backbuffer_dim.cx, state->backbuffer_dim.cy);//IMPORTANT: you cannot use createcompbitmap with the backbufferdc cause it'll either have an invalid hbitmap or a monochrome one
+
+		state->backbuffer = newbackbuffer;//store new backbuffer
+
+		BITMAP oldbackbuffernfo; GetObject(oldbackbuffer, sizeof(oldbackbuffernfo), &oldbackbuffernfo);
+		auto oldbmp = SelectBitmap(oldbackbufferdc, oldbackbuffer); defer{ SelectBitmap(oldbackbufferdc,oldbmp); };
+
+		auto oldbmp2 = SelectBitmap(newbackbuffer_dc, newbackbuffer); defer{ SelectBitmap(newbackbuffer_dc,oldbmp2); };
+
+		//Fill the background
+		HBRUSH bk_br = state->brushes.bk;
+		RECT newbackbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
+		FillRect(newbackbuffer_dc, &newbackbuffer_rc, bk_br);
+
+		//Insert the old backbuffer
+		rect_i32 oldbackbuffer_rc;
+		//center the old backbuffer into the new one
+		oldbackbuffer_rc.left = (RECTW(newbackbuffer_rc) - oldbackbuffernfo.bmWidth) / 2;
+		oldbackbuffer_rc.top = (RECTH(newbackbuffer_rc) - oldbackbuffernfo.bmHeight) / 2;
+		//crop by the used part of the backbuffer (we dont wanna draw what doesnt have any content)
+		oldbackbuffer_rc.left += state->backbuffer_used.left;
+		oldbackbuffer_rc.top += state->backbuffer_used.top;
+		oldbackbuffer_rc.w = RECTW(state->backbuffer_used);
+		oldbackbuffer_rc.h = RECTH(state->backbuffer_used);
+
+		//render
+		BitBlt(newbackbuffer_dc, oldbackbuffer_rc.x, oldbackbuffer_rc.y, oldbackbuffer_rc.w, oldbackbuffer_rc.h, oldbackbufferdc, state->backbuffer_used.left, state->backbuffer_used.top, SRCCOPY);
+
+		//Update backbuffer_used coordinates
+		state->backbuffer_used = toRECT(oldbackbuffer_rc);
+		//clamp to new backbuffer size
+		state->backbuffer_used.left =   clamp(0, state->backbuffer_used.left,   RECTW(newbackbuffer_rc) - 1);
+		state->backbuffer_used.right =  clamp(0, state->backbuffer_used.right,  RECTW(newbackbuffer_rc) - 1);
+		state->backbuffer_used.top =    clamp(0, state->backbuffer_used.top,    RECTH(newbackbuffer_rc) - 1);
+		state->backbuffer_used.bottom = clamp(0, state->backbuffer_used.bottom, RECTH(newbackbuffer_rc) - 1);
+		
+		//TODO(fran): BUG: we dont update the position of the points in the strokes, that's gonna be quite slow, we can ignore it for now since we no longer use them
+
+#endif
 	}
 
 	//Returns the smallest rectangle that completely covers both rectangles
