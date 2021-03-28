@@ -54,19 +54,16 @@
 //TODO(fran): BUG: page search: going to the previous page doesnt currently remove focus from whoever had it, therefore if you click on the searchbox, go to the prev page and press a key then the listbox will present the options and allow you to load the show_word page (this bug wasnt present before cause we handled searching in WM_COMMAND and check against our childs, therefore the landing page could not access controls from the search page, but now seach happens _inside_ the searchbox control and thus bypassing page checking), one quick and dirty way to solve this for now would be to check we're on the right page inside the seachbox_func_... functions, still other similar bugs could happen, best would probably be to steal focus when going back a page, or add a function that, given a page, sets focus to the desired control
 //TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
 
-//TODO(fran): IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
-	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtrating from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
 
-//TODO(fran): embedded page: any practice has the ability to show the embedded show_word_reduced page and to preload it with the necessary data, this page is not interactive. The page can be queried for a width and height. _Actually_ I dont think that asking an embedded page for its desired size makes sense, we dictate a space we want to give and it has to work with what it gets, it knows it's meant to be embedded, it should have multiple layouts and be resizable
+//Leftover IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
+	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtracting from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
 
-//TODO(fran): set page colors on preload page (for the controls known to change colors)
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
 //INFO: this window is made up of many separate ones, as if they were in different tabs, in the sense only one is shown at any single time, and there isn't any relationship between them
 //INFO: the hiragana aid on top of kanji is called furigana
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
-
 
 
 #define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
@@ -82,6 +79,11 @@
 
 
 #define TIMER_next_practice_level 0x5
+
+
+#define _べんきょう_table_version version
+#define _べんきょう_table_version_structure \
+	v					INTEGER PRIMARY KEY\
 
 
 #define べんきょう_table_words "words"
@@ -933,151 +935,208 @@ namespace べんきょう {
 		sqlite3_finalize(stmt);
 	}
 
-	void startup(sqlite3* db) {
-		utf8* errmsg;
-		{
-			utf8 create_word_table[] = SQL(
-				CREATE TABLE IF NOT EXISTS _べんきょう_table_words(べんきょう_table_words_structure) WITHOUT ROWID;
-			);
-			sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		//TODO(fran): we should also implement UPDATE TABLE for future versions that might need new columns, the other idea is to make separate tables join by foreign key, I dont know if it has any benefit, probably not since the queries will become bigger and slower cause of the joins, what I do have to be careful is that downgrading doesnt destroy anything
-		{
-			utf8 create_user_table[] = SQL(
-				CREATE TABLE IF NOT EXISTS _べんきょう_table_user(べんきょう_table_user_structure);
-			);
-			sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		{
-			if (get_table_rowcount(db, べんきょう_table_user) > 0) {
-				//The entry is already there, here we can set new values on future updates for example
-				//TODO(fran)
+	//TODO(fran): it may be less annoying to use a tuple/similar of the form tuple<f_apply,f_rollback>
+	struct db_version { 
+		//NOTEs:
+		//-Newer db versions never destroy older db tables nor alter already existing column names/types, they can though add new tables and add new columns to old tables while they are _not_ primary keys
+		//-All triggers are created as temporary, triggers from older versions can not be dropped
+		//-By this logic once a table is set by one version it can no longer be set back to a previous version, this allows for all the data to remain on the database even if the current version running doesnt know how to use it. On the other hand triggers are the opposite, only the required ones are running, this allows for example to apply automated checks via triggers that only execute on the correct version and dont cause problems for other versions were their existence is not handled
+		virtual void apply_tables(sqlite3* db)=0;//Executed only the first time the db needs to be updated to this version
+		virtual void apply_triggers(sqlite3* db)=0;//Executed each time the db is opened and the version number is greater than or equal to this one
+	};
+
+	//TODO(fran): make sure all requests to the db ask only for the columns they need, otherwise if new columns are added we could get garbage data or override/corrupt other memory
+	struct v1 : db_version {
+		void apply_tables(sqlite3* db) override {
+			utf8* errmsg;
+
+			//TODO(fran): idk if checking for "if not exists" is still necessary
+
+			//CREATE
+			{
+				utf8 create_version_table[] = SQL(
+					CREATE TABLE _べんきょう_table_version(_べんきょう_table_version_structure) WITHOUT ROWID;
+				);
+				sqlite3_exec(db, create_version_table, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
 			}
-			else {
-				//Entry isnt there, create it
+			{
+				utf8 create_word_table[] = SQL(
+					CREATE TABLE _べんきょう_table_words(べんきょう_table_words_structure) WITHOUT ROWID;
+				);
+				sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				utf8 create_user_table[] = SQL(
+					CREATE TABLE _べんきょう_table_user(べんきょう_table_user_structure);
+				);
+				sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				utf8 create_accuracy_timeline_table[] = SQL(
+					CREATE TABLE _べんきょう_table_accuracy_timeline(べんきょう_table_accuracy_timeline_structure);
+				);
+				sqlite3_exec(db, create_accuracy_timeline_table, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+
+			//INSERT
+			{
+				//if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+				//	//The entry is already there, here we can set new values on future updates for example
+				//	//TODO(fran)
+				//}
+				//else {
+					//Entry isnt there, create it
 				utf8 insert_user[] = SQL(
 					INSERT INTO _べんきょう_table_user DEFAULT VALUES;
 				);
 				sqlite3_exec(db, insert_user, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 				//TODO(fran): we should check for existing words and compute the values of the user table, idk if this case can happen
+			//}
+			}
+
+			{
+				//if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+				//	//The entry is already there, here we can set new values on future updates for example
+				//	//TODO(fran)
+				//}
+				//else {
+					//Entry isnt there, create it
+				utf8 insert_version[] = SQL(
+					INSERT INTO _べんきょう_table_version(v) VALUES(1);
+				);
+				sqlite3_exec(db, insert_version, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+				//NOTE: this will be an UPDATE on future versions
+			//}
 			}
 		}
-		{
-			utf8 create_accuracy_timeline_table[] = SQL(
-				CREATE TABLE IF NOT EXISTS _べんきょう_table_accuracy_timeline(べんきょう_table_accuracy_timeline_structure);
-			);
-			sqlite3_exec(db, create_accuracy_timeline_table, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
 
-		//Triggers 
-		//TODO(fran): here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean they should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
-		{
-			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-			utf8 create_trigger_increment_word_cnt[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
-				BEGIN
+		void apply_triggers(sqlite3* db) override {
+			utf8* errmsg;
+
+			//CREATE TEMPORARY TRIGGER
+			{
+				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+				utf8 create_trigger_increment_word_cnt[] = SQL(
+					CREATE TEMPORARY TRIGGER increment_word_cnt AFTER INSERT ON _べんきょう_table_words
+					BEGIN
 					UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
 				END;
-			);
-			sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		{
-			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-			utf8 create_trigger_decrement_word_cnt[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
-				BEGIN
+				);
+				sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+				utf8 create_trigger_decrement_word_cnt[] = SQL(
+					CREATE TEMPORARY TRIGGER decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
+					BEGIN
 					UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
 				END;
-			);
-			sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		{
-			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-			utf8 create_trigger_increment_times_shown[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS increment_times_shown
-				AFTER UPDATE OF times_shown ON _べんきょう_table_words
-				BEGIN
+				);
+				sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+				utf8 create_trigger_increment_times_shown[] = SQL(
+					CREATE TEMPORARY TRIGGER increment_times_shown
+					AFTER UPDATE OF times_shown ON _べんきょう_table_words
+					BEGIN
 					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
 				END;
-			);
-			sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		{
-			//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-			utf8 create_trigger_increment_times_right[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS increment_times_right
-				AFTER UPDATE OF times_right ON _べんきょう_table_words
-				BEGIN
+				);
+				sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+				utf8 create_trigger_increment_times_right[] = SQL(
+					CREATE TEMPORARY TRIGGER increment_times_right
+					AFTER UPDATE OF times_right ON _べんきょう_table_words
+					BEGIN
 					UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
 				END;
-			);
-			sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
-		}
-		//TODO(fran): remove the IF NOT EXISTS once we have db version checking
-		/*
-		utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
-			AFTER UPDATE OF times_shown comma times_right ON _べんきょう_table_user
-			WHEN (ABS(strftime('%s', 'now') - COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline),0)) > 2)
-			BEGIN
-			INSERT INTO _べんきょう_table_accuracy_timeline(accuracy) 
-				VALUES((NEW.times_right / COALESCE(NULLIF(NEW.times_shown, 0), NULLIF(NEW.times_right, 0), 1))*100);
-			END;
-		);
-		utf8 create_trigger_update_accuracy_timepoint[] = SQL(
-			CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
-			AFTER UPDATE OF times_shown comma times_right ON _べんきょう_table_user
-			WHEN(ABS(strftime('%s', 'now') - COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline), 0)) <= 2)
-			BEGIN
-			UPDATE _べんきょう_table_accuracy_timeline
-				SET accuracy = (NEW.times_right / COALESCE(NULLIF(NEW.times_shown, 0), NULLIF(NEW.times_right, 0), 1))*100
-			WHERE creation_date = COALESCE((SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline), 0);
-			END;
-		);
-		*/
-		{
-			//IMPORTANT: this depends on times_shown being updated _before_ times_right
-			utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS insert_accuracy_timepoint
-				AFTER UPDATE OF times_shown ON _べんきょう_table_user
-				BEGIN
+				);
+				sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				//IMPORTANT: this depends on times_shown being updated _before_ times_right
+				utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
+					CREATE TEMPORARY TRIGGER insert_accuracy_timepoint
+					AFTER UPDATE OF times_shown ON _べんきょう_table_user
+					BEGIN
 					INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
 					VALUES(CAST((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL) * 100.0) AS INTEGER));
 				END;
-			);
+				);
 
-			utf8 create_trigger_update_accuracy_timepoint[] = SQL(
-				CREATE TRIGGER IF NOT EXISTS update_accuracy_timepoint
-				AFTER UPDATE OF times_right ON _べんきょう_table_user
-				BEGIN
+				utf8 create_trigger_update_accuracy_timepoint[] = SQL(
+					CREATE TEMPORARY TRIGGER update_accuracy_timepoint
+					AFTER UPDATE OF times_right ON _べんきょう_table_user
+					BEGIN
 					UPDATE _べんきょう_table_accuracy_timeline
 					SET accuracy = CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER)
 					WHERE creation_date = (SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline);
 				END;
-			);
+				);
 
-			//IDEA: another way is to always insert on times_shown and update on times_rigth
-			//TODO(fran): this two triggers are really dumb, and we depend on the operation happening in less than N seconds (timinig dependency), if we could make this be one trigger at least but sqlite doenst have if-else on triggers
-			//TODO(fran): make sure that update of triggers for any of the columns names and not only if both are SET in a single query
-			//IMPORTANT INFO: since times_shown and times_right can be updated at different times we gotta be a little more clever at the time of adding a new timepoint
-			sqlite3_exec(db, create_trigger_insert_accuracy_timepoint, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
+				sqlite3_exec(db, create_trigger_insert_accuracy_timepoint, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
 
-			sqlite3_exec(db, create_trigger_update_accuracy_timepoint, 0, 0, &errmsg);
-			sqlite_exec_runtime_assert(errmsg);
+				sqlite3_exec(db, create_trigger_update_accuracy_timepoint, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
 		}
+	};
+
+	void startup(sqlite3* db) {
+		i32 version;
+		{
+			utf8 get_version[] = SQL(
+				SELECT v FROM _べんきょう_table_version;
+			);
+			sqlite3_stmt* stmt;
+			int errcode;
+			errcode = sqlite3_prepare_v2(db, get_version, sizeof(get_version), &stmt, nullptr);
+
+			if (errcode == SQLITE_OK) {
+				errcode = sqlite3_step(stmt);
+				if (errcode == SQLITE_ROW) version = (i32)sqlite3_column_int64(stmt, 0);
+				else version = 0;
+			}
+			else version = 0;
+
+			sqlite3_finalize(stmt);
+		}
+		runtime_assert(version >= 0, L"Invalid database version");
+
+		db_version* versions[]{ new v1() }; defer{ for (auto& v : versions)delete v; };//TODO(fran): having to allocate and deallocate objs in this pointless fashion is garbage, throw away obj oriented idea
+		
+		i32 setup_tables_idx = version;//this and higher indexes will be executed
+
+		i32 setup_triggers_idx = ARRAYSIZE(versions);//indexes lower than this one will be executed
+
+		for (i32 i = setup_tables_idx; i < ARRAYSIZE(versions); i++)versions[i]->apply_tables(db);
+
+		for (i32 i = 0; i < setup_triggers_idx; i++)versions[i]->apply_triggers(db);
+
+		//NOTE on Triggers: here the versioning system comes in handy, if the db version == ours then we dont create the triggers since they already exist, otherwise we drop any existing trigger and override it with the new one, _emphasis_ on "==" the triggers work only with what we know in this current version, the versioning system will have to take care of fixing anything future triggers might need already done with the entries that have already been loaded (this is obvious for older versions but it also establishes an invariant for future versions, this allows each version's triggers to work independently of each other), I do think this is the better choice, triggers are independent but that doesnt mean they should break something they know a previous version will need, my concern would be of the need for a trigger to stop an operation, and lets say it expects for a value that v5 gives but v4 doesnt, that means the user can no longer downgrade from v5. Following this sense it'd mean we should probably simply create temp triggers and save the extra hussle of having to check
+
+		//TODO(fran) BUG:
+		//Newer versions will need a "ponerse al día" module, in case they need to add data an old version didnt, an example would be the word count, assuming v1 didnt have it when v2 comes the user has potentially already added lots of words but their counter would be 0, here we'll need the module to to count the current number of already existing words on the db and update the counter(this type of operations could get very expensive, the good thing is they'll only execute once when we go from a lower db version to the higher one)
+		//ADDED PROBLEM: if the user goes up some versions, then down, then adds words and then goes back up the module wont execute since the db version always stays at the highest one, SOLUTION: one way to fix this is to add one extra information, last_db_version_execution (records the db version that was actually used during execution, which can be lower than the effective db_version of the tables), checking against this we can always know when there's a period of version change which means we have to "ponerlo al día".
 
 //#define TEST_WORDS
 #if defined(TEST_WORDS) && defined(_DEBUG)
 		{
+			utf8* errmsg;
 			utf8 test_insert_words[] = SQL(
 				INSERT INTO _べんきょう_table_words(hiragana,kanji,translation,mnemonic,lexical_category)
 				VALUES
@@ -3165,7 +3224,7 @@ namespace べんきょう {
 		case ProcState::available_practices::drawing:
 		{
 			practice_drawing_word* data = (decltype(data))malloc(sizeof(*data));
-			learnt_word practice_word = get_practice_word(state->settings->db,false,true,false);//get a target word
+			learnt_word practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
 			//TODO(fran): check the word is valid, otherwise recursively call this function
 			data->question = std::move(practice_word);
 			
@@ -3277,7 +3336,7 @@ namespace べんきょう {
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
-	//NOTE word should be in utf16
+	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
 	void word_increment_times_shown(sqlite3* db, const learnt_word& word) {
 		using namespace std::string_literals;
 		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
@@ -3292,6 +3351,7 @@ namespace べんきょう {
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
+	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
 	void word_increment_times_right(sqlite3* db, const learnt_word& word) {
 		using namespace std::string_literals;
 		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
@@ -3304,6 +3364,13 @@ namespace べんきょう {
 		utf8* errmsg;
 		sqlite3_exec(db, increment_times_right.c_str(), 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
+	}
+
+	//NOTE word should be in utf16
+	void word_increment_times_shown__times_right(sqlite3* db, const learnt_word& word, bool inc_times_right) {
+		//INFO: times_shown _must_ be updated before times_right in order for the triggers to function correctly
+		word_increment_times_shown(db, word);
+		if(inc_times_right)word_increment_times_right(db, word);
 	}
 
 
@@ -3429,8 +3496,8 @@ namespace べんきょう {
 						
 						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
 						if (word_cnt > 0) {
-#define TEST_REVIEWPAGE
-#ifndef TEST_REVIEWPAGE
+#define TEST_QUICKPRACTICE
+#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
 							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
 #else
 							constexpr int practice_cnt = 2 + 1;
@@ -3643,8 +3710,7 @@ namespace べんきょう {
 								//Update word stats
 								//TODO(fran): if we knew we had the old values in the word object we could simply update those and batch update the whole word
 								word_update_last_shown_date(state->settings->db, pagestate.practice->word);
-								word_increment_times_shown(state->settings->db, pagestate.practice->word);
-								if (success) word_increment_times_right(state->settings->db, pagestate.practice->word);
+								word_increment_times_shown__times_right(state->settings->db, pagestate.practice->word, success);
 
 								//Add this practice to the list of current completed ones
 								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));
@@ -3759,8 +3825,7 @@ namespace べんきょう {
 
 							//Update word stats
 							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_shown(state->settings->db, pagestate.practice->question);
-							if (answered_correctly) word_increment_times_right(state->settings->db, pagestate.practice->question);
+							word_increment_times_shown__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
 
 							//Add this practice to the list of current completed ones
 							ProcState::practice_multiplechoice* p = (decltype(p))malloc(sizeof(*p));
@@ -3834,8 +3899,7 @@ namespace べんきょう {
 
 							//Update word stats
 							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_shown(state->settings->db, pagestate.practice->question);
-							if (answered_correctly) word_increment_times_right(state->settings->db, pagestate.practice->question);
+							word_increment_times_shown__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
 
 							//Add this practice to the list of current completed ones
 							ProcState::practice_drawing* p = (decltype(p))malloc(sizeof(*p));

@@ -41,7 +41,6 @@ namespace paint {
 	struct debug_line : debug_obj {
 		POINT p1, p2;
 		bool arrow;
-
 	};
 	struct debug_curve : debug_obj {
 		POINT p1, p2, p3;
