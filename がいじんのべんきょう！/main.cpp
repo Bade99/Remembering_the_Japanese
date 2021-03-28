@@ -188,18 +188,18 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     };
 
     //----------------Window Setup-----------------:
-    RECT べんきょう_nc_rc = UNCAPNC_calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
+    RECT べんきょう_nc_rc = nonclient::calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
     べんきょう_cl.db = db;
 
     unCapNcLpParam べんきょう_nclpparam;
     べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
     べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
 
-    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nc::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
     Assert(べんきょう_nc);
-
-    べんきょう::set_brushes(UNCAPNC_get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
+    
+    べんきょう::set_brushes(nonclient::get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
 
     UpdateWindow(べんきょう_nc);
 
