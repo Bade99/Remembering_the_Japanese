@@ -417,15 +417,26 @@ namespace button {
 						urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
 						urender::RoundRectangleCornerFill(dc, bk_br, rc, roundedness);//TODO(fran): if this didnt cut a bit of the line it would be semi acceptable
 #elif 1
+
+						//TODO(fran): for some reason the border of the rounded rectangle start to look worse once you mouseover the button, we're probably screwing the border by filling the bk somehow
+
 						//Bk
+#if 0
 						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+#else
+						urender::RoundRectangleFill_smooth(dc, bk_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+#endif
 						//Border
 						if (state->theme.dimensions.border_thickness != 0) {
+#if 0
 							//Border Arcs
 							urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
 							//Border Lines
 							urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness + 1);
 							//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
+#else
+							urender::RoundRectangleBorder_smooth(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+#endif
 						}
 #else
 						HDC highresdc = CreateCompatibleDC(dc); defer{ DeleteDC(highresdc); };

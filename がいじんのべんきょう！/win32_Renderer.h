@@ -1015,6 +1015,41 @@ namespace urender {
 #endif
 	}
 
+	//thanks https://stackoverflow.com/questions/628261/how-to-draw-rounded-rectangle-with-variable-width-border-inside-of-specific-boun
+	#define urender_RoundRectangleImpl \
+		Gdiplus::Graphics g(dc); \
+		g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear); \
+		g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality); \
+		g.SetPixelOffsetMode(Gdiplus::PixelOffsetMode::PixelOffsetModeHighQuality); \
+		g.SetSmoothingMode(Gdiplus::SmoothingMode::SmoothingModeAntiAlias); \
+		int strokeOffset = (i32)ceilf(thickness); \
+		Gdiplus::Color c; c.SetFromCOLORREF(ColorFromBrush(br)); \
+		Gdiplus::Rect rect(r.left, r.top, RECTW(r), RECTH(r)); \
+		rect.Inflate(-strokeOffset, -strokeOffset); \
+		Gdiplus::GraphicsPath path; \
+		path.AddArc(rect.X, rect.Y, radius, radius, 180, 90); \
+		path.AddArc(rect.X + rect.Width - radius, rect.Y, radius, radius, 270, 90); \
+		path.AddArc(rect.X + rect.Width - radius, rect.Y + rect.Height - radius, radius, radius, 0, 90); \
+		path.AddArc(rect.X, rect.Y + rect.Height - radius, radius, radius, 90, 90); \
+		path.CloseAllFigures(); \
+
+	//Uses gdiplus therefore is slower but has bilinear filtering and antialiasing for much improved smoothness
+	void RoundRectangleBorder_smooth(HDC dc, HBRUSH br, const RECT& r, i32 radius /*degrees*/, f32 thickness) {
+		urender_RoundRectangleImpl;
+		auto p = Gdiplus::Pen(c, thickness);
+		p.SetStartCap(Gdiplus::LineCap::LineCapRound);
+		p.SetEndCap(Gdiplus::LineCap::LineCapRound);
+		g.DrawPath(&p, &path);
+	}
+
+	//Uses gdiplus therefore is slower but has bilinear filtering and antialiasing for much improved smoothness
+	void RoundRectangleFill_smooth(HDC dc, HBRUSH br, const RECT& r, i32 radius /*degrees*/, f32 thickness /*of the expected border in order to offset the fill area correctly*/) {
+		//f32 thickness = 0;//TODO(fran): maybe we can go for thickness 0, would generate overdraw but not be an added pain for the user to code
+		urender_RoundRectangleImpl;
+		auto b = Gdiplus::SolidBrush(c);
+		g.FillPath(&b, &path);
+	}
+
 	static ULONG_PTR gdiplusToken;//HACK, gdi+ shouldnt need it in the first place but the devs had no idea what they were doing
 	void init() {
 #ifdef UNCAP_GDIPLUS
