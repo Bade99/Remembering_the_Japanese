@@ -304,7 +304,7 @@ namespace nonclient {
 		ProcState* state = get_state(hwnd);
 
 #ifdef _DEBUG
-		printf("%d : NONCLIENT : %s \t\t wp:0x%08x lp:0x%08x\n", state ? state->debug_msg_cnt++ : 0, msgToString(msg),wparam,lparam);
+		printf("%d : NONCLIENT : %s \t\t wp:0x%08x lp:0x%08x\n", state ? state->debug_msg_cnt++ : 0, msgToString(msg),(u32)wparam, (u32)lparam);
 #endif
 
 		{
@@ -480,8 +480,9 @@ namespace nonclient {
 				FillRect(dc, &menuborder, txtbr);//TODO(fran):parametric, not everyone might like this
 			}
 			
-			if (true/*rcs_overlap(calc_client_rc(state), ps.rcPaint)*/ /*NOTE: this does seem to pick up children that are very close to the nonclient area, but not the whole client therefore rcpaint is probably asking for client+menu area*/) {
+			if (false/*rcs_overlap(calc_client_rc(state), ps.rcPaint)*/ /*NOTE: this does seem to pick up children that are very close to the nonclient area, but not the whole client therefore rcpaint is probably asking for client+menu area*/) {
 				//HACK: in order to have the client redraw when the user moves the window while maximized, which causes it to restore to its original size, unfortunately in this case windows doesnt go through any of my window restore paths and thus is not detected and a redraw request isnt sent to the client. I havent yet found a good place to check for this condition without having to do the computation myself, that's why this is here since windows does request repaint on this case, only that it does it for this window and not its children
+				//TODO(fran): the if clause must be set to true for the fix to work _but_ right now it seems Im not correctly updating all my children on the client side, easy way to replicate problem: go into practice, in a multiple choice, click outside the window and the multiplechoice buttons will disappear
 				InvalidateRect(state->client, nullptr, TRUE);
 			}
 

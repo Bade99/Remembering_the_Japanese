@@ -39,7 +39,11 @@ namespace global {
 		op(HBRUSH,kanji,CreateSolidBrush(RGB(204, 206, 205))) \
 		op(HBRUSH,translation,CreateSolidBrush(RGB(142, 79, 88))) \
 		op(HBRUSH,Bk_right_answer,CreateSolidBrush(RGB(23, 206, 44))) \
+		op(HBRUSH,BkMouseover_right_answer,CreateSolidBrush(RGB(13, 186, 24))) \
+		op(HBRUSH,BkPush_right_answer,CreateSolidBrush(RGB(3, 166, 4))) \
 		op(HBRUSH,Bk_wrong_answer,CreateSolidBrush(RGB(206, 23, 44))) \
+		op(HBRUSH,BkMouseover_wrong_answer,CreateSolidBrush(RGB(186, 13, 24))) \
+		op(HBRUSH,BkPush_wrong_answer,CreateSolidBrush(RGB(166, 3, 4))) \
 
 		//TODO(fran): not sure which color to choose for kanji, I use black on my studies but that wont be too visible while we keep the gray bk
 

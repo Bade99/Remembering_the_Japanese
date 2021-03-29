@@ -48,6 +48,7 @@
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
+//TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 //TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
@@ -2685,10 +2686,10 @@ namespace べんきょう {
 
 			button::Theme btn_theme;
 			btn_theme.brushes.bk.normal = global::colors.ControlBk;
-			btn_theme.brushes.border.normal = global::colors.ControlBk;
-			btn_theme.brushes.foreground.normal = global::colors.Img;
 			btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
 			btn_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+			btn_theme.brushes.border.normal = global::colors.ControlBk;
+			btn_theme.brushes.foreground.normal = global::colors.Img;
 			button::set_theme(controls.list.button_next, &btn_theme);
 
 			EnableWindow(controls.list.button_show_word, FALSE);
@@ -2717,7 +2718,17 @@ namespace べんきょう {
 			auto& controls = state->controls.practice_writing;
 			utf16* question = pagedata->correct_answer->str;
 			HBRUSH question_br{ 0 };
-			HBRUSH answer_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			brush_group answer_bk;
+			if (pagedata->answered_correctly) {
+				answer_bk.normal = global::colors.Bk_right_answer;
+				answer_bk.mouseover = global::colors.BkMouseover_right_answer;
+				answer_bk.clicked = global::colors.BkPush_right_answer;
+			}
+			else {
+				answer_bk.normal = global::colors.Bk_wrong_answer;
+				answer_bk.mouseover = global::colors.BkMouseover_wrong_answer;
+				answer_bk.clicked = global::colors.BkPush_wrong_answer;
+			}
 			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
 
 			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
@@ -2744,12 +2755,12 @@ namespace べんきょう {
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, question_br, 0, 0, 0, 0, 0);
 
 			//TODO(fran): controls.list.edit_answer should be disabled
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, global::colors.ControlTxt, answer_bk_br, answer_bk_br, 0, 0, 0);
+			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, global::colors.ControlTxt, answer_bk.normal, answer_bk.normal, 0, 0, 0);
 			SendMessageW(controls.list.edit_answer, WM_SETTEXT, 0, (LPARAM)pagedata->user_answer.str);
 
 			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk.normal = answer_bk_br;
-			btn_next_theme.brushes.border.normal = answer_bk_br;
+			btn_next_theme.brushes.bk = answer_bk;
+			btn_next_theme.brushes.border = answer_bk;
 			btn_next_theme.brushes.foreground.normal = global::colors.ControlTxt;
 			button::set_theme(controls.list.button_next, &btn_next_theme);
 
@@ -2805,12 +2816,23 @@ namespace べんきょう {
 			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
 			HBRUSH choice_txt_br = brush_for_learnt_word_elem(pagedata->practice->choices_type);
 			HBRUSH user_choice_txt_br = global::colors.ControlTxt;
-			HBRUSH user_choice_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-			HBRUSH user_choice_border_br = user_choice_bk_br;
+			//TODO(fran): use brush_group
+			brush_group user_choice_bk;
+			if (pagedata->answered_correctly) {
+				user_choice_bk.normal = global::colors.Bk_right_answer;
+				user_choice_bk.mouseover = global::colors.BkMouseover_right_answer;
+				user_choice_bk.clicked = global::colors.BkPush_right_answer;
+			}
+			else {
+				user_choice_bk.normal = global::colors.Bk_wrong_answer;
+				user_choice_bk.mouseover = global::colors.BkMouseover_wrong_answer;
+				user_choice_bk.clicked = global::colors.BkPush_wrong_answer;
+			}
 
 			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
 			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
 			
+			//TODO(fran): borders for the right/wrong button dont seem to match when the button is pressed
 			//TODO(fran): controls.list.multibutton_choices should be disabled
 			multibutton::set_buttons(controls.list.multibutton_choices, pagedata->practice->choices);
 			button::Theme multibutton_button_theme;
@@ -2819,14 +2841,13 @@ namespace べんきょう {
 
 			button::Theme multibutton_user_choice_button_theme;
 			multibutton_user_choice_button_theme.brushes.foreground.normal = user_choice_txt_br;
-			multibutton_user_choice_button_theme.brushes.bk.normal = user_choice_bk_br;
-			multibutton_user_choice_button_theme.brushes.border.normal = user_choice_border_br;
+			multibutton_user_choice_button_theme.brushes.bk = user_choice_bk;
+			multibutton_user_choice_button_theme.brushes.border = user_choice_bk;
 			multibutton::set_button_theme(controls.list.multibutton_choices, &multibutton_user_choice_button_theme,pagedata->user_answer_idx);
 
-
 			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk.normal = user_choice_bk_br;
-			btn_next_theme.brushes.border.normal = user_choice_bk_br;
+			btn_next_theme.brushes.bk.normal = user_choice_bk.normal;
+			btn_next_theme.brushes.border.normal = user_choice_bk.normal;
 			btn_next_theme.brushes.foreground.normal = global::colors.Img;
 			button::set_theme(controls.list.button_next, &btn_next_theme);
 
@@ -2870,8 +2891,17 @@ namespace べんきょう {
 			auto& controls = state->controls.practice_drawing;
 
 			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
-			HBRUSH user_choice_bk_br = pagedata->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-			HBRUSH user_choice_border_br = user_choice_bk_br;
+			brush_group user_choice_bk;
+			if (pagedata->answered_correctly) {
+				user_choice_bk.normal = global::colors.Bk_right_answer;
+				user_choice_bk.mouseover = global::colors.BkMouseover_right_answer;
+				user_choice_bk.clicked = global::colors.BkPush_right_answer;
+			}
+			else {
+				user_choice_bk.normal = global::colors.Bk_wrong_answer;
+				user_choice_bk.mouseover = global::colors.BkMouseover_wrong_answer;
+				user_choice_bk.clicked = global::colors.BkPush_wrong_answer;
+			}
 
 			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
 			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
@@ -2880,8 +2910,8 @@ namespace べんきょう {
 			paint::set_placeholder(controls.list.paint_answer, pagedata->user_answer);
 
 			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk.normal = user_choice_bk_br;
-			btn_next_theme.brushes.border.normal = user_choice_bk_br;
+			btn_next_theme.brushes.bk = user_choice_bk;
+			btn_next_theme.brushes.border = user_choice_bk;
 			btn_next_theme.brushes.foreground.normal = global::colors.Img;
 			button::set_theme(controls.list.button_next, &btn_next_theme);
 
@@ -3694,14 +3724,20 @@ namespace べんきょう {
 								default:Assert(0);
 								}
 
-								bool success = !StrCmpIW(correct_answer->str, user_answer.str);
+								bool answered_correctly = !StrCmpIW(correct_answer->str, user_answer.str);
 
 								//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
-								HBRUSH bk = success ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+								HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+								HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
+								HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
 								edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
 								button::Theme btn_theme;
 								btn_theme.brushes.bk.normal = bk;
+								btn_theme.brushes.bk.mouseover = bk_mouseover;
+								btn_theme.brushes.bk.clicked = bk_push;
 								btn_theme.brushes.border.normal = bk;
+								btn_theme.brushes.border.mouseover = bk_mouseover;
+								btn_theme.brushes.border.clicked = bk_push;
 								btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
 								button::set_theme(page.list.button_next, &btn_theme);
 
@@ -3710,7 +3746,7 @@ namespace べんきょう {
 								//Update word stats
 								//TODO(fran): if we knew we had the old values in the word object we could simply update those and batch update the whole word
 								word_update_last_shown_date(state->settings->db, pagestate.practice->word);
-								word_increment_times_shown__times_right(state->settings->db, pagestate.practice->word, success);
+								word_increment_times_shown__times_right(state->settings->db, pagestate.practice->word, answered_correctly);
 
 								//Add this practice to the list of current completed ones
 								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));
@@ -3719,7 +3755,7 @@ namespace べんきょう {
 								pagestate.practice = nullptr;//clear the pointer just in case
 								p->user_answer = user_answer;
 								p->correct_answer = correct_answer;
-								p->answered_correctly = success;
+								p->answered_correctly = answered_correctly;
 								p->question = question;
 
 								state->multipagestate.temp_practices.push_back((ProcState::practice_header*)p);
@@ -3727,7 +3763,7 @@ namespace べんきょう {
 								//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
 
 								EnableWindow(page.list.button_show_word, TRUE);
-								if (success) next_practice_level(state);
+								if (answered_correctly) next_practice_level(state);
 							}
 							else {
 								free_any_str(user_answer.str);
@@ -3810,16 +3846,26 @@ namespace べんきょう {
 
 
 							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+							HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
+							HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
 							button::Theme multibtn_btn_theme;
 							multibtn_btn_theme.brushes.bk.normal = bk;
+							multibtn_btn_theme.brushes.bk.mouseover = bk_mouseover;
+							multibtn_btn_theme.brushes.bk.clicked = bk_push;
 							multibtn_btn_theme.brushes.border.normal = bk;
+							multibtn_btn_theme.brushes.border.mouseover = bk_mouseover;
+							multibtn_btn_theme.brushes.border.clicked = bk_push;
 							multibtn_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
 							multibutton::set_button_theme(page.list.multibutton_choices, &multibtn_btn_theme, user_answer_idx);
 							//TODO(fran): when the user answers incorrectly we want to visually show the correct answer too, maybe with a lower brightness global::colors.Bk_right_answer or a yellow
 
 							button::Theme btn_theme;
 							btn_theme.brushes.bk.normal = bk;
+							btn_theme.brushes.bk.mouseover = bk_mouseover;
+							btn_theme.brushes.bk.clicked = bk_push;
 							btn_theme.brushes.border.normal = bk;
+							btn_theme.brushes.border.mouseover = bk_mouseover;
+							btn_theme.brushes.border.clicked = bk_push;
 							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
 							button::set_theme(page.list.button_next, &btn_theme);
 
@@ -3891,9 +3937,15 @@ namespace べんきょう {
 							bool answered_correctly = child == page.list.button_right;
 
 							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+							HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
+							HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
 							button::Theme btn_theme;
 							btn_theme.brushes.bk.normal = bk;
+							btn_theme.brushes.bk.mouseover = bk_mouseover;
+							btn_theme.brushes.bk.clicked = bk_push;
 							btn_theme.brushes.border.normal = bk;
+							btn_theme.brushes.border.mouseover = bk_mouseover;
+							btn_theme.brushes.border.clicked = bk_push;
 							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
 							button::set_theme(page.list.button_next, &btn_theme);
 
