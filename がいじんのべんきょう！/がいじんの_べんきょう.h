@@ -4090,6 +4090,20 @@ namespace べんきょう {
 		{
 			return 1;
 		} break;
+		case WM_XBUTTONDOWN://Used for forwards and backwards navigation with mouse that have those additional buttons, TODO(fran): this seems like more of a convention, find out if there's some way to know for sure this was the user's intent when they pressed those buttons
+		{
+			//TODO(fran): this may be better placed in nonclient and all we do here is redirect to there
+			switch (HIWORD(wparam)) {
+			case XBUTTON1 /*Back button*/: SendMessage(state->wnd, WM_BACK, 0, 0); break;
+			case XBUTTON2 /*Forward button*/: /*We dont allow going forward*/ break;
+			default: Assert(0);
+			}
+			return 1;
+		} break;
+		case WM_XBUTTONUP:
+		{
+			return 1;
+		} break;
 
 		default:
 #ifdef _DEBUG

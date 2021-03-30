@@ -55,8 +55,14 @@ struct utf16_str {
 
 	//Includes null terminator
 	size_t sz_char() { return sz / sizeof(*str); }//TODO(fran): it's probably better to not include the null terminator, or give two functions
+
+	utf16& operator[](size_t i) { return str[i]; }
+
+	utf16* begin() { return this->sz ? &(*this)[0] : nullptr; }
+
+	utf16* end() { return this->sz ? (utf16*)((u8*)&(*this)[0] + this->sz) : nullptr; /*ptr one past the last element*/ }
 };
-//TODO(fran): try something like this
+
 struct any_str {
 	void* str;
 	size_t sz;/*bytes*/

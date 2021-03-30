@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "win32_Platform.h"
 
+//TODO(fran): idk if we should really apply this checks, allowing the user the freedom to input whatever they want isnt a bad idea
+
 #define between_inclusive(lower_bound,target,upper_bound) ((c)>=(lower_bound) && (c)<=(upper_bound))
 #define between_exclusive(lower_bound,target,upper_bound) ((c)>(lower_bound) && (c)<(upper_bound))
 
@@ -20,3 +22,13 @@ bool is_kanji(utf16 c) {//TODO(fran):Im pretty sure this has lots of korean too
 	//TODO(fran): im probably missing some stuff
 	return res;
 }
+
+
+bool all_hiragana(utf16_str s) {
+	//TODO(fran): surrogate pairs?
+	//TODO(fran): what to do about whitespace?
+	for (const auto& c : s) if (!is_hiragana(c)) return false;
+	return true;
+}
+
+//TODO(fran): taking into account things like this with long and separate ranges it'd be good to add a character_check_function that can be injected into the edit control for doing this kinds of complex range checks (there's a little problem with this, that's japanese is generated via normal keyboard characters, therefore the standard abc will be present on the text if only for a brief period, this is why, once we implement the better chrome style IME, there wont be a way to implement this, it will be better to perform a final and single check once the user has finished inputting)
