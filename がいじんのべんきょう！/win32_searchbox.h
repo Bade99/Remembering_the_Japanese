@@ -617,6 +617,16 @@ namespace searchbox {
 		{
 			return SendMessage(state->controls.editbox, msg, wparam,lparam);
 		} break;
+		case WM_SETFOCUS:
+		{
+			SetFocus(state->controls.editbox);
+			return 0;
+		} break;
+		case WM_KILLFOCUS:
+		{
+			return 0;
+		} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

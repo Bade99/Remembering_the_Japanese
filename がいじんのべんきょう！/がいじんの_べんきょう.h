@@ -82,11 +82,6 @@
 #define TIMER_next_practice_level 0x5
 
 
-#define _べんきょう_table_version version
-#define _べんきょう_table_version_structure \
-	v					INTEGER PRIMARY KEY\
-
-
 #define べんきょう_table_words "words"
 #define _べんきょう_table_words words
 #define べんきょう_table_words_structure \
@@ -132,10 +127,9 @@
 
 //TODO(fran): add indexing (or default ordering, is that a thing?) by creation_date
 
-#define べんきょう_table_version "version" /*TODO(fran): versioning system to be able to move at least forward, eg db is v2 and we are v5; for going backwards, eg db is v4 and we are v2, what we can do is avoid modifying any already existing columns of previous versions when we move to a new version, that way older versions simply dont use the columns/tables of the new ones*/
-
+#define べんきょう_table_version version
 #define べんきょう_table_version_structure \
-	"v					INTEGER"\
+	v					INTEGER PRIMARY KEY\
 
 //INFO about べんきょう_table_version_structure:
 //	v: stores the db/program version, to make it simpler versions are just a number, the db wont be changing too often
@@ -602,6 +596,7 @@ struct べんきょうSettings {
 
 	foreach_べんきょうSettings_member(_generate_member);
 	sqlite3* db;
+	bool is_primary_wnd;//TODO(fran): not sure this should go here instead of ProcState
 
 	_generate_default_struct_serialize(foreach_べんきょうSettings_member);
 	_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
@@ -844,9 +839,9 @@ struct べんきょうProcState {
 };
 
 namespace べんきょう {
-	using ProcState = べんきょうProcState;
-
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_べんきょう";
+
+	using ProcState = べんきょうProcState;
 
 	ProcState* get_state(HWND wnd) {
 		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
@@ -884,6 +879,7 @@ namespace べんきょう {
 		return res;
 	}
 
+	//returns the basic user stats, this values dont need to be freed
 	user_stats get_user_stats(sqlite3* db) {
 		user_stats res;
 		utf8 stats[] = SQL(
@@ -910,7 +906,7 @@ namespace べんきょう {
 
 	//NOTE: afterwards you must .free() the accuracy_timeline member
 	//retrieves the last cnt timepoints in order of oldest to newest
-	void get_user_stats_accuracy_timeline(sqlite3* db, user_stats* stats, size_t cnt) {
+	void get_user_stats_accuracy_timeline(sqlite3* db, user_stats* stats, size_t cnt) {//TODO(fran): I feel like returning ptr<u8> is better than asking for a user_stats ptr but Im not sure
 		using namespace std::string_literals;
 		std::string timeline =
 			SQL(SELECT accuracy FROM) 
@@ -956,7 +952,7 @@ namespace べんきょう {
 			//CREATE
 			{
 				utf8 create_version_table[] = SQL(
-					CREATE TABLE _べんきょう_table_version(_べんきょう_table_version_structure) WITHOUT ROWID;
+					CREATE TABLE べんきょう_table_version(べんきょう_table_version_structure) WITHOUT ROWID;
 				);
 				sqlite3_exec(db, create_version_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1008,7 +1004,7 @@ namespace べんきょう {
 				//else {
 					//Entry isnt there, create it
 				utf8 insert_version[] = SQL(
-					INSERT INTO _べんきょう_table_version(v) VALUES(1);
+					INSERT INTO べんきょう_table_version(v) VALUES(1);
 				);
 				sqlite3_exec(db, insert_version, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1022,9 +1018,9 @@ namespace べんきょう {
 
 			//CREATE TEMPORARY TRIGGER
 			{
-				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
+				//TODO(fran): HACK: Im still using IF NOT EXISTS cause of multiple "tabs", we need a better solution for multi tabs that doesnt do unnecessary setup
 				utf8 create_trigger_increment_word_cnt[] = SQL(
-					CREATE TEMPORARY TRIGGER increment_word_cnt AFTER INSERT ON _べんきょう_table_words
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
 					BEGIN
 					UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
 				END;
@@ -1035,7 +1031,7 @@ namespace べんきょう {
 			{
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_decrement_word_cnt[] = SQL(
-					CREATE TEMPORARY TRIGGER decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
 					BEGIN
 					UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
 				END;
@@ -1046,7 +1042,7 @@ namespace べんきょう {
 			{
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_increment_times_shown[] = SQL(
-					CREATE TEMPORARY TRIGGER increment_times_shown
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_times_shown
 					AFTER UPDATE OF times_shown ON _べんきょう_table_words
 					BEGIN
 					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
@@ -1058,7 +1054,7 @@ namespace べんきょう {
 			{
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_increment_times_right[] = SQL(
-					CREATE TEMPORARY TRIGGER increment_times_right
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_times_right
 					AFTER UPDATE OF times_right ON _べんきょう_table_words
 					BEGIN
 					UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
@@ -1070,7 +1066,7 @@ namespace べんきょう {
 			{
 				//IMPORTANT: this depends on times_shown being updated _before_ times_right
 				utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
-					CREATE TEMPORARY TRIGGER insert_accuracy_timepoint
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS insert_accuracy_timepoint
 					AFTER UPDATE OF times_shown ON _べんきょう_table_user
 					BEGIN
 					INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
@@ -1079,7 +1075,7 @@ namespace べんきょう {
 				);
 
 				utf8 create_trigger_update_accuracy_timepoint[] = SQL(
-					CREATE TEMPORARY TRIGGER update_accuracy_timepoint
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS update_accuracy_timepoint
 					AFTER UPDATE OF times_right ON _べんきょう_table_user
 					BEGIN
 					UPDATE _べんきょう_table_accuracy_timeline
@@ -1101,7 +1097,7 @@ namespace べんきょう {
 		i32 version;
 		{
 			utf8 get_version[] = SQL(
-				SELECT v FROM _べんきょう_table_version;
+				SELECT v FROM べんきょう_table_version;
 			);
 			sqlite3_stmt* stmt;
 			int errcode;
@@ -2327,8 +2323,82 @@ namespace べんきょう {
 		return true;
 	}
 
-	bool insert_word(sqlite3* db, const learnt_word* word) {
-		bool res;
+	struct get_word_res {
+		stored_word word;
+		bool found;//TODO(fran): this is stupid, simply return a pointer to stored_word and everything is solved
+	};
+	void free_get_word(get_word_res res) {
+		//TODO(fran): I dont think I need the if, I should simply always allocate (and I think I already do)
+		for (auto s : res.word.application_defined.all) if (s.str) free_any_str(s.str);
+		for (auto s : res.word.user_defined.all) if (s.str) free_any_str(s.str);
+	}
+	get_word_res get_word(sqlite3* db, utf16* word_hiragana) {
+		get_word_res res{ 0 };
+		auto match_str = convert_utf16_to_utf8(word_hiragana, (int)(cstr_len(word_hiragana) + 1) * sizeof(*word_hiragana)); defer{ free_any_str(match_str.str); };
+		std::string select_word = std::string("SELECT ")
+			+ _foreach_learnt_word_member(_sqlite3_generate_columns)
+			+ _foreach_extra_word_member(_sqlite3_generate_columns);
+		select_word.pop_back();//remove trailing comma
+		select_word += std::string(" FROM ") + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "'";
+		//NOTE: here I'd like to check last_shown_date and do an if last_shown_date == 0 -> 'Never' else last_shown_data, but I cant cause of the macros, it's pretty hard to do operations on specific columns if you have to autogen it with macros
+
+		auto parse_select_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			get_word_res* res = (decltype(res))extra_param;
+			res->found = true;
+			//here we should already know the order of the columns since they should all be specified in their correct order in the select
+			//NOTE: we should always get only one result since we search by hiragana
+
+			//TODO(fran): the conversion im doing here from "convert_res" to "s" should get standardized in one type eg "any_text" or "any_str" where struct any_str{void* mem,size_t sz;/*bytes*/}
+#define load_learnt_word_member(type,name,...) if(results) res->word.user_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
+#define load_extra_word_member(type,name,...) if(results) res->word.application_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
+			_foreach_learnt_word_member(load_learnt_word_member);
+			_foreach_extra_word_member(load_extra_word_member);
+
+			try {//Format last_shown_date (this would be easier to do in the query but I'd have to remove the macros)
+				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.last_shown_date.str, nullptr, 10);
+				free_any_str(res->word.application_defined.attributes.last_shown_date.str);
+				if (unixtime == 0) {
+					//this word has never been shown in a practice run
+					str never = RS(274);
+					int sz_bytes = (int)(never.length() + 1) * sizeof(str::value_type);
+					res->word.application_defined.attributes.last_shown_date = alloc_any_str(sz_bytes);
+					memcpy(res->word.application_defined.attributes.last_shown_date.str, never.c_str(), sz_bytes);
+				}
+				else {
+					std::time_t temp = unixtime;
+					std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
+					res->word.application_defined.attributes.last_shown_date = alloc_any_str(30 * sizeof(utf16));
+					wcsftime((utf16*)res->word.application_defined.attributes.last_shown_date.str, 30, L"%Y-%m-%d", time);
+				}
+			}
+			catch (...) {}
+
+			try {//Format created_date (this would be easier to do in the query but I'd have to remove the macros)
+				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.creation_date.str, nullptr, 10);
+				free_any_str(res->word.application_defined.attributes.creation_date.str);
+
+				std::time_t temp = unixtime;
+				std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
+				res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
+				wcsftime((utf16*)res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
+			}
+			catch (...) {}
+
+			//TODO(fran): once again we want to change something for the UI, the created_date should only show "y m d", that may mean that we want macros for the user defined stuff, but not for application defined, there are 2 out of 4 things we want to change there
+
+			return 0;
+		};
+		//TODO(fran):in the sql query convert the datetime values to the user's localtime
+
+		char* select_errmsg;
+		sqlite3_exec(db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+		return std::move(res);
+	}
+
+	//returns sqlite error codes, SQLITE_OK,...
+	int insert_word(sqlite3* db, const learnt_word* word) {
+		int res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
@@ -2341,41 +2411,16 @@ namespace べんきょう {
 
 		std::string insert_word = std::string(" INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
 
-		char* insert_errmsg;
-		res = sqlite3_exec(db, insert_word.c_str(), 0, 0, &insert_errmsg) == SQLITE_OK;
-		sqlite_exec_runtime_check(insert_errmsg);
-
+		//char* insert_errmsg;
+		res = sqlite3_exec(db, insert_word.c_str(), 0, 0, 0/*&insert_errmsg*/) /*== SQLITE_OK*/;
+		//sqlite_exec_runtime_check(insert_errmsg);
+		
 		//TODO(fran): handle if the word already exists, maybe show the old word and ask if they want to override that content, NOTE: the handling code shouldnt be here, this function should be as isolated as possible, if we start heavily interacting with the user this will be ugly
 
 		return res;
 	}
 
-	bool save_new_word(ProcState* state) {
-		bool res = false;
-		if (check_new_word(state)) {
-			learnt_word w;
-			auto& page = state->controls.new_word;
 
-			_get_edit_str(page.list.edit_hiragana, w.attributes.hiragana);
-			_get_edit_str(page.list.edit_kanji, w.attributes.kanji);
-			_get_edit_str(page.list.edit_translation, w.attributes.translation);
-			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
-
-			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w.attributes.lexical_category);
-
-			learnt_word w_utf8;
-			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
-				auto res = convert_utf16_to_utf8((utf16*)w.all[i].str, (int)w.all[i].sz);
-				w_utf8.all[i] = res;
-				free_any_str(w.all[i].str);//maybe set it to zero too
-			}
-			defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
-			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
-			res = insert_word(state->settings->db, &w_utf8); 
-			//TODO(fran): maybe handle repeated words here
-		}
-		return res;
-	}
 	struct search_word_res { utf16** matches; int cnt; };
 	void free_search_word(search_word_res res) {
 		for (int i = 0; i < res.cnt; i++) {
@@ -2423,80 +2468,6 @@ namespace べんきょう {
 				res[i] = search_res.matches[i];
 		}
 		return res;
-	}
-
-
-	struct get_word_res {
-		stored_word word;
-		bool found;
-	};
-	void free_get_word(get_word_res res) {
-		//TODO(fran): I dont think I need the if, I should simply always allocate (and I think I already do)
-		for(auto s : res.word.application_defined.all) if(s.str) free_any_str(s.str);
-		for(auto s : res.word.user_defined.all) if (s.str) free_any_str(s.str);
-	}
-	get_word_res get_word(sqlite3* db, utf16* word_hiragana) {
-		get_word_res res{0};
-		auto match_str = convert_utf16_to_utf8(word_hiragana, (int)(cstr_len(word_hiragana) + 1) * sizeof(*word_hiragana)); defer{ free_any_str(match_str.str); };
-		std::string select_word = std::string("SELECT ")
-			+ _foreach_learnt_word_member(_sqlite3_generate_columns)
-			+ _foreach_extra_word_member(_sqlite3_generate_columns); 
-		select_word.pop_back();//remove trailing comma
-		select_word += std::string(" FROM ") + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "'";
-		//NOTE: here I'd like to check last_shown_date and do an if last_shown_date == 0 -> 'Never' else last_shown_data, but I cant cause of the macros, it's pretty hard to do operations on specific columns if you have to autogen it with macros
-
-		auto parse_select_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
-			get_word_res* res = (decltype(res))extra_param;
-			res->found = true;
-			//here we should already know the order of the columns since they should all be specified in their correct order in the select
-			//NOTE: we should always get only one result since we search by hiragana
-
-			//TODO(fran): the conversion im doing here from "convert_res" to "s" should get standardized in one type eg "any_text" or "any_str" where struct any_str{void* mem,size_t sz;/*bytes*/}
-#define load_learnt_word_member(type,name,...) if(results) res->word.user_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
-#define load_extra_word_member(type,name,...) if(results) res->word.application_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
-			_foreach_learnt_word_member(load_learnt_word_member);
-			_foreach_extra_word_member(load_extra_word_member);
-			
-			try {//Format last_shown_date (this would be easier to do in the query but I'd have to remove the macros)
-				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.last_shown_date.str, nullptr, 10);
-				free_any_str(res->word.application_defined.attributes.last_shown_date.str);
-				if (unixtime == 0) {
-					//this word has never been shown in a practice run
-					str never = RS(274);
-					int sz_bytes = (int)(never.length() + 1) * sizeof(str::value_type);
-					res->word.application_defined.attributes.last_shown_date = alloc_any_str(sz_bytes);
-					memcpy(res->word.application_defined.attributes.last_shown_date.str, never.c_str(), sz_bytes);
-				}
-				else {
-					std::time_t temp = unixtime;
-					std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
-					res->word.application_defined.attributes.last_shown_date = alloc_any_str(30 * sizeof(utf16));
-					wcsftime((utf16*)res->word.application_defined.attributes.last_shown_date.str, 30, L"%Y-%m-%d", time);
-				}
-			}
-			catch (...) {}
-
-			try {//Format created_date (this would be easier to do in the query but I'd have to remove the macros)
-				i64 unixtime = std::stoll((utf16*)res->word.application_defined.attributes.creation_date.str, nullptr, 10);
-				free_any_str(res->word.application_defined.attributes.creation_date.str);
-				
-			   	std::time_t temp = unixtime;
-			   	std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
-			   	res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
-			   	wcsftime((utf16*)res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
-			}
-			catch (...) {}
-
-			//TODO(fran): once again we want to change something for the UI, the created_date should only show "y m d", that may mean that we want macros for the user defined stuff, but not for application defined, there are 2 out of 4 things we want to change there
-
-			return 0;
-		};
-		//TODO(fran):in the sql query convert the datetime values to the user's localtime
-
-		char* select_errmsg;
-		sqlite3_exec(db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
-		sqlite_exec_runtime_check(select_errmsg);
-		return std::move(res);
 	}
 
 	void clear_practices_vector(decltype(decltype(ProcState::pagestate)::practice_review_state::practices)& practices) {
@@ -2639,7 +2610,7 @@ namespace べんきょう {
 			str answer_placeholder;//NOTE: using string so the object doesnt get destroyed inside the switch statement
 			HBRUSH answer_br{0};
 
-			str answer_hiragana = str(L"こたえ");
+			str answer_hiragana{ L"こたえ" };
 
 			switch (practice->practice_type) {
 			case decltype(practice->practice_type)::hiragana_to_translation:
@@ -2953,6 +2924,9 @@ namespace べんきょう {
 					store_previous_page(state, state->current_page);
 					set_current_page(state, ProcState::page::new_word);
 				}
+				else SetFocus(state->controls.search.list.searchbox_search);//Restore focus to the edit window since messagebox takes it away 
+				//TODO(fran): a way to make this more streamlined would be to implement:
+				//MessageBoxW(){oldfocus=getfocus(); messagebox(); setfocus(oldfocus);}
 			}
 		}
 	}
@@ -3038,6 +3012,81 @@ namespace べんきょう {
 		return res;
 	}
 
+	bool save_new_word(ProcState* state) {
+		bool res = false;
+		if (check_new_word(state)) {
+			learnt_word w;
+			auto& page = state->controls.new_word;
+
+			_get_edit_str(page.list.edit_hiragana, w.attributes.hiragana);
+			_get_edit_str(page.list.edit_kanji, w.attributes.kanji);
+			_get_edit_str(page.list.edit_translation, w.attributes.translation);
+			_get_edit_str(page.list.edit_mnemonic, w.attributes.mnemonic);
+
+			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w.attributes.lexical_category);
+
+			learnt_word w_utf8;
+			for (int i = 0; i < ARRAYSIZE(w.all); i++) {
+				auto res = convert_utf16_to_utf8((utf16*)w.all[i].str, (int)w.all[i].sz);
+				w_utf8.all[i] = res;
+				free_any_str(w.all[i].str);//maybe set it to zero too
+			}
+			defer{ for (auto& _ : w_utf8.all)free_any_str(_.str); };
+			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
+			int insert_res = insert_word(state->settings->db, &w_utf8);
+
+			//Error handling
+			switch (insert_res) {
+			case SQLITE_OK: { res = true; } break;
+			case SQLITE_CONSTRAINT:
+			{
+				//TODO(fran): this should actually be a more specific check for word.hiragana but for now we know that's the only constraint check there is
+
+				//The user tried to add a word that already exists, we must notify them about it and ask wether to override the previous word or cancel
+				//INFO: we mustnt allow the user to edit the word while the msgbox is active since we dont retrieve the data, we use the one we already have
+				//On a separate window we show the previously existing word so the user can compare and or copy it
+
+				{//Open separate page with the currently stored word
+					//TODO(fran): streamline this process
+					べんきょうSettings* べんきょう_cl = (decltype(べんきょう_cl))malloc(sizeof(べんきょうSettings));//TODO(fran): MEMLEAK: maybe we can say that non primary windows have to release this memory but it's pretty hacky
+					RECT べんきょう_nc_rc; GetWindowRect(state->nc_parent, &べんきょう_nc_rc);
+					int w = RECTW(べんきょう_nc_rc);
+					べんきょう_nc_rc.left = べんきょう_nc_rc.right;
+					べんきょう_nc_rc.right += w;
+					べんきょう_cl->db = state->settings->db;
+					べんきょう_cl->is_primary_wnd = false;
+
+					unCapNcLpParam べんきょう_nclpparam;
+					べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
+					べんきょう_nclpparam.client_lp_param = べんきょう_cl;
+
+					HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+						べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, GetModuleHandleW(NULL), &べんきょう_nclpparam);
+					Assert(べんきょう_nc);
+
+					べんきょう::set_brushes(nonclient::get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk);
+					べんきょう::set_current_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word);
+
+					auto old_word_utf16 = (utf16_str)convert_utf8_to_utf16((utf8*)w_utf8.attributes.hiragana.str, (int)w_utf8.attributes.hiragana.sz); defer{ free_any_str(old_word_utf16.str); };//HACK: reconverting to utf16 for searching the old word
+					get_word_res old_word = get_word(state->settings->db, old_word_utf16.str); defer{ free_get_word(old_word); };
+					べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word, &old_word.word);
+					UpdateWindow(べんきょう_nc);
+					//TODO(fran): this window needs to be created without the privilege of being able to quit the program, either we let it know it is a secondary window or we do smth else idk what
+				}
+
+				int ret = MessageBoxW(state->nc_parent, RCS(170), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
+				if (ret == IDYES) {
+					res = update_word(state->settings->db, &w_utf8);
+				}
+
+			} break;
+			default: { sqlite_runtime_check(false, state->settings->db); } break;
+			}
+			//TODO(fran): maybe handle repeated words here
+		}
+		return res;
+	}
+
 	learnt_word get_practice_word(sqlite3* db, bool hiragana_req=false,bool kanji_req=false,bool meaning_req=false) {
 		learnt_word res{0};
 
@@ -3106,6 +3155,7 @@ namespace べんきょう {
 		return res;
 	}
 
+	//TODO(fran): use get_hiragana_kanji_meaning, and rename to has_hiragana_kanji_meaning
 	bool has_hiragana(const learnt_word* word) {
 		bool res;
 		res = word && word->attributes.hiragana.str && *((utf16*)word->attributes.hiragana.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
@@ -3273,7 +3323,6 @@ namespace べんきょう {
 
 	void init_cpp_objects(ProcState* state) {
 		state->pagestate.practice_review.practices = decltype(state->pagestate.practice_review.practices)();
-		//NOTE: since I know from the start the number of practices I could also allocate and array, but there's really no point, simpler is this since it's not at all performance critical code
 	}
 
 	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
@@ -3453,6 +3502,8 @@ namespace べんきょう {
 
 				clear_practices_vector(state->multipagestate.temp_practices);
 				state->multipagestate.temp_practices.~vector();
+				
+				if(state->settings->is_primary_wnd) PostQuitMessage(0);//TODO(fran): this aint gonna be enough if we ever have multiple main windows
 
 				free(state);
 				state = nullptr;
@@ -3546,126 +3597,7 @@ namespace べんきょう {
 				case ProcState::page::search:
 				{
 					auto& page = state->controls.search;
-#if 0
-					if (child == page.list.combo_search) {
-						WORD notif = HIWORD(wparam);
-						switch (notif) {
-						case CBN_EDITCHANGE://The user has changed the content of the edit box, this msg is sent after the change is rendered in the control (if we use CBN_EDITUPDATE whick is sent before re-rendering it slows down user input and feels bad to type)
-						{
-
-							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
-
-							COMBOBOX_clear_list_items(page.list.combo_search);
-
-							int sz_char = (int)SendMessage(page.list.combo_search, WM_GETTEXTLENGTH, 0, 0)+1;
-							if (sz_char > 1) {
-								utf16* search = (decltype(search))malloc(sz_char * sizeof(*search));
-								SendMessage(page.list.combo_search, WM_GETTEXT, sz_char, (LPARAM)search);
-
-								//TODO(fran): this might be an interesting case for multithreading, though idk how big the db has to be before this search is slower than the user writing, also for jp text the IME wont allow for the search to start til the user presses enter, that may be another <-TODO(fran): chrome-like handling for IME, text goes to the edit control at the same time as the IME
-
-								auto search_res = search_word_matches(state->settings->db, search, 5); defer{ free_search_word(search_res); };
-								//TODO(fran): clear the listbox
-
-								//Semi HACK: set first item of the listbox to what the user just wrote, to avoid the stupid combobox from selecting something else
-								//Show the listbox
-								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
-								SendMessageW(page.list.combo_search, CB_INSERTSTRING, 0, (LPARAM)search);
-
-								if (search_res.cnt) {
-									for (int i = 0; i < search_res.cnt; i++) 
-										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
-									
-									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
-
-#if 1
-									//TODO(fran): why the hell does this make the mouse disappear, just terrible, I really need to make my own one
-									//TODO(fran): not all the items are shown if they are too many, I think there's a msg that increases the number of items to show
-
-									//NOTE: ok now we have even more garbage, the cb sets the selection to the whole word, which means that the next char the user writes _overrides_ the previous one, I really cant comprehend how this is so awful to use, I must be doing something wrong
-									//SendMessage(page.list.combo_search, CB_SETEDITSEL, 0, MAKELONG(sel_start,sel_end));//This is also stupid, you go from DWORD on CB_GETEDITSEL to WORD here, you loose a whole byte of info
-
-									//IMPORTANT INFO: I think that the "autoselection" problem only happens when you call CB_SHOWDROPDOWN, if we called it _before_ adding elements to the list we may be ok, the answer is yes and no, my idea works _but_ the listbox doesnt update its size to accomodate for the items added after showing it, gotta do that manually
-
-									//COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-									//int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
-									//int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
-									//RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
-									//MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
-									//AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-#else
-									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);//returns -1 on error, but who cares
-									//NOTE: unless LBS_OWNERDRAWVARIABLE style is defined all items have the same height
-									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
-									RECT rw; GetWindowRect(page.list.combo_search, &rw);
-									MoveWindow(nfo.hwndList, rw.left, rw.bottom, RECTWIDTH(rw), list_h, TRUE);
-									SetWindowPos(nfo.hwndList, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);//INFO: here was the problem, the window was being occluded
-									//ShowWindow(nfo.hwndList, SW_SHOWNA);
-									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-									SendMessage(nfo.hwndList, 0x1ae/*LBCB_STARTTRACK*/, 0, 0); //does start mouse tracking
-									//NOTE: I think LBCB_ENDTRACK is handled by itself
-#endif
-									//TODO(fran): add something to the default list item or add extra info to the db results to differentiate the default first listbox item from the results
-									//TODO(fran): now we have semi success with the cb, but still the first character comes out a little too late, it feels bad, we probably cant escape creating our own combobox (I assume that happens because animatewindow is happening?)
-									//TODO(fran): actually we can implement this in the subclass, we can add a msg for a non stupid way of showing the listbox, we can probaly handle everything well from there
-								}
-								//else {
-									//Hide the listbox, well... maybe not since we now show the search string on the first item
-									//SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
-								//}
-								//Update listbox size
-								COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-								int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
-								int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt, 2);
-								RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
-								MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
-#if 0
-								AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-#else
-								//ShowWindow(nfo.hwndList, SW_SHOW);//NOTE: dont call AnimateWindow, for starters SW_SHOW appears to already animate, unfortunately we dont want animation, we want the results as fast as possible, also the animation seems to be performed by the same thread which slows down user input
-#endif
-							}
-							else {
-								//Hide the listbox
-								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
-							}
-						} break;
-						case CBN_CLOSEUP:
-						{
-							//SendMessage(page.list.combo_search, CB_RESETCONTENT, 0, 0);//Terrible again, what if you just want to clear the listbox alone? we need the poor man's solution:
-							COMBOBOX_clear_list_items(page.list.combo_search);
-						} break;
-						case CBN_SELENDOK://User has selected an item from the list
-						{
-							//TODO(fran): lets hope this gets sent _before_ hiding the list, otherwise I'd have already deleted the elements by this point
-							int sel = (int)SendMessageW(page.list.combo_search, CB_GETCURSEL, 0, 0);
-							if (sel != CB_ERR) {
-								int char_sz = (int)SendMessageW(page.list.combo_search, CB_GETLBTEXTLEN, sel, 0)+1;
-								any_str word = alloc_any_str(char_sz * sizeof(utf16)); defer{ free_any_str(word.str); };
-								SendMessageW(page.list.combo_search, CB_GETLBTEXT, sel, (LPARAM)word.str);
-								//We got the word, it may or may not be valid, so there are two paths, show error or move to the next page "show_word"
-								get_word_res res = get_word(state->settings->db, (utf16*)word.str); defer{ free_get_word(res); };
-								if (res.found) {
-									preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
-									store_previous_page(state, state->current_page);
-									set_current_page(state, ProcState::page::show_word);
-								}
-								else {
-									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
-									if (ret == IDYES) {
-										learnt_word new_word{0};
-										new_word.attributes.hiragana = word;
-										preload_page(state, ProcState::page::new_word, &new_word);
-										store_previous_page(state, state->current_page);
-										set_current_page(state, ProcState::page::new_word);
-									}
-								}
-							}
-						} break;
-						}
-					}
-#endif
+					//NOTE: for now the only thing on this page is the searchbox, which is handled in a decentralized fashion
 				} break;
 				case ProcState::page::show_word:
 				{
@@ -4079,14 +4011,6 @@ namespace べんきょう {
 
 			return (INT_PTR)global::colors.ControlBk;
 		} break;
-		//case WM_CTLCOLOREDIT: //for the combobox edit control (if I dont subclass it) //TODO(fran): this has to go
-		//{
-		//	HDC listboxDC = (HDC)wparam;
-		//	SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
-		//	SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
-
-		//	return (INT_PTR)global::colors.ControlBk;
-		//} break;
 		case WM_CTLCOLORSTATIC: //for the static controls //TODO(fran): this has to go, aka make my own
 		{
 			HDC listboxDC = (HDC)wparam;
@@ -4161,10 +4085,7 @@ namespace べんきょう {
 		{
 			return 1;
 		} break;
-		//case WM_KEYUP://HACK: because of using Sleep some msgs seem to go to the wrong place
-		//{
-		//	return 0;
-		//} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);
@@ -4205,3 +4126,126 @@ namespace べんきょう {
 	};
 	static const pre_post_main PREMAIN_POSTMAIN;
 }
+
+
+//- WM_COMMAND page::search old implementation, has info about how windows manages comboboxes, specifically the listbox
+//#if 0
+//					if (child == page.list.combo_search) {
+//						WORD notif = HIWORD(wparam);
+//						switch (notif) {
+//						case CBN_EDITCHANGE://The user has changed the content of the edit box, this msg is sent after the change is rendered in the control (if we use CBN_EDITUPDATE whick is sent before re-rendering it slows down user input and feels bad to type)
+//						{
+//
+//							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
+//
+//							COMBOBOX_clear_list_items(page.list.combo_search);
+//
+//							int sz_char = (int)SendMessage(page.list.combo_search, WM_GETTEXTLENGTH, 0, 0)+1;
+//							if (sz_char > 1) {
+//								utf16* search = (decltype(search))malloc(sz_char * sizeof(*search));
+//								SendMessage(page.list.combo_search, WM_GETTEXT, sz_char, (LPARAM)search);
+//
+//								//TODO(fran): this might be an interesting case for multithreading, though idk how big the db has to be before this search is slower than the user writing, also for jp text the IME wont allow for the search to start til the user presses enter, that may be another <-TODO(fran): chrome-like handling for IME, text goes to the edit control at the same time as the IME
+//
+//								auto search_res = search_word_matches(state->settings->db, search, 5); defer{ free_search_word(search_res); };
+//								//TODO(fran): clear the listbox
+//
+//								//Semi HACK: set first item of the listbox to what the user just wrote, to avoid the stupid combobox from selecting something else
+//								//Show the listbox
+//								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
+//								SendMessageW(page.list.combo_search, CB_INSERTSTRING, 0, (LPARAM)search);
+//
+//								if (search_res.cnt) {
+//									for (int i = 0; i < search_res.cnt; i++)
+//										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
+//
+//									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
+//
+//#if 1
+//									//TODO(fran): why the hell does this make the mouse disappear, just terrible, I really need to make my own one
+//									//TODO(fran): not all the items are shown if they are too many, I think there's a msg that increases the number of items to show
+//
+//									//NOTE: ok now we have even more garbage, the cb sets the selection to the whole word, which means that the next char the user writes _overrides_ the previous one, I really cant comprehend how this is so awful to use, I must be doing something wrong
+//									//SendMessage(page.list.combo_search, CB_SETEDITSEL, 0, MAKELONG(sel_start,sel_end));//This is also stupid, you go from DWORD on CB_GETEDITSEL to WORD here, you loose a whole byte of info
+//
+//									//IMPORTANT INFO: I think that the "autoselection" problem only happens when you call CB_SHOWDROPDOWN, if we called it _before_ adding elements to the list we may be ok, the answer is yes and no, my idea works _but_ the listbox doesnt update its size to accomodate for the items added after showing it, gotta do that manually
+//
+//									//COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
+//									//int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
+//									//int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
+//									//RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
+//									//MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
+//									//AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+//#else
+//									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
+//									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);//returns -1 on error, but who cares
+//									//NOTE: unless LBS_OWNERDRAWVARIABLE style is defined all items have the same height
+//									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
+//									RECT rw; GetWindowRect(page.list.combo_search, &rw);
+//									MoveWindow(nfo.hwndList, rw.left, rw.bottom, RECTWIDTH(rw), list_h, TRUE);
+//									SetWindowPos(nfo.hwndList, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);//INFO: here was the problem, the window was being occluded
+//									//ShowWindow(nfo.hwndList, SW_SHOWNA);
+//									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+//									SendMessage(nfo.hwndList, 0x1ae/*LBCB_STARTTRACK*/, 0, 0); //does start mouse tracking
+//									//NOTE: I think LBCB_ENDTRACK is handled by itself
+//#endif
+//									//TODO(fran): add something to the default list item or add extra info to the db results to differentiate the default first listbox item from the results
+//									//TODO(fran): now we have semi success with the cb, but still the first character comes out a little too late, it feels bad, we probably cant escape creating our own combobox (I assume that happens because animatewindow is happening?)
+//									//TODO(fran): actually we can implement this in the subclass, we can add a msg for a non stupid way of showing the listbox, we can probaly handle everything well from there
+//								}
+//								//else {
+//									//Hide the listbox, well... maybe not since we now show the search string on the first item
+//									//SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
+//								//}
+//								//Update listbox size
+//								COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
+//								int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
+//								int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt, 2);
+//								RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
+//								MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
+//#if 0
+//								AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
+//#else
+//								//ShowWindow(nfo.hwndList, SW_SHOW);//NOTE: dont call AnimateWindow, for starters SW_SHOW appears to already animate, unfortunately we dont want animation, we want the results as fast as possible, also the animation seems to be performed by the same thread which slows down user input
+//#endif
+//							}
+//							else {
+//							//Hide the listbox
+//							SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
+//							}
+//						} break;
+//						case CBN_CLOSEUP:
+//						{
+//							//SendMessage(page.list.combo_search, CB_RESETCONTENT, 0, 0);//Terrible again, what if you just want to clear the listbox alone? we need the poor man's solution:
+//							COMBOBOX_clear_list_items(page.list.combo_search);
+//						} break;
+//						case CBN_SELENDOK://User has selected an item from the list
+//						{
+//							//TODO(fran): lets hope this gets sent _before_ hiding the list, otherwise I'd have already deleted the elements by this point
+//							int sel = (int)SendMessageW(page.list.combo_search, CB_GETCURSEL, 0, 0);
+//							if (sel != CB_ERR) {
+//								int char_sz = (int)SendMessageW(page.list.combo_search, CB_GETLBTEXTLEN, sel, 0) + 1;
+//								any_str word = alloc_any_str(char_sz * sizeof(utf16)); defer{ free_any_str(word.str); };
+//								SendMessageW(page.list.combo_search, CB_GETLBTEXT, sel, (LPARAM)word.str);
+//								//We got the word, it may or may not be valid, so there are two paths, show error or move to the next page "show_word"
+//								get_word_res res = get_word(state->settings->db, (utf16*)word.str); defer{ free_get_word(res); };
+//								if (res.found) {
+//									preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
+//									store_previous_page(state, state->current_page);
+//									set_current_page(state, ProcState::page::show_word);
+//								}
+//								else {
+//									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
+//									if (ret == IDYES) {
+//										learnt_word new_word{ 0 };
+//										new_word.attributes.hiragana = word;
+//										preload_page(state, ProcState::page::new_word, &new_word);
+//										store_previous_page(state, state->current_page);
+//										set_current_page(state, ProcState::page::new_word);
+//									}
+//								}
+//							}
+//						} break;
+//						}
+//					}
+//#endif

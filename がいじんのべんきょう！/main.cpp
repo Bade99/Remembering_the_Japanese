@@ -190,6 +190,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //----------------Window Setup-----------------:
     RECT べんきょう_nc_rc = nonclient::calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
     べんきょう_cl.db = db;
+    べんきょう_cl.is_primary_wnd = true;
 
     unCapNcLpParam べんきょう_nclpparam;
     べんきょう_nclpparam.client_class_name = べんきょう::wndclass;

@@ -1073,7 +1073,7 @@ namespace nonclient {
 			return SendMessage(state->wnd,WM_COMMAND,MAKELONG(UNCAPNC_CLOSE,0),0);//TODO(fran): I feel like I should change this sndmsg to a call to the proc since im in it
 		} break;
 		case WM_DESTROY:
-			PostQuitMessage(0);
+			//PostQuitMessage(0);
 			break;
 		case WM_GETMINMAXINFO:
 			//FIRST msg sent to the window

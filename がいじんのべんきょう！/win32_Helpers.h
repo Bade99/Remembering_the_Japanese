@@ -33,6 +33,8 @@
 
 #define sqlite_runtime_assert(assertion,db) if (!(assertion))MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND) && (*(int*)NULL = 0)==0
 
+#define sqlite_runtime_check(assertion,db) if (!(assertion))MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND)
+
 
 //-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 
