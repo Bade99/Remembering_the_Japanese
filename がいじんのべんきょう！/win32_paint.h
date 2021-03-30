@@ -529,7 +529,7 @@ namespace paint {
 
 				{
 #define TEST_BACKBUFFER_USED
-#ifdef TEST_BACKBUFFER_USED
+#if defined(TEST_BACKBUFFER_USED) && defined(_DEBUG)
 					HBRUSH _br = CreateSolidBrush(RGB(255, 0, 0)); defer{ DeleteBrush(_br); };
 					FillRectBorder(dc, state->backbuffer_used, 1, _br, BORDERALL);
 #endif

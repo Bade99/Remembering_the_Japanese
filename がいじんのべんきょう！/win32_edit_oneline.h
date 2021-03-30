@@ -18,6 +18,9 @@
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
+//-------------------"API"--------------------:
+//edit_oneline::maintain_placerholder_when_focussed() : hide or keep showing the placeholder text when the user clicks over the wnd
+
 //-------------"API" (Additional Messages)-------------:
 #define editoneline_base_msg_addr (WM_USER + 1500)
 
@@ -80,7 +83,8 @@ namespace edit_oneline{
 		std::vector<int> char_dims;//NOTE: specifies, for each character, its width
 		//TODO(fran): it's probably better to use signed numbers in case the text overflows ths size of the control
 		int char_pad_x;//NOTE: specifies x offset from which characters start being placed on the screen, relative to the client area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
-		cstr default_text[100]; //NOTE: uses txt_dis brush for rendering
+		cstr placeholder[100]; //NOTE: uses txt_dis brush for rendering
+		bool maintain_placerholder_on_focus;//Hide placeholder text when the user clicks over it
 		cstr invalid_chars[100];
 
 		union EditOnelineControls {
@@ -351,6 +355,20 @@ namespace edit_oneline{
 		PostMessage(state->parent, WM_COMMAND, MAKELONG(state->identifier, notif_code), (LPARAM)state->wnd);
 	}
 
+	bool show_placeholder(ProcState* state) {
+		bool res = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length() == 0);
+		return res;
+	}
+
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	void maintain_placerholder_when_focussed(HWND wnd, bool maintain) {//TODO(fran): idk if this should be standardized and put in the wparam of WM_SETDEFAULTTEXT, it seems kind of annoying especially since this is something you probably only want to set once, different from the text which you may want to change more often
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->maintain_placerholder_on_focus = maintain;
+			ask_for_repaint(state);//TODO(fran): only ask for repaint when it's actually necessary
+		}
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf(msgToString(msg)); printf("\n");
@@ -379,7 +397,7 @@ namespace edit_oneline{
 			st->parent = creation_nfo->hwndParent;
 			st->identifier = (u32)(UINT_PTR)creation_nfo->hMenu;
 			st->char_max_sz = 32767;//default established by windows
-			*st->default_text = 0;
+			*st->placeholder = 0;
 			//NOTE: ES_LEFT==0, that was their way of defaulting to left
 			if (creation_nfo->style & ES_CENTER) {
 				//NOTE: ES_CENTER needs the pad to be recalculated all the time
@@ -514,7 +532,7 @@ namespace edit_oneline{
 			int border_thickness_pen = 0;//means 1px when creating pens
 			int border_thickness = 1;
 			HBRUSH bk_br, txt_br, border_br;
-			bool show_default_text = *state->default_text && (GetFocus() != state->wnd) && (state->char_text.length()==0);
+			bool show_placeholder = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length()==0);
 			if (IsWindowEnabled(state->wnd)) {
 				bk_br = state->brushes.bk;
 				txt_br = state->brushes.txt;
@@ -525,7 +543,7 @@ namespace edit_oneline{
 				txt_br = state->brushes.txt_dis;
 				border_br = state->brushes.border_dis;
 			}
-			if (show_default_text) {
+			if (show_placeholder) {
 				txt_br = state->brushes.txt_dis;
 			}
 
@@ -596,8 +614,8 @@ namespace edit_oneline{
 					xPos = rc.left + state->char_pad_x;
 				}
 
-				if (show_default_text) {
-					TextOut(dc, xPos, yPos, state->default_text, (int)cstr_len(state->default_text));
+				if (show_placeholder) {
+					TextOut(dc, xPos, yPos, state->placeholder, (int)cstr_len(state->placeholder));
 				}
 				else if (style & ES_PASSWORD) {
 					//TODO(fran): what's faster, full allocation or for loop drawing one by one
@@ -683,7 +701,7 @@ namespace edit_oneline{
 			}
 			else {
 				int mouse_x = mouse.x;
-				int dim_x = state->char_pad_x;
+				int dim_x = state->char_pad_x;//TODO(fran): sometimes this pad goes negative and makes the detection completely buggy. A possible explanation is that for centered text we calc the pad by subtracting from the width, but what if the width at that point was 0, then we'd get a negative pad, therefore if this is the problem we're not correctly recalculating the pad when resizing
 				int char_cur_sel_x;
 				if ((mouse_x - dim_x) <= 0) {
 					caret_p.x = dim_x;
@@ -761,8 +779,8 @@ namespace edit_oneline{
 			Assert(showcaret_res);
 
 			//Check in case we are showing the default text, when we get keyboard focus that text should disappear
-			bool show_default_text = *state->default_text && (state->char_text.length() == 0);
-			if (show_default_text) InvalidateRect(state->wnd, NULL, TRUE);
+			bool show_placeholder = *state->placeholder && (state->char_text.length() == 0);//this one doesnt check GetFocus since it's always gonna be us
+			if (show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
 
 			return 0;
 		} break;
@@ -772,8 +790,8 @@ namespace edit_oneline{
 			//TODO(fran): docs say we should destroy the caret now
 			DestroyCaret();
 			//Also says to not display/activate a window here cause we can lock the thread
-			bool show_default_text = *state->default_text && (state->char_text.length() == 0);
-			if(show_default_text) InvalidateRect(state->wnd, NULL, TRUE);
+			bool show_placeholder = *state->placeholder && (state->char_text.length() == 0);//this one doesnt check GetFocus since it's never gonna be us
+			if(show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
 
 			PostMessage(GetParent(state->wnd), WM_COMMAND, MAKELONG(state->identifier, EN_KILLFOCUS), (LPARAM)state->wnd);
 
@@ -1133,8 +1151,8 @@ namespace edit_oneline{
 		{
 			cstr* text = (cstr*)lparam;
 		
-			memcpy_s(state->default_text, sizeof(state->default_text), text, (cstr_len(text) + 1) * sizeof(*text));
-
+			memcpy_s(state->placeholder, sizeof(state->placeholder), text, (cstr_len(text) + 1) * sizeof(*text));
+			//TODO(fran): check whether we need to redraw
 			return 1;
 		} break;
 		case EM_SETINVALIDCHARS:

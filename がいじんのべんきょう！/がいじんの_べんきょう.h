@@ -28,7 +28,6 @@
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
-//TODO(fran): all pages: mouse remappable buttons: map the mouse's back button press to going back a page
 //TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
@@ -44,10 +43,8 @@
 //TODO(fran): page show_word: add "Help me remember" button to move a word to the top candidates for practices
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
-//TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
-//TODO(fran): page practice_writing | win32_edit_oneline: page setfocus to the edit box (and add flag to the edit box for showing placeholder text while on focus)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 //TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
@@ -1373,6 +1370,7 @@ namespace べんきょう {
 			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
 			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
+			searchbox::maintain_placerholder_when_focussed(controls.list.searchbox_search, true);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2262,11 +2260,22 @@ namespace べんきょう {
 		}
 	}
 
+	void set_default_focus(ProcState* state, ProcState::page p) {
+		switch (p) {
+		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it //HACK?
+		case decltype(p)::search: SetFocus(state->controls.search.list.searchbox_search); break;
+		case decltype(p)::practice_writing: SetFocus(state->controls.practice_writing.list.edit_answer); break;
+
+		//default:Assert(0);
+		}
+	}
+
 	void set_current_page(ProcState* state, ProcState::page new_page) {
 		show_page(state, state->current_page,SW_HIDE);
 		state->current_page = new_page;
 		resize_controls(state);
 		show_page(state, state->current_page,SW_SHOW);
+		set_default_focus(state, state->current_page);
 
 		switch (new_page) {
 		case decltype(new_page)::practice_writing:
@@ -2658,6 +2667,7 @@ namespace べんきょう {
 
 			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
+			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_answer,true);
 
 			button::Theme btn_theme;
 			btn_theme.brushes.bk.normal = global::colors.ControlBk;

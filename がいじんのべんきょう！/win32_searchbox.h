@@ -150,6 +150,13 @@ namespace searchbox {
 		}
 	}
 
+	void maintain_placerholder_when_focussed(HWND wnd, bool maintain) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			edit_oneline::maintain_placerholder_when_focussed(state->controls.editbox, maintain);
+		}
+	}
+
 	//IMPORTANT (multiwnd/multithreading dubious): uses a static object to store the hwnd, since we use it to hide listboxes, and only one is active at any single time this shouldnt be a problem, but you never know
 	HWND __hookmouseclick_store_hwnd(HWND _wnd = (HWND)INT32_MIN) {
 		static HWND wnd{ 0 };
