@@ -26,12 +26,12 @@
 //TODO(fran): application icon: chidori (talk to bren)
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
 //TODO(fran): db: load the whole db in ram
-//TODO(fran): db: store a version number on the db in order to be able to update the tables in case of changes with different versions
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
 //TODO(fran): all pages: mouse remappable buttons: map the mouse's back button press to going back a page
 //TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
+//TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
@@ -41,7 +41,7 @@
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
 //TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
-//TODO(fran): page new_word: pressing enter should map to the add button
+//TODO(fran): page show_word: add "Help me remember" button to move a word to the top candidates for practices
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: the add buton should offer the possibility to update (in the case where the word already exists), and show a separate (non editable) window with the current values of that word, idk whether I should modify from there or send the data to the show_word page and redirect them to there, in that case I really need to start using ROWID to predetermine which row has to be modified, otherwise the user can change everything and Im screwed
@@ -101,9 +101,13 @@
 //	creation_date: in Unix time
 //	last_shown_date: in Unix Time, used for sorting, TODO(fran): I should actually default to a negative value since 0 maps to 1970 but unix time can go much further back than that
 
-//TODO(fran): hiragana, kanji and translation should actually be lists
+//TODO(fran): I really dont know what to do with the primary key constraint, it's more annoying than anything else if applied to the hiragana column, but on the other hand we do need it for the type of practices we want, where we question the user based only on hiragana, maybe simply adding a list is for the best, at least for the 'meaning' column. That would be one kanji, one hiragana, multiple meanings. Check this actually applies to the language
 
-;//INFO: ROWID: in sqlite a column ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
+//TODO(fran): hiragana, kanji and translation should actually be lists
+//				https://stackoverflow.com/questions/9755741/vectors-lists-in-sqlite
+//				https://www.sqlite.org/json1.html
+
+;//INFO: ROWID: in sqlite a column called ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 
 #define べんきょう_table_user "user" 
 #define _べんきょう_table_user user
@@ -3053,6 +3057,7 @@ namespace べんきょう {
 					int w = RECTW(べんきょう_nc_rc);
 					べんきょう_nc_rc.left = べんきょう_nc_rc.right;
 					べんきょう_nc_rc.right += w;
+					//TODO(fran): place new window on the left if no space is available on the right
 					べんきょう_cl->db = state->settings->db;
 					べんきょう_cl->is_primary_wnd = false;
 
