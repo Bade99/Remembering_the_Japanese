@@ -24,11 +24,11 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori (talk to bren)
-//TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct
+//TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
-//TODO(fran): all pages: we should change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
+//TODO(fran): all pages: change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
@@ -41,20 +41,21 @@
 //TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
 //TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
 //TODO(fran): page show_word: add "Help me remember" button to move a word to the top candidates for practices
+//TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
+//TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
-//TODO(fran): page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
-//TODO(fran): new page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
-//TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
-//TODO(fran): BUG: page search: going to the previous page doesnt currently remove focus from whoever had it, therefore if you click on the searchbox, go to the prev page and press a key then the listbox will present the options and allow you to load the show_word page (this bug wasnt present before cause we handled searching in WM_COMMAND and check against our childs, therefore the landing page could not access controls from the search page, but now seach happens _inside_ the searchbox control and thus bypassing page checking), one quick and dirty way to solve this for now would be to check we're on the right page inside the seachbox_func_... functions, still other similar bugs could happen, best would probably be to steal focus when going back a page, or add a function that, given a page, sets focus to the desired control
+//TODO(fran): page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
 
 
-//Leftover IDEA: when opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
+//Leftover IDEAs:
+//IDEA: page review_practice_...: When opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
 	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtracting from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
+//IDEA: page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
 
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
@@ -461,6 +462,7 @@ namespace embedded {
 						, 0, 0, 0, 0, state->wnd, 0, 0, 0);
 				}
 				show_controls(state, true);
+
 				return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
 			} break;
 			case WM_SETFONT: {
@@ -531,7 +533,7 @@ namespace embedded {
 			} break;
 			case WM_NCPAINT:
 			case WM_ERASEBKGND:
-			case WM_LBUTTONDOWN:
+			case WM_LBUTTONDOWN://TODO(fran): we may want to SetFocus(0);
 			case WM_RBUTTONDOWN:
 			case WM_LBUTTONUP:
 			case WM_RBUTTONUP:
@@ -3492,6 +3494,19 @@ namespace べんきょう {
 			add_controls(state);
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
+
+			if constexpr(0) {//TODO(fran): now we have a way of detecting if japanese keyboard is present, now we need to change to it when we want
+				int sz_elem = GetKeyboardLayoutList(0, 0);
+				ptr<HKL>layouts; layouts.alloc(sz_elem); defer{ layouts.free(); };
+				int res = GetKeyboardLayoutList(sz_elem, layouts.mem); Assert(res == sz_elem);
+				HKL currenthkl = GetKeyboardLayout(0);
+				for (const auto& l : layouts) {
+					ActivateKeyboardLayout(l, KLF_SETFORPROCESS);
+					char layoutname[KL_NAMELENGTH]; GetKeyboardLayoutNameA(layoutname);
+					printf("%s\n", HKLtoString(layoutname));
+				}
+				ActivateKeyboardLayout(currenthkl, KLF_SETFORPROCESS);
+			}
 
 			return 0;
 		} break;

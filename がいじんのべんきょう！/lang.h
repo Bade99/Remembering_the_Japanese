@@ -59,7 +59,7 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(120,"Hiragana/Katakana")
 	lang_entry(121,"Kanji")
-	lang_entry(122,"Translation")
+	lang_entry(122,"Meaning")
 	lang_entry(123,"Type")
 	lang_entry(124,"Add")
 	lang_entry(125,"Mnemonic")

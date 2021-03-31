@@ -304,7 +304,7 @@ namespace nonclient {
 		ProcState* state = get_state(hwnd);
 
 #ifdef _DEBUG
-		printf("%d : NONCLIENT : %s \t\t wp:0x%08x lp:0x%08x\n", state ? state->debug_msg_cnt++ : 0, msgToString(msg),(u32)wparam, (u32)lparam);
+		//printf("%d : NONCLIENT : %s \t\t wp:0x%08x lp:0x%08x\n", state ? state->debug_msg_cnt++ : 0, msgToString(msg),(u32)wparam, (u32)lparam);
 #endif
 
 		{
