@@ -281,6 +281,18 @@ HBRUSH brush_for_learnt_word_elem(learnt_word_elem type) {
 	return res;
 };
 
+template<typename T>
+T str_for_learnt_word_elem(_learnt_word<T>* word, learnt_word_elem type) {//TODO(fran): this is ugly
+	T res;
+	switch (type) {
+	case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana; break;
+	case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji; break;
+	case decltype(type)::meaning: res = (decltype(res))word->attributes.translation; break;
+	default:res = { 0 }; Assert(0);
+	}
+	return res;
+};
+
 struct practice_multiplechoice_word {
 	learnt_word question;//#free
 	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
@@ -837,10 +849,12 @@ struct べんきょうProcState {
 
 	struct {
 
+		struct search_state {
+			learnt_word_elem search_type;
+		}search;
+
 		struct practice_review_state {
-
 			std::vector<practice_header*> practices;
-
 		}practice_review;
 
 		struct practice_writing_state {
@@ -1260,15 +1274,31 @@ namespace べんきょう {
 		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing
 		//for(auto& e : elements) free_any_str(e);
 
-		for(auto e : elements) for(auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);//TODO(fran): this is crashing, aint we loading the whole learnt_word???!
+		for(auto e : elements) for(auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
 
 		//TODO(fran): MEMLEAK, BUG: Im pretty sure I need to free the first element of 'elements' in order for the dynamic array to be freed, but it crashes right now, Im pretty sure there's a bug higher in the chain, and also the array idea is good from a performance standpoint but doesnt look too good for my needs here, there are never gonna be more than say 15 elements so speed isnt really an issue
+		if(elements.cnt)free(elements[0]); //memleak solved, for now
 		//elements.free(); //NOTE: again, all the elements are allocated continually in memory as an array, so we only need to deallocate the first one and the whole mem section is freed
 	}
 
 	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra);
 
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra);
+
+	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
+		learnt_word* word = (decltype(word))element;
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			utf16_str txt;
+			switch (state->pagestate.search.search_type) {
+			case decltype(state->pagestate.search.search_type)::hiragana: txt = word->attributes.hiragana; break;
+			case decltype(state->pagestate.search.search_type)::kanji: txt = word->attributes.kanji; break;
+			case decltype(state->pagestate.search.search_type)::meaning: txt = word->attributes.translation; break;
+			default: txt = { 0 };/*must zero initialize so compiler doesnt complain*/  Assert(0);
+			}
+			SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt.str);
+		}
+	}
 
 	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::listbox_func_renderflags flags, void* element, void* user_extra) {
 		int w = r.w, h = r.h;
@@ -1300,11 +1330,6 @@ namespace べんきょう {
 		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
 		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
 
-	}
-
-	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
-		learnt_word* txt = (decltype(txt))element;
-		SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt->attributes.hiragana.str);
 	}
 
 	void add_controls(ProcState* state) {
@@ -2390,14 +2415,24 @@ namespace べんきょう {
 		for (auto s : res.word.application_defined.all) if (s.str) free_any_str(s.str);
 		for (auto s : res.word.user_defined.all) if (s.str) free_any_str(s.str);
 	}
-	get_word_res get_word(sqlite3* db, utf16* word_hiragana) {
+	get_word_res get_word(sqlite3* db, learnt_word_elem match_type, utf16* match) {
 		get_word_res res{ 0 };
-		auto match_str = convert_utf16_to_utf8(word_hiragana, (int)(cstr_len(word_hiragana) + 1) * sizeof(*word_hiragana)); defer{ free_any_str(match_str.str); };
+		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match) + 1) * sizeof(*match)); defer{ free_any_str(match_str.str); };
+
+		//TODO(fran): this should be a function that returns ptr to static strings of the columns
+		const char* filter_col = 0;
+		switch (match_type) {
+		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
+		case decltype(match_type)::kanji: filter_col = "kanji"; break;
+		case decltype(match_type)::meaning: filter_col = "translation"; break;
+		default: Assert(0);
+		}
+
 		std::string select_word = std::string("SELECT ")
 			+ _foreach_learnt_word_member(_sqlite3_generate_columns)
 			+ _foreach_extra_word_member(_sqlite3_generate_columns);
 		select_word.pop_back();//remove trailing comma
-		select_word += std::string(" FROM ") + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "'";
+		select_word += std::string(" FROM ") + べんきょう_table_words + " WHERE " + filter_col + " LIKE '" + (utf8*)match_str.str + "'";
 		//NOTE: here I'd like to check last_shown_date and do an if last_shown_date == 0 -> 'Never' else last_shown_data, but I cant cause of the macros, it's pretty hard to do operations on specific columns if you have to autogen it with macros
 
 		auto parse_select_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -2537,12 +2572,11 @@ namespace べんきょう {
 		ProcState* state = get_state((HWND)user_extra);
 		if (state && state->current_page == ProcState::page::search && user_input.sz) {
 
-			learnt_word_elem match_type;
-			if (any_kanji(user_input)) match_type = decltype(match_type)::kanji;
-			else if (any_hiragana_katakana(user_input)) match_type = decltype(match_type)::hiragana;
-			else match_type = decltype(match_type)::meaning;
+			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
+			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
+			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
 
-			auto search_res = search_word_matches(state->settings->db, match_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
 			//TODO(fran): search_word_matches should return a ptr
 			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
 			for (size_t i = 0; i < search_res.cnt; i++)
@@ -2988,22 +3022,30 @@ namespace べんきょう {
 		if (state && state->current_page == ProcState::page::search) {
 			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
 			//utf16* search;
-			learnt_word_elem search_type = decltype(search_type)::hiragana;
+			learnt_word_elem search_type;
 
 			//TODO(fran): search can be for kanji and meaning too, we must first find out which one it is, maybe that should be built in like a search_word struct that has learnt_word and search_type
 
-			learnt_word16 search;
+			learnt_word16 search{0};
 
-			if (is_element) search = *(decltype(&search))element;
+			if (is_element) {
+				//TODO(fran): at this point we already know which word to find on the db, the problem is we dont have its ID, we gotta search by string (hiragana) again, we need to retrieve and store IDs on the db. And add a function get_word(ID)
+				search = *(decltype(&search))element;
+				search_type = decltype(search_type)::hiragana;
+			}
 			else {
+				//NOTE: here we dont know the "ID" so the search will simply take the first word it finds that matches the requirements
+				search_type = state->pagestate.search.search_type;
 				switch (search_type) {
 				case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
+				case decltype(search_type)::kanji: search.attributes.kanji = *((utf16_str*)element); break;
+				case decltype(search_type)::meaning: search.attributes.translation= *((utf16_str*)element); break;
 				default:Assert(0);//TODO
 				}
 				//search = ((utf16_str*)element)->str;
 			}
 
-			get_word_res res = get_word(state->settings->db, search.attributes.hiragana.str); defer{ free_get_word(res); };
+			get_word_res res = get_word(state->settings->db, search_type, str_for_learnt_word_elem(&search,search_type).str); defer{ free_get_word(res); };
 			if (res.found) {
 				preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 				store_previous_page(state, state->current_page);
@@ -3164,7 +3206,7 @@ namespace べんきょう {
 					べんきょう::set_current_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word);
 
 					auto old_word_utf16 = (utf16_str)convert_utf8_to_utf16((utf8*)w_utf8.attributes.hiragana.str, (int)w_utf8.attributes.hiragana.sz); defer{ free_any_str(old_word_utf16.str); };//HACK: reconverting to utf16 for searching the old word
-					get_word_res old_word = get_word(state->settings->db, old_word_utf16.str); defer{ free_get_word(old_word); };
+					get_word_res old_word = get_word(state->settings->db,learnt_word_elem::hiragana, old_word_utf16.str); defer{ free_get_word(old_word); };
 					べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word, &old_word.word);
 					UpdateWindow(べんきょう_nc);
 					//TODO(fran): this window needs to be created without the privilege of being able to quit the program, either we let it know it is a secondary window or we do smth else idk what
@@ -3340,17 +3382,6 @@ namespace べんきょう {
 			return res;
 		};
 
-		auto elem_ptr_for = [](learnt_word* word, learnt_word_elem type)->utf16* {
-			utf16* res = 0;//NOTE: I need to initialize this only because of mr complaining compiler
-			switch (type) {
-			case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana.str; break;
-			case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji.str; break;
-			case decltype(type)::meaning: res = (decltype(res))word->attributes.translation.str; break;
-			default:Assert(0);
-			}
-			return res;
-		};
-
 		switch (practice) {
 		case ProcState::available_practices::writing:
 		{
@@ -3388,11 +3419,11 @@ namespace べんきょう {
 
 			//Move all the choices plus the correct choice into the new array
 			for (int i = 0, j = 0; i < data->choices.cnt; i++) {
-				if (i == data->idx_answer) data->choices[i] = _wcsdup(elem_ptr_for(&data->question, data->choices_type));//TODO(fran): replace for my own duplication method
+				if (i == data->idx_answer) data->choices[i] = _wcsdup(str_for_learnt_word_elem((learnt_word16*)&data->question, data->choices_type).str);//TODO(fran): replace for my own duplication method
 				else data->choices[i] = _choices[j++];
 			}
 
-			data->question_str = elem_ptr_for(&data->question, data->question_type);
+			data->question_str = str_for_learnt_word_elem((learnt_word16*)&data->question, data->question_type).str;
 			
 			res.page = ProcState::page::practice_multiplechoice;
 			res.data = data;
@@ -3406,7 +3437,7 @@ namespace べんきょう {
 			
 			u32 q_elems = get_hiragana_kanji_meaning(&data->question);
 			data->question_type = (decltype(data->question_type))random_bit_set(q_elems & (~(u32)learnt_word_elem::kanji));
-			data->question_str = elem_ptr_for(&data->question, data->question_type);
+			data->question_str = str_for_learnt_word_elem((learnt_word16*)&data->question, data->question_type).str;
 
 			res.page = ProcState::page::practice_drawing;
 			res.data = data;
