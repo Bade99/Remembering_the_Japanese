@@ -23,6 +23,15 @@ bool is_kanji(utf16 c) {//TODO(fran):Im pretty sure this has lots of korean too
 	return res;
 }
 
+bool any_kanji(utf16_str s) {
+	for (const auto& c : s) if (is_kanji(c)) return true;
+	return false;
+}
+
+bool any_hiragana_katakana(utf16_str s) {
+	for (const auto& c : s) if (is_hiragana(c) || is_katakana(c)) return true;
+	return false;
+}
 
 bool all_hiragana(utf16_str s) {
 	//TODO(fran): surrogate pairs?

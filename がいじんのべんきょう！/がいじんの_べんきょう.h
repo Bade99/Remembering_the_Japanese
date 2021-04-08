@@ -18,6 +18,7 @@
 #include "win32_new_msgs.h"
 #include "win32_multibutton.h"
 #include "win32_paint.h"
+#include "win32_Char.h"
 
 #include <string>
 
@@ -47,6 +48,7 @@
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
+//TODO(fran): page search: add a list of all the learnt words below the searchbox, feed the list via a separate thread
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
@@ -184,6 +186,7 @@ void lexical_category_setup_combobox(HWND cb) {
 	ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
 }
 
+//TODO(fran): template it: learnt_word<utf16_str> & learnt_word<utf8_str>
 union learnt_word { //contains utf16 when getting data from the UI, and utf8 when sending requests to the db
 	using type = any_str;
 	struct {
@@ -202,6 +205,24 @@ union learnt_word { //contains utf16 when getting data from the UI, and utf8 whe
 
 	static constexpr int pk_count = 1;//number of primary keys, primary keys are the first members in the attributes list
 };
+
+template <typename type>
+union _learnt_word { //contains utf16 when getting data from the UI, and utf8 when sending requests to the db
+	struct {
+
+		_foreach_learnt_word_member(_generate_member_no_default_init);
+		//IMPORTANT: members that map to primary keys must be first on the list (that way they are easily filtered out when updating their values), and UPDATE pk_count when you add a new primary key
+
+	} attributes;
+	type all[sizeof(attributes) / sizeof(type)];
+
+	static constexpr int pk_count = 1;//number of primary keys, primary keys are the first members in the attributes list
+};
+
+//UTF16 encoded data
+typedef _learnt_word<utf16_str> learnt_word16;
+//UTF8 encoded data
+typedef _learnt_word<utf8_str> learnt_word8;
 
 union extra_word {
 	using type = any_str;
@@ -1236,7 +1257,13 @@ namespace べんきょう {
 
 	//Page Search: Searchbox functions
 	void searchbox_free_elements_func(ptr<void*> elements, void* user_extra){
-		for(size_t i=0; i <elements.cnt;i++) free_any_str(elements[i]);
+		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing
+		//for(auto& e : elements) free_any_str(e);
+
+		for(auto e : elements) for(auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);//TODO(fran): this is crashing, aint we loading the whole learnt_word???!
+
+		//TODO(fran): MEMLEAK, BUG: Im pretty sure I need to free the first element of 'elements' in order for the dynamic array to be freed, but it crashes right now, Im pretty sure there's a bug higher in the chain, and also the array idea is good from a performance standpoint but doesnt look too good for my needs here, there are never gonna be more than say 15 elements so speed isnt really an issue
+		//elements.free(); //NOTE: again, all the elements are allocated continually in memory as an array, so we only need to deallocate the first one and the whole mem section is freed
 	}
 
 	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra);
@@ -1245,23 +1272,39 @@ namespace べんきょう {
 
 	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::listbox_func_renderflags flags, void* element, void* user_extra) {
 		int w = r.w, h = r.h;
-		RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
-		utf16* txt = (decltype(txt))element;
+		learnt_word* txt = (decltype(txt))element;
 
 		//Draw bk
 		HBRUSH bk_br = global::colors.ControlBk;
 		if (flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
 		if(flags.onClicked) bk_br = global::colors.ControlBkPush;
 
-		FillRect(dc, &rc, bk_br);
+		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		FillRect(dc, &bk_rc, bk_br);
 
 		//Draw text
-		urender::draw_text(dc, rc, to_utf16_str(txt), global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+		i32 third_w = r.w / 3;
+		rect_i32 tempr = r; tempr.w = third_w;
+
+		RECT hira_rc = to_rect(tempr);
+
+		tempr.left += tempr.w;
+
+		RECT kanji_rc = to_rect(tempr);
+
+		tempr.left += tempr.w;
+
+		RECT meaning_rc = to_rect(tempr);
+
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+
 	}
 
 	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
-		utf16* txt = (decltype(txt))element;
-		SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt);
+		learnt_word* txt = (decltype(txt))element;
+		SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt->attributes.hiragana.str);
 	}
 
 	void add_controls(ProcState* state) {
@@ -2436,32 +2479,49 @@ namespace べんきょう {
 	}
 
 
-	struct search_word_res { utf16** matches; int cnt; };
-	void free_search_word(search_word_res res) {
-		for (int i = 0; i < res.cnt; i++) {
-			free_any_str(res.matches[i]);
-		}
-		free(res.matches);
-	}
-	search_word_res search_word_matches(sqlite3* db, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
+	//struct search_word_res { utf16** matches; int cnt; };
+	//void free_search_word(search_word_res res) {
+	//	for (int i = 0; i < res.cnt; i++) {
+	//		free_any_str(res.matches[i]);
+	//	}
+	//	free(res.matches);
+	//}
+
+	//NOTE: returns an array of learnt_words that are contiguous in memory, which means that freeing the base pointer frees all the elements at once
+	ptr<learnt_word> search_word_matches(sqlite3* db, learnt_word_elem match_type, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
 		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the translation too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
-		search_word_res res; 
-		res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
+		ptr<learnt_word> res;
+		res.alloc(max_cnt_results);
+		//res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
 		res.cnt = 0;
 		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match)+1)*sizeof(*match)); defer{ free_any_str(match_str.str); };
+		const char* filter_col=0;
+		switch (match_type) {
+		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
+		case decltype(match_type)::kanji: filter_col = "kanji"; break;
+		case decltype(match_type)::meaning: filter_col = "translation"; break;
+		default: Assert(0);
+		}
+
+		std::string learnt_word_cols = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns); learnt_word_cols.pop_back();//remove trailing comma
 		char* select_errmsg;
-		std::string select_matches = std::string(" SELECT ") + "hiragana" /*TODO(fran): column names should be stored somewhere*/ + " FROM " + べんきょう_table_words + " WHERE " + "hiragana" " LIKE '" + (utf8*)match_str.str + "%'" + " LIMIT " + std::to_string(max_cnt_results) + ";";
+		std::string select_matches = 
+			std::string(" SELECT ") + learnt_word_cols + /*TODO(fran): column names should be stored somewhere*/
+			" FROM " + べんきょう_table_words +
+			" WHERE " + filter_col + " LIKE '" + (utf8*)match_str.str + "%'" +
+			" LIMIT " + std::to_string(max_cnt_results) + ";";
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
-			//NOTE: from what I understood this gets executed once for every resulting row
-			//NOTE: unfortunately everything here comes in utf8 //TODO(fran): may be better to use the separate functions sqlite3_prepare, sqlite3_step, and to retrieve use sqlite3_column_[type] (this way I get utf16 at once)
-			Assert(column_cnt == 1);
-			search_word_res* res = (decltype(res))extra_param;
+			//NOTE: everything comes in utf8
+			Assert(column_cnt == (0 + _foreach_learnt_word_member(_generate_count)));
+			//search_word_res* res = (decltype(res))extra_param;
+			ptr<learnt_word>* res = (decltype(res))extra_param;
 
 			//res->matches[res->cnt] = (decltype(*res->matches))convert_utf8_to_utf16(results[0], (int)strlen(results[0]) + 1).mem;//INFO: interesting, I know this is correct but compiler cant allow it, an explanation here https://stackoverflow.com/questions/3674456/why-this-is-causing-c2102-requires-l-value
 
-			auto r = convert_utf8_to_utf16(results[0], (int)strlen(results[0]) + 1);
-			res->matches[res->cnt] = (decltype(*res->matches))r.str;
+			//res->matches[res->cnt] = (decltype(*res->matches))r.str;
+			for(int i=0; i < column_cnt; i++)
+				res->mem[res->cnt].all[i] = convert_utf8_to_utf16(results[i], (int)strlen(results[i]) + 1);
 
 			res->cnt++;
 			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
@@ -2476,11 +2536,18 @@ namespace べんきょう {
 		ptr<void*> res{ 0 };
 		ProcState* state = get_state((HWND)user_extra);
 		if (state && state->current_page == ProcState::page::search && user_input.sz) {
-			auto search_res = search_word_matches(state->settings->db, user_input.str, 8); defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+
+			learnt_word_elem match_type;
+			if (any_kanji(user_input)) match_type = decltype(match_type)::kanji;
+			else if (any_hiragana_katakana(user_input)) match_type = decltype(match_type)::hiragana;
+			else match_type = decltype(match_type)::meaning;
+
+			auto search_res = search_word_matches(state->settings->db, match_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
 			//TODO(fran): search_word_matches should return a ptr
-			res.alloc(search_res.cnt);
+			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
 			for (size_t i = 0; i < search_res.cnt; i++)
-				res[i] = search_res.matches[i];
+				//res[i] = search_res.matches[i];
+				res[i] = &search_res[i];
 		}
 		return res;
 	}
@@ -2920,12 +2987,23 @@ namespace べんきょう {
 		ProcState* state = get_state((HWND)user_extra);
 		if (state && state->current_page == ProcState::page::search) {
 			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
-			utf16* search;
-			
-			if (is_element) search = (decltype(search))element;
-			else search = ((utf16_str*)element)->str;
+			//utf16* search;
+			learnt_word_elem search_type = decltype(search_type)::hiragana;
 
-			get_word_res res = get_word(state->settings->db, search); defer{ free_get_word(res); };
+			//TODO(fran): search can be for kanji and meaning too, we must first find out which one it is, maybe that should be built in like a search_word struct that has learnt_word and search_type
+
+			learnt_word16 search;
+
+			if (is_element) search = *(decltype(&search))element;
+			else {
+				switch (search_type) {
+				case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
+				default:Assert(0);//TODO
+				}
+				//search = ((utf16_str*)element)->str;
+			}
+
+			get_word_res res = get_word(state->settings->db, search.attributes.hiragana.str); defer{ free_get_word(res); };
 			if (res.found) {
 				preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 				store_previous_page(state, state->current_page);
@@ -2934,9 +3012,10 @@ namespace べんきょう {
 			else {
 				int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
 				if (ret == IDYES) {
-					learnt_word new_word{ 0 };
-					new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
-					preload_page(state, ProcState::page::new_word, &new_word);
+					//learnt_word2<utf16_str> new_word{ 0 };
+					//new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
+					//preload_page(state, ProcState::page::new_word, &new_word);
+					preload_page(state, ProcState::page::new_word, &search);
 					store_previous_page(state, state->current_page);
 					set_current_page(state, ProcState::page::new_word);
 				}

@@ -92,7 +92,7 @@ struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
 
 	size_t sz() const { return cnt * type_sz; }
 
-	void free() { if (mem) { ::free(mem); cnt = 0; } }
+	void free() { if (mem) { ::free(mem); mem = 0; cnt = 0; } }
 	//NOTE: also frees any previous allocation
 	void alloc(size_t cnt) { free(); this->cnt = cnt; mem = (T*)malloc(cnt * type_sz); }//TODO(fran): dont know how good the free idea is, say the user mallocs a ptr<> then mem and sz will be !=0 but not valid values and we crash
 
