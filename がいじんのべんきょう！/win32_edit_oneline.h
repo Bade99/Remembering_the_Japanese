@@ -9,6 +9,7 @@
 #include "LANGUAGE_MANAGER.h"
 #include "win32_new_msgs.h"
 
+//TODO(fran): at this point there's too much code repetition for text editing, we need general remove & insert functions that work with the new selection feature
 //TODO(fran): show password button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
@@ -73,6 +74,11 @@ namespace edit_oneline{
 			int res = (anchor > cursor) ? anchor : cursor;
 			return res;
 		}
+		int sel_width() {
+			int res = distance(anchor, cursor);
+			return res;
+		}
+		void set_both(int new_val) { anchor = cursor = new_val; }
 
 		//Example:
 		//			ABCD	EM_SETSEL(1,1)	cursor is placed in between A and B
@@ -197,9 +203,9 @@ namespace edit_oneline{
 	}
 
 	POINT calc_caret_p(ProcState* state) {
-		Assert(state->char_cur_sel.x - 1 < (int)state->char_dims.size());
+		Assert(state->char_cur_sel.cursor - 1 < (int)state->char_dims.size());
 		POINT res = { state->char_pad_x, 0 };
-		for (int i = 0; i < state->char_cur_sel.x; i++) {
+		for (int i = 0; i < state->char_cur_sel.cursor; i++) {
 			res.x += state->char_dims[i];
 			//TODO(fran): probably wrong
 		}
@@ -222,8 +228,8 @@ namespace edit_oneline{
 			state->char_dims.clear();//Reset dims since we now have new text
 			state->char_cur_sel = { 0,0 };//Reset cursor
 
-			for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x + i, calc_char_dim(state, buf[i]).cx);
-			state->char_cur_sel.x = (int)char_sz;
+			for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x_min() + i, calc_char_dim(state, buf[i]).cx);
+			state->char_cur_sel.set_both((int)char_sz);
 
 			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 			if (style & ES_CENTER) {
@@ -241,6 +247,15 @@ namespace edit_oneline{
 		return res;
 	}
 
+	//Removes the current text selection and updates the selection values
+	void remove_selection(ProcState* state) {
+		if (!state->char_text.empty() && state->char_cur_sel.sel_width()) {
+			state->char_text.erase(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width());
+			state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): max minus one ? 
+			state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
+		}
+	}
+
 	//NOTE: pasting from the clipboard establishes a couple of invariants: lines end with \r\n, there's a null terminator, we gotta parse it carefully cause who knows whats inside
 	bool paste_from_clipboard(ProcState* state, const cstr* txt) { //returns true if it could paste something
 	bool res = false;
@@ -253,9 +268,12 @@ namespace edit_oneline{
 	}
 	if (char_sz > 0) {
 		//TODO(fran): remove invalid chars (we dont know what could be inside)
-		state->char_text.insert((size_t)state->char_cur_sel.x, txt, char_sz);
-		for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x + i, calc_char_dim(state, txt[i]).cx);
-		state->char_cur_sel.x += (int)char_sz;
+
+		remove_selection(state);//Now selection cursor and anchor are the same
+
+		state->char_text.insert((size_t)state->char_cur_sel.cursor, txt, char_sz);
+		for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor + i, calc_char_dim(state, txt[i]).cx);
+		state->char_cur_sel.set_both(state->char_cur_sel.cursor + (int)char_sz);
 
 		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 		if (style & ES_CENTER) {
@@ -606,6 +624,7 @@ namespace edit_oneline{
 
 			}
 
+			int text_y;//top of the text
 			{
 				HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
 				UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
@@ -613,12 +632,14 @@ namespace edit_oneline{
 				COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
 				COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
 
-				TEXTMETRIC tm;
-				GetTextMetrics(dc, &tm);
+				TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 				// Calculate vertical position for the string so that it will be vertically centered
 				// We are single line so we want vertical alignment always
 				int yPos = (rc.bottom + rc.top - tm.tmHeight) / 2;
 				int xPos;
+
+				text_y = yPos;
+
 				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 				//ES_LEFT ES_CENTER ES_RIGHT
 				//TODO(fran): store char positions in the vector
@@ -649,6 +670,24 @@ namespace edit_oneline{
 					TextOut(dc, xPos, yPos, state->char_text.c_str(), (int)state->char_text.length());
 				}
 			}
+
+			{ //Render Selection
+				if (state->char_cur_sel.sel_width()) {
+					//We use the height of the caret (for now) as the height of the selection
+					RECT selection;
+					selection.top = text_y;
+					selection.bottom = selection.top + state->caret.dim.cy;
+					selection.left = state->char_pad_x;
+					for (int i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
+						selection.left += state->char_dims[i];
+					selection.right = selection.left;
+					for (int i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
+						selection.left += state->char_dims[i];
+					HBRUSH selbr = CreateSolidBrush(RGB(23, 51, 200)); defer{ DeleteBrush(selbr); };//TODO(fran): user setteable
+					FillRect(dc, &selection, selbr);//TODO(fran): semi-transparent fill
+				}
+			}
+
 			EndPaint(hwnd, &ps);
 			return 0;
 		} break;
@@ -742,7 +781,7 @@ namespace edit_oneline{
 					caret_p.x = dim_x;
 					char_cur_sel_x = i;
 				}
-				state->char_cur_sel.x = char_cur_sel_x;
+				state->char_cur_sel.anchor = state->char_cur_sel.cursor = char_cur_sel_x;
 			}
 			state->caret.pos = caret_p;
 			SetCaretPos(state->caret.pos);
@@ -829,45 +868,45 @@ namespace edit_oneline{
 			//		also you want to use the uppercase version of the letter, eg case _t('V'):
 			char vk = (char)wparam;
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
+			//TODO(fran): handle shift for selection (and control too)
 			switch (vk) {
 			case VK_HOME://Home
 			{
-				POINT oldcaretp = state->caret.pos;
-				state->char_cur_sel.x = 0;
+				//POINT oldcaretp = state->caret.pos;
+				state->char_cur_sel.anchor = state->char_cur_sel.cursor = 0;
 				state->caret.pos = calc_caret_p(state);
-				if (oldcaretp != state->caret.pos) {
+				//if (oldcaretp != state->caret.pos) {
 					SetCaretPos(state->caret.pos);
-				}
+				//}
 			} break;
 			case VK_END://End
 			{
-				POINT oldcaretp = state->caret.pos;
-				state->char_cur_sel.x = (int)state->char_text.length();
+				//POINT oldcaretp = state->caret.pos;
+				state->char_cur_sel.anchor = state->char_cur_sel.cursor = (int)state->char_text.length();
 				state->caret.pos = calc_caret_p(state);
-				if (oldcaretp != state->caret.pos) {
+				//if (oldcaretp != state->caret.pos) {
 					SetCaretPos(state->caret.pos);
-				}
+				//}
 			} break;
 			case VK_LEFT://Left arrow
 			{
-				if (state->char_cur_sel.x > 0) {
-					state->char_cur_sel.x--;
-					state->caret.pos = calc_caret_p(state);
-					SetCaretPos(state->caret.pos);
-				}
+				if (state->char_cur_sel.sel_width()) state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
+				else state->char_cur_sel.anchor = state->char_cur_sel.cursor = max(0, state->char_cur_sel.cursor-1);
+				state->caret.pos = calc_caret_p(state);
+				SetCaretPos(state->caret.pos);
 			} break;
 			case VK_RIGHT://Right arrow
 			{
-				if (state->char_cur_sel.x < state->char_text.length()) {
-					state->char_cur_sel.x++;
+				if (state->char_cur_sel.x_max() < state->char_text.length()) {
+					if (state->char_cur_sel.sel_width())state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_max();
+					else state->char_cur_sel.anchor = ++state->char_cur_sel.cursor;
 					state->caret.pos = calc_caret_p(state);
 					SetCaretPos(state->caret.pos);
 				}
 			} break;
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
-				if (state->char_cur_sel.x < state->char_text.length()) {
-					state->char_text.erase(state->char_cur_sel.x, 1);
+				auto update_caret_and_change = [&]() {//HACK
 
 					//NOTE: there's actually only one case I can think of where you need to update the caret, that is on a ES_CENTER control
 					LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
@@ -880,6 +919,24 @@ namespace edit_oneline{
 						SetCaretPos(state->caret.pos);
 					}
 					en_change = true;
+				};
+
+				if (!state->char_text.empty()) {
+					if (state->char_cur_sel.sel_width()) {
+						state->char_text.erase(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width());
+						state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): max minus one ? 
+						state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
+						update_caret_and_change();
+					}
+					else {
+						if (state->char_cur_sel.x_max() < state->char_text.length()) {//Check we arent at the end
+							state->char_cur_sel.anchor = state->char_cur_sel.cursor;
+							Assert(state->char_cur_sel.cursor < (int)state->char_text.length() && state->char_cur_sel.cursor < (int)state->char_dims.size());
+							state->char_text.erase(state->char_cur_sel.cursor, 1);
+							state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.cursor);
+							update_caret_and_change();
+						}
+					}
 				}
 			} break;
 			case _t('v'):
@@ -935,12 +992,21 @@ namespace edit_oneline{
 			switch (c) { //https://docs.microsoft.com/en-us/windows/win32/menurc/using-carets
 			case VK_BACK://Backspace
 			{
-				if (!state->char_text.empty() && state->char_cur_sel.x > 0) {
+				if (!state->char_text.empty()) {//TODO(fran): add remove function, we need it in other areas too
 					POINT oldcaretp = state->caret.pos;
-					state->char_cur_sel.x--;
-					Assert(state->char_cur_sel.x < (int)state->char_text.length() && state->char_cur_sel.x < (int)state->char_dims.size());
-					state->char_text.erase(state->char_cur_sel.x, 1);
-					state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x);
+					if (state->char_cur_sel.sel_width()) {
+						state->char_text.erase(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width());
+						state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): max minus one ? 
+						state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
+					}
+					else {
+						if (state->char_cur_sel.x_min() > 0) {//Check we arent at the beginning
+							state->char_cur_sel.anchor = --state->char_cur_sel.cursor;
+							Assert(state->char_cur_sel.cursor < (int)state->char_text.length() && state->char_cur_sel.cursor < (int)state->char_dims.size());
+							state->char_text.erase(state->char_cur_sel.cursor, 1);
+							state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.cursor);
+						}
+					}
 
 					//TODO(fran): join this calculations into one function since some require others to already by re-calculated
 					//Update pad if ES_CENTER
@@ -1001,15 +1067,25 @@ namespace edit_oneline{
 				//We have some normal character
 				//TODO(fran): what happens with surrogate pairs? I dont even know what they are -> READ
 				if (state->char_text.length() < state->char_max_sz) {
-	#if 0
-					state->char_text += c;
-					state->char_cur_sel.x++;//TODO: this is wrong
-					state->char_dims.push_back(calc_char_dim(state, c).cx);//TODO(fran): also wrong, we'll need to insert in the middle if the cur_sel is not a the end
-	#else 
-					state->char_text.insert((size_t)state->char_cur_sel.x,1,c);
-					state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x, calc_char_dim(state, c).cx);
-					state->char_cur_sel.x++;
-	#endif
+
+					if (state->char_cur_sel.sel_width()) {//TODO(fran): better way of working with selections
+						//There's a selection
+
+						//Replace string section with new character
+						state->char_text.replace(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width(), 1, c);
+
+						//Replace char_dims section with new char_dim
+						state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): maybe max needs to be subtracted one?
+						state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x_min(), calc_char_dim(state, c).cx);
+						state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min() + 1;//TODO(fran): annoying
+					}
+					else {
+						//There's no selection
+						state->char_text.insert((size_t)state->char_cur_sel.cursor,1,c);
+						state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor, calc_char_dim(state, c).cx);
+						state->char_cur_sel.anchor = ++state->char_cur_sel.cursor;//TODO(fran): annoying
+					}
+
 					LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 					if (style & ES_CENTER) {
 						//Recalc pad_x
