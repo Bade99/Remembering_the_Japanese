@@ -60,7 +60,28 @@ namespace edit_oneline{
 
 	constexpr cstr password_char = sizeof(password_char) > 1 ? _t('●') : _t('*');
 
-	struct char_sel { int x, y; };//xth character of the yth row, goes left to right and top to bottom
+	struct char_sel {
+		int anchor;//Eg ABC		anchor=1	anchor is between A and B
+		int cursor;//Eg ABC		cursor=1	cursor is between A and B
+		//First character of the selection
+		int x_min() {
+			int res = (anchor < cursor) ? anchor : cursor;
+			return res;
+		}
+		//First character beyond the selection
+		int x_max() {
+			int res = (anchor > cursor) ? anchor : cursor;
+			return res;
+		}
+
+		//Example:
+		//			ABCD	EM_SETSEL(1,1)	cursor is placed in between A and B
+		//			ABCD	EM_SETSEL(1,2)	selection covers the letter B, cursor is placed between B and C
+
+		//TODO(fran): not sure whether I should store y position, it's actually more of a UI thing, but it may be necessary for things like scrolling to xth char_sel
+		//int y_min;//First row of the selection
+		//int y_max;
+	};//xth character of the yth row, goes left to right and top to bottom
 	struct txt_sel { char_sel min, max; }; //TODO(fran): implement selections
 	struct ProcState {
 		HWND wnd;
@@ -1234,9 +1255,53 @@ namespace edit_oneline{
 			}
 			return res;
 		} break;
+		case EM_SETSEL:
+		{
+			int _start = wparam;
+			int _end = lparam;
+			//int anchor = _start; //TODO(fran): store the anchor, useful for extending selection eg when the user clicks while pressing shift
+
+			if (_start < 0) {
+				//Remove current selection
+				if (state->char_cur_sel.anchor != state->char_cur_sel.cursor) {
+					state->char_cur_sel.anchor = state->char_cur_sel.cursor;
+					ask_for_repaint(state);
+				}
+			}
+			else {
+				int end_max = state->char_text.length();
+				if (_end < 0) {
+					_end = end_max; //Set _end to one past the last valid char
+				}
+
+				_start = clamp(0, _start, end_max);
+				_end = clamp(0, _end, end_max);
+
+
+				if (state->char_cur_sel.anchor != _start || state->char_cur_sel.cursor != _end) {
+					state->char_cur_sel.anchor = _start;
+					state->char_cur_sel.cursor = _end;
+					ask_for_repaint(state);
+				}
+			}
+
+			return 0;
+		} break;
+		case EM_GETSEL:
+		{
+			DWORD* start = (decltype(start))wparam;
+			DWORD* end = (decltype(end))lparam;
+
+			if (start) *start = state->char_cur_sel.x_min();
+			if (end) *end = state->char_cur_sel.x_max();
+
+			return -1;//TODO(fran): support for 16bit, should return zero-based value with the starting position of the selection in the LOWORD and the position of the first TCHAR after the last selected TCHAR in the HIWORD. If either of these values exceeds 65535 then the return value is -1.
+		} break;
+
 		default:
 		{
 
+	#ifdef _DEBUG
 			if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
 				TCHAR arr[256];
 				int res = GetClipboardFormatName(msg, arr, 256);
@@ -1245,7 +1310,6 @@ namespace edit_oneline{
 				return DefWindowProc(hwnd, msg, wparam, lparam);
 			}
 
-	#ifdef _DEBUG
 			Assert(0);
 	#else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);

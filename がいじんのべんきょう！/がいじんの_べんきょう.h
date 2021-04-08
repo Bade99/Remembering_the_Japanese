@@ -3034,7 +3034,7 @@ namespace べんきょう {
 				search_type = decltype(search_type)::hiragana;
 			}
 			else {
-				//NOTE: here we dont know the "ID" so the search will simply take the first word it finds that matches the requirements
+				//NOTE: here we dont know the "ID" so the search will simply take the first word it finds that matches the requirements //TODO(fran): we could present multiple results and ask the user which one to open
 				search_type = state->pagestate.search.search_type;
 				switch (search_type) {
 				case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
