@@ -78,6 +78,7 @@ namespace edit_oneline{
 			int res = distance(anchor, cursor);
 			return res;
 		}
+		b32 has_selection() { return sel_width(); }
 		void set_both(int new_val) { anchor = cursor = new_val; }
 
 		//Example:
@@ -409,6 +410,103 @@ namespace edit_oneline{
 		}
 	}
 
+	void recalculate_caret(ProcState* state) {
+		POINT oldcaretp = state->caret.pos;
+		state->caret.pos = calc_caret_p(state);
+		if (oldcaretp != state->caret.pos) SetCaretPos(state->caret.pos);
+	}
+
+	size_t find_stopper(utf16_str s, size_t start_p, int direction) {
+		//TODO(fran): handle overflow
+		//start_p += direction;//start by moving the cursor
+		bool on_whitespace = false;
+		bool on_punctuation = false;
+		bool on_word = false;
+		bool was_on_word = false;
+
+		start_p = clamp(0, start_p, s.sz_char());
+
+		if (iswspace(s[start_p]) || iswcntrl(s[start_p])) {//we're on a whitespace
+			//find first non whitespace in the direction
+			for (int i = start_p; i < s.sz_char(); i += direction) {
+				if (!iswspace(s[i]) && !iswcntrl(s[i])) {
+					//found a non whitespace char, now go to the beginning/end of that new thing
+
+					bool is_punct = iswpunct(s[i]);//can either be punctuation or alphanumeric
+
+					size_t last_valid_j;
+					for (int j = i; j < s.sz_char(); j += direction) {
+						if ((is_punct ? !iswpunct(s[j]) : !iswalnum(s[j]))) return direction>=0 ? j : j+1;
+						last_valid_j = j;
+					}
+
+					return last_valid_j;
+				}
+			}
+		}
+		else {
+			
+			if (iswpunct(s[start_p])) {//we're on a punctuation mark
+				//find first non punctuation in the direction
+				//TODO(fran):it seems like everybody does smth different with punctuation, look at visual studio & sublime for examples, so just find what I feel works best
+				for (int i = start_p; i < s.sz_char(); i += direction) {
+					if (!iswpunct(s[i])) {
+						return i;
+					}
+					//TODO(fran): same fix as in whitespace
+				}
+			}
+			else {//we're on a word
+				on_word = true;
+				//find first non word in the direction 
+				//TODO(fran): what about langs that dont usually separate words, like japanese? looks pretty hard since you'd actually have to comprehend the text to understand where to cut each word
+				for (int i = start_p; i < s.sz_char(); i += direction) {
+					if (!iswalnum(s[i])) {
+						return i;
+					}
+					//TODO(fran): same fix as in whitespace
+				}
+			}
+
+
+		}
+
+		return start_p;
+
+	}
+	size_t find_next_stopper(utf16_str s, size_t start_p) {
+		return find_stopper(s, start_p, +1);
+	}
+	size_t find_prev_stopper(utf16_str s, size_t start_p) {
+		return find_stopper(s, start_p, -1);
+	}
+
+	//Positive direction moves cursor/selection to the right, negative to the left
+	void move_selection(ProcState* state, int direction, bool shift_is_down, bool ctrl_is_down) {
+		int anchor, cursor;
+
+		if (shift_is_down && ctrl_is_down) {
+			anchor = cursor = 0; Assert(0);//TODO(fran)
+		}
+		else if (shift_is_down) {
+			//User is adding one extra character to the selection
+			anchor = state->char_cur_sel.anchor;
+			cursor = clamp(0, state->char_cur_sel.cursor + direction, state->char_text.length());
+		}
+		else if (ctrl_is_down) {
+			anchor = cursor = find_stopper({ const_cast<utf16*>(state->char_text.c_str()),(state->char_text.length()+1)*sizeof(state->char_text[0]) },state->char_cur_sel.cursor,clamp(-1,direction,+1));
+		}
+		else {
+			if (state->char_cur_sel.has_selection()) anchor = cursor = ((direction>=0) ? state->char_cur_sel.x_max() : state->char_cur_sel.x_min());
+			else anchor = cursor = clamp(0, state->char_cur_sel.cursor + direction, state->char_text.length());
+		}
+
+		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
+
+		recalculate_caret(state);
+	}
+
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf(msgToString(msg)); printf("\n");
 
@@ -672,7 +770,7 @@ namespace edit_oneline{
 			}
 
 			{ //Render Selection
-				if (state->char_cur_sel.sel_width()) {
+				if (state->char_cur_sel.has_selection()) {
 					//We use the height of the caret (for now) as the height of the selection
 					RECT selection;
 					selection.top = text_y;
@@ -682,9 +780,8 @@ namespace edit_oneline{
 						selection.left += state->char_dims[i];
 					selection.right = selection.left;
 					for (int i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
-						selection.left += state->char_dims[i];
-					HBRUSH selbr = CreateSolidBrush(RGB(23, 51, 200)); defer{ DeleteBrush(selbr); };//TODO(fran): user setteable
-					FillRect(dc, &selection, selbr);//TODO(fran): semi-transparent fill
+						selection.right += state->char_dims[i];
+					urender::FillRectAlpha(dc, selection, 23, 51, 200, 128); //TODO(fran): user setteable color
 				}
 			}
 
@@ -868,41 +965,29 @@ namespace edit_oneline{
 			//		also you want to use the uppercase version of the letter, eg case _t('V'):
 			char vk = (char)wparam;
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
+			bool shift_is_down = HIBYTE(GetKeyState(VK_SHIFT));
 			//TODO(fran): handle shift for selection (and control too)
 			switch (vk) {
 			case VK_HOME://Home
 			{
-				//POINT oldcaretp = state->caret.pos;
 				state->char_cur_sel.anchor = state->char_cur_sel.cursor = 0;
-				state->caret.pos = calc_caret_p(state);
-				//if (oldcaretp != state->caret.pos) {
-					SetCaretPos(state->caret.pos);
-				//}
+
+				recalculate_caret(state);
 			} break;
 			case VK_END://End
 			{
-				//POINT oldcaretp = state->caret.pos;
 				state->char_cur_sel.anchor = state->char_cur_sel.cursor = (int)state->char_text.length();
-				state->caret.pos = calc_caret_p(state);
-				//if (oldcaretp != state->caret.pos) {
-					SetCaretPos(state->caret.pos);
-				//}
+
+				recalculate_caret(state);
 			} break;
 			case VK_LEFT://Left arrow
 			{
-				if (state->char_cur_sel.sel_width()) state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
-				else state->char_cur_sel.anchor = state->char_cur_sel.cursor = max(0, state->char_cur_sel.cursor-1);
-				state->caret.pos = calc_caret_p(state);
-				SetCaretPos(state->caret.pos);
+				move_selection(state, -1, shift_is_down, ctrl_is_down);
 			} break;
 			case VK_RIGHT://Right arrow
 			{
-				if (state->char_cur_sel.x_max() < state->char_text.length()) {
-					if (state->char_cur_sel.sel_width())state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_max();
-					else state->char_cur_sel.anchor = ++state->char_cur_sel.cursor;
-					state->caret.pos = calc_caret_p(state);
-					SetCaretPos(state->caret.pos);
-				}
+				move_selection(state, +1, shift_is_down, ctrl_is_down);
+
 			} break;
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
@@ -915,8 +1000,7 @@ namespace edit_oneline{
 						RECT rc; GetClientRect(state->wnd, &rc);
 						state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
 
-						state->caret.pos = calc_caret_p(state);
-						SetCaretPos(state->caret.pos);
+						recalculate_caret(state);
 					}
 					en_change = true;
 				};
@@ -993,7 +1077,6 @@ namespace edit_oneline{
 			case VK_BACK://Backspace
 			{
 				if (!state->char_text.empty()) {//TODO(fran): add remove function, we need it in other areas too
-					POINT oldcaretp = state->caret.pos;
 					if (state->char_cur_sel.sel_width()) {
 						state->char_text.erase(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width());
 						state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): max minus one ? 
@@ -1018,10 +1101,7 @@ namespace edit_oneline{
 
 					}
 
-					state->caret.pos = calc_caret_p(state);
-					if (oldcaretp != state->caret.pos) {
-						SetCaretPos(state->caret.pos);
-					}
+					recalculate_caret(state);
 					en_change = true;
 				}
 			}break;
@@ -1333,8 +1413,8 @@ namespace edit_oneline{
 		} break;
 		case EM_SETSEL:
 		{
-			int _start = wparam;
-			int _end = lparam;
+			int _start = (int)wparam;
+			int _end = (int)lparam;
 			//int anchor = _start; //TODO(fran): store the anchor, useful for extending selection eg when the user clicks while pressing shift
 
 			if (_start < 0) {
@@ -1345,7 +1425,7 @@ namespace edit_oneline{
 				}
 			}
 			else {
-				int end_max = state->char_text.length();
+				int end_max = (int)state->char_text.length();
 				if (_end < 0) {
 					_end = end_max; //Set _end to one past the last valid char
 				}

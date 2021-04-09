@@ -866,6 +866,16 @@ namespace urender {
 		//TODO(fran): transparent bk color (if possible without gdi+)
 	}
 
+	//Produces alpha blended rectangle
+	void FillRectAlpha(HDC dc, const RECT& rc, u8 r, u8 g, u8 b, u8 a) {
+#ifdef UNCAP_GDIPLUS
+		using namespace Gdiplus;
+		Graphics graphics(dc);
+		SolidBrush brush(Color(a, r, g, b));
+		graphics.FillRectangle(&brush, rc.left, rc.top, RECTW(rc), RECTH(rc));
+#endif
+	}
+
 	//GDI's RoundRect has no antialiasing
 	//TOOD(fran): Fillrect has RECT first and then HBRUSH
 	void RoundRectangleFill(HDC dc, HBRUSH br, const RECT& r, u16 radius /*degrees*/)
