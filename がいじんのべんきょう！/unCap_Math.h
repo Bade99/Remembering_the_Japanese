@@ -56,6 +56,20 @@ static i32 clamp(i32 min, i32 n, i32 max) {
 	return res;
 }
 
+static u32 clamp(u32 min, u32 n, u32 max) {
+	u32 res = n;
+	if (res < min) res = min;
+	else if (res > max) res = max;
+	return res;
+}
+
+static u64 clamp(u64 min, u64 n, u64 max) {
+	u64 res = n;
+	if (res < min) res = min;
+	else if (res > max) res = max;
+	return res;
+}
+
 #include <ctime>//time() //TODO(fran):remove
 #include <random>//TODO(fran):remove
 static i32 random_between(i32 min, i32 max) { //NOTE: random integer between user specified range [min,max]
