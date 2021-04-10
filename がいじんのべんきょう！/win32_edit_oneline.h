@@ -121,6 +121,8 @@ namespace edit_oneline{
 			};
 			HWND all[1];//REMEMBER TO UPDATE
 		}controls;
+
+		bool OnMouseTracking;//true when capturing the mouse while the user remains with left click down
 	};
 
 
@@ -429,7 +431,7 @@ namespace edit_oneline{
 		return { last_valid_i,true };
 	}
 
-	//goes to first character in previous word or punctuation group (skips whitespaces)
+	//goes to first character in word or punctuation group (skips whitespaces)
 	//TODO(fran): what to do if we're already at the start of a group?
 	_string_traversal goto_start_of_group(utf16_str s, size_t start_p, int direction) {
 		Assert(direction < 0);
@@ -448,6 +450,26 @@ namespace edit_oneline{
 		return { last_valid_j,true };
 	}
 
+	//goes one past the last character in word or punctuation group (skips whitespaces)
+	//TODO(fran): what to do if we're already at the end of a group?
+	_string_traversal goto_end_of_group(utf16_str s, size_t start_p, int direction) {
+		Assert(direction > 0);
+
+		auto [x, reached_limit] = skip_whitespace(s, start_p, direction);
+		if (reached_limit) return { x, reached_limit };
+
+		bool is_punct = iswpunct(s[x]);//can either be punctuation or alphanumeric
+
+		//go to the end of the word or punctuation 'group'
+		size_t last_valid_j;
+		for (size_t j = x; j < s.sz_char(); j += direction) {
+			if ((is_punct ? !iswpunct(s[j]) : !iswalnum(s[j]))) return { j,false };
+			last_valid_j = j;
+		}
+		return { last_valid_j,true };
+	}
+
+	//finds different points where to stop when traversing a string, used for Ctrl+Left/Right Arrows keycombo
 	size_t find_stopper(utf16_str s, size_t start_p, int direction/*should be +1 or -1*/) {
 		Assert(direction);
 		//TODO(fran): handle overflow
@@ -512,6 +534,8 @@ namespace edit_oneline{
 
 					if (size_t i = start_p; i > 0 && !iswalnum(s[--i])) {//if we're at the first character of the word
 
+						//we go one back (--i)
+
 						if (iswpunct(s[i])) {//if we're on punctuation
 							//go to the start of the punctuation 'group' //TODO(fran): make this things into separate functions for reuse
 							size_t last_valid_j;
@@ -522,19 +546,9 @@ namespace edit_oneline{
 							return last_valid_j;
 						}
 						else {//else we're on a whitespace
-							//skip all whitespaces
-							auto [x, reached_limit] = skip_whitespace(s, i, direction);
-							if (reached_limit) return x;
-
-							bool is_punct = iswpunct(s[x]);//can either be punctuation or alphanumeric
-
-							//go to the start of the previous word or punctuation 'group'
-							size_t last_valid_j;
-							for (size_t j = x; j < s.sz_char(); j += direction) {
-								if ((is_punct ? !iswpunct(s[j]) : !iswalnum(s[j]))) return j + 1;
-								last_valid_j = j;
-							}
-							return last_valid_j;
+							//skip all whitespaces and go to the start of the previous word or punctuation 'group'
+							auto [x,_] = goto_start_of_group(s, i, direction);
+							return x;
 						}
 
 					}
@@ -569,7 +583,8 @@ namespace edit_oneline{
 		int anchor, cursor;
 
 		if (shift_is_down && ctrl_is_down) {
-			anchor = cursor = 0; Assert(0);//TODO(fran)
+			anchor = state->char_cur_sel.anchor;
+			cursor = find_stopper({ const_cast<utf16*>(state->char_text.c_str()),(state->char_text.length() + 1) * sizeof(state->char_text[0]) }, state->char_cur_sel.cursor, clamp(-1, direction, +1));
 		}
 		else if (shift_is_down) {
 			//User is adding one extra character to the selection
@@ -585,10 +600,19 @@ namespace edit_oneline{
 		}
 
 		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
-
-		recalculate_caret(state);
 	}
 
+	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) {
+		size_t res=0;
+		f32 x = state->char_pad_x;
+		for (int i = 0; i < state->char_dims.size(); i++) {
+			f32 d = (f32)state->char_dims[i] / 2.f;
+			x += d;
+			if ((f32)mouse.x < x) { res = i; break; }
+			x += d;
+		}
+		return res;
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf(msgToString(msg)); printf("\n");
@@ -599,7 +623,6 @@ namespace edit_oneline{
 			//-on WM_STYLECHANGING check for password changes, that'd need a full recalculation
 			//-on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
 			//-region selection after WM_LBUTTONDOWN, do tracking
-			//-wm_gettetxlength
 			//-copy,cut,... (I already have paste) https://docs.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard?redirectedfrom=MSDN#_win32_Copying_Information_to_the_Clipboard
 			//- https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 
@@ -881,6 +904,8 @@ namespace edit_oneline{
 		case WM_CANCELMODE:
 		{
 			//Stop mouse capture, and similar input related things
+			ReleaseCapture();
+			state->OnMouseTracking = false;
 			//Sent, for example, when the window gets disabled
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -919,6 +944,13 @@ namespace edit_oneline{
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+
+			if (state->OnMouseTracking) {
+				//user is trying to make a selection
+				size_t cursor = point_to_char(state, mouse);
+				SendMessage(state->wnd, EM_SETSEL, state->char_cur_sel.anchor, cursor);
+			}
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
@@ -933,44 +965,20 @@ namespace edit_oneline{
 		{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+
+			SetCapture(state->wnd);//We want to keep capturing the mouse while the user is still pressing some button, even if the mouse leaves our client area
+			state->OnMouseTracking = true;
+
 			//TODO(fran): unify with EDITONELINE_calc_caret_p
-			POINT caret_p{ 0,calc_caret_p(state).y };
-			if (state->char_text.empty()) {
-				state->char_cur_sel = { 0,0 };
-				caret_p.x = state->char_pad_x;//TODO(fran): who calcs the char_pad?
-			}
-			else {
-				int mouse_x = mouse.x;
-				int dim_x = state->char_pad_x;//TODO(fran): sometimes this pad goes negative and makes the detection completely buggy. A possible explanation is that for centered text we calc the pad by subtracting from the width, but what if the width at that point was 0, then we'd get a negative pad, therefore if this is the problem we're not correctly recalculating the pad when resizing
-				int char_cur_sel_x;
-				if ((mouse_x - dim_x) <= 0) {
-					caret_p.x = dim_x;
-					char_cur_sel_x = 0;
-				}
-				else {
-					int i = 0;
-					for (; i < (int)state->char_dims.size(); i++) {
-						dim_x += state->char_dims[i];
-						if ((mouse_x - dim_x) < 0) {
-							//if (i + 1 < (int)state->char_dims.size()) {//if there were more chars to go
-							dim_x -= state->char_dims[i];
-							//}
-							break;
-						}//TODO(fran): there's some bug here, selection change isnt as tight as it should, caret placement is correct but this overextends the size of the char
-					}
-					caret_p.x = dim_x;
-					char_cur_sel_x = i;
-				}
-				state->char_cur_sel.anchor = state->char_cur_sel.cursor = char_cur_sel_x;
-			}
-			state->caret.pos = caret_p;
-			SetCaretPos(state->caret.pos);
-			InvalidateRect(state->wnd, NULL, TRUE);//TODO(fran): dont invalidate everything
+			size_t cursor = point_to_char(state, mouse);
+			SendMessage(state->wnd, EM_SETSEL, cursor, cursor);
+			
 			return 0;
 		} break;
 		case WM_LBUTTONUP:
 		{
-			//TODO(fran):Stop mouse tracking?
+			ReleaseCapture();
+			state->OnMouseTracking = false;
 		} break;
 		case WM_IME_SETCONTEXT://Sent after SetFocus to us
 		{//TODO(fran): lots to discover here
@@ -1074,6 +1082,8 @@ namespace edit_oneline{
 			} break;
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
+				//TODO(fran): Ctrl+Shift+Supr deletes everything til the next \n
+
 				auto update_caret_and_change = [&]() {//HACK
 
 					//NOTE: there's actually only one case I can think of where you need to update the caret, that is on a ES_CENTER control
@@ -1524,6 +1534,8 @@ namespace edit_oneline{
 				}
 			}
 
+			recalculate_caret(state);//TODO(fran): only do it if cursor changed
+
 			return 0;
 		} break;
 		case EM_GETSEL:
@@ -1535,6 +1547,11 @@ namespace edit_oneline{
 			if (end) *end = state->char_cur_sel.x_max();
 
 			return -1;//TODO(fran): support for 16bit, should return zero-based value with the starting position of the selection in the LOWORD and the position of the first TCHAR after the last selected TCHAR in the HIWORD. If either of these values exceeds 65535 then the return value is -1.
+		} break;
+		case WM_CAPTURECHANGED://We're losing mouse capture
+		{
+			state->OnMouseTracking = false;
+			return 0;
 		} break;
 
 		default:
