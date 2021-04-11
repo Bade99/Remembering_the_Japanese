@@ -62,6 +62,7 @@ struct utf16_str {
 
 	utf16* begin() { return this->sz ? &(*this)[0] : nullptr; }
 
+	//TODO(fran): does this include the null terminator? if so we gotta fix it, null terminator shouldnt appear
 	utf16* end() { return this->sz ? (utf16*)((u8*)&(*this)[0] + this->sz) : nullptr; /*ptr one past the last element*/ }
 };
 

@@ -1360,6 +1360,17 @@ namespace べんきょう {
 		eswr_theme.brushes.txt = eswr_txt;
 		eswr_theme.brushes.border = eswr_border;
 
+		edit_oneline::Theme base_editoneline_theme;
+		base_editoneline_theme.dimensions.border_thickness = 1;
+		base_editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
+		base_editoneline_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+		base_editoneline_theme.brushes.bk.normal = global::colors.ControlBk;
+		base_editoneline_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
+		base_editoneline_theme.brushes.border.normal = global::colors.Img;
+		base_editoneline_theme.brushes.border.disabled = global::colors.Img_Disabled;
+		base_editoneline_theme.brushes.selection.normal = global::colors.Selection;
+		base_editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
+
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
@@ -1394,7 +1405,7 @@ namespace べんきょう {
 
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_hiragana, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_hiragana, &base_editoneline_theme);
 			AWDT(controls.list.edit_hiragana, 120);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -1406,17 +1417,17 @@ namespace べんきょう {
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
 			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_translation, &base_editoneline_theme);
 			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
@@ -1454,12 +1465,12 @@ namespace べんきょう {
 
 			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_kanji, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
 			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_translation, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_translation, &base_editoneline_theme);
 			AWDT(controls.list.edit_translation, 122);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -1471,7 +1482,7 @@ namespace べんきょう {
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_brushes(controls.list.edit_mnemonic, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.list.edit_mnemonic, 125);
 
 			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
@@ -2767,8 +2778,19 @@ namespace べんきょう {
 			SendMessageW(controls.list.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
 			
+			edit_oneline::Theme editoneline_theme;
+			editoneline_theme.dimensions.border_thickness = 1;
+			editoneline_theme.brushes.foreground.normal = answer_br;
+			editoneline_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+			editoneline_theme.brushes.bk.normal = global::colors.ControlBk;
+			editoneline_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
+			editoneline_theme.brushes.border.normal = global::colors.Img;
+			editoneline_theme.brushes.border.disabled = global::colors.Img_Disabled;
+			editoneline_theme.brushes.selection.normal = global::colors.Selection;
+			editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
 
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, answer_br, global::colors.ControlBk, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled);
+			edit_oneline::set_theme(controls.list.edit_answer, &editoneline_theme);
+
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_answer,true);
 
@@ -2843,7 +2865,14 @@ namespace べんきょう {
 			static_oneline::set_brushes(controls.list.static_test_word, TRUE, question_br, 0, 0, 0, 0, 0);
 
 			//TODO(fran): controls.list.edit_answer should be disabled
-			edit_oneline::set_brushes(controls.list.edit_answer, TRUE, global::colors.ControlTxt, answer_bk.normal, answer_bk.normal, 0, 0, 0);
+
+			edit_oneline::Theme editoneline_theme;
+			editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
+			editoneline_theme.brushes.bk.normal = answer_bk.normal;
+			editoneline_theme.brushes.border.normal = answer_bk.normal;
+
+			edit_oneline::set_theme(controls.list.edit_answer, &editoneline_theme);
+
 			SendMessageW(controls.list.edit_answer, WM_SETTEXT, 0, (LPARAM)pagedata->user_answer.str);
 
 			button::Theme btn_next_theme;
@@ -3802,7 +3831,14 @@ namespace べんきょう {
 								HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
 								HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
 								HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
-								edit_oneline::set_brushes(page.list.edit_answer, TRUE, global::colors.ControlTxt, bk, bk, 0, 0, 0);
+
+								edit_oneline::Theme editoneline_theme;
+								editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
+								editoneline_theme.brushes.bk.normal = bk;
+								editoneline_theme.brushes.border.normal = bk;
+
+								edit_oneline::set_theme(page.list.edit_answer, &editoneline_theme);
+
 								button::Theme btn_theme;
 								btn_theme.brushes.bk.normal = bk;
 								btn_theme.brushes.bk.mouseover = bk_mouseover;

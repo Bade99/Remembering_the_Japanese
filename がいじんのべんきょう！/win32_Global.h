@@ -44,6 +44,8 @@ namespace global {
 		op(HBRUSH,Bk_wrong_answer,CreateSolidBrush(RGB(206, 23, 44))) \
 		op(HBRUSH,BkMouseover_wrong_answer,CreateSolidBrush(RGB(186, 13, 24))) \
 		op(HBRUSH,BkPush_wrong_answer,CreateSolidBrush(RGB(166, 3, 4))) \
+		op(HBRUSH,Selection,CreateSolidBrush(RGB(0, 120, 215))) \
+		op(HBRUSH,Selection_Disabled,CreateSolidBrush(RGB(200, 200, 200))) \
 
 		//TODO(fran): not sure which color to choose for kanji, I use black on my studies but that wont be too visible while we keep the gray bk
 

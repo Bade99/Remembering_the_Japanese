@@ -231,3 +231,15 @@ static size_t distance(size_t a, size_t b) {
 	else res = b - a;
 	return res;
 }
+
+//returns a - b if a >= b otherwise returns n
+size_t safe_subtractN(size_t a, size_t b, size_t n) {
+	size_t res;
+	if (a >= b) res = a - b;
+	else res = n;
+	return res;
+}
+
+size_t safe_subtract0(size_t a, size_t b) {
+	return safe_subtractN(a, b, (decltype(a))0);
+}

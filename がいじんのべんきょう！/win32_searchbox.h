@@ -34,6 +34,7 @@
 //TODO(fran): add to editbox the EN_DOWN notif when the user presses the down key, that signifies us that they want the listbox open and a search performed on what's currently on the editbox (eg if they wrote smth and then went to a different app, when they come back the listbox wont show, there are two options here, show the listbox directly when the editbox gets clicked, or wait for the down arrow msg, or some other input). Also now that I think about it, normally the selection on the searchbox doesnt redirect you directly to your destination, a search is performed at the point and the items shown on a non floating listbox, but that really depends, eg google sends you to a page if it can, otherwise loads a different page with the non floating listbox
 //TODO(fran): small BUG, when the user click on an item from the listbox we lose keyboard focus and therefore the nonclient renders itself as inactive for a couple of frames before coming back to active
 //TODO(fran): I dont see an easy way of hiding the listbox if the user starts clicking outside of it but inside our main wnd, we would need some way of detecting a click or some change, right now neither the listbox, nor the editbox, nor us get anything when the user clicks outside
+//TODO(fran): request editbox to change IME window position to appear below the listbox, otherwise one steps on top of the other
 
 namespace searchbox {
 	
@@ -88,7 +89,19 @@ namespace searchbox {
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH img, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled, HBRUSH img_disabled) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			edit_oneline::set_brushes(state->controls.editbox, repaint, txt, bk, border, txt_disabled, bk_disabled, border_disabled);
+
+			edit_oneline::Theme editoneline_theme;
+			editoneline_theme.dimensions.border_thickness = 1;
+			editoneline_theme.brushes.foreground.normal = txt;
+			editoneline_theme.brushes.foreground.disabled = txt_disabled;
+			editoneline_theme.brushes.bk.normal = bk;
+			editoneline_theme.brushes.bk.disabled = bk_disabled;
+			editoneline_theme.brushes.border.normal = border;
+			editoneline_theme.brushes.border.disabled = border_disabled;
+			editoneline_theme.brushes.selection.normal = global::colors.Selection;//TODO(fran): user setteable
+			editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
+
+			edit_oneline::set_theme(state->controls.editbox, &editoneline_theme);
 
 			//TODO(fran): set listbox brushes (though we want to allow the user to choose the render function)
 

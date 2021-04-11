@@ -9,17 +9,19 @@
 #include "LANGUAGE_MANAGER.h"
 #include "win32_new_msgs.h"
 
-//TODO(fran): at this point there's too much code repetition for text editing, we need general insert functions that work with the new selection feature
 //TODO(fran): show password button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
 //TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
 //TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
+//TODO(fran): on WM_STYLECHANGING check for password changes, that'd need a full recalculation
+//TODO(fran): on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
 //-------------------"API"--------------------:
+// edit_oneline::set_theme()
 //edit_oneline::maintain_placerholder_when_focussed() : hide or keep showing the placeholder text when the user clicks over the wnd
 
 //-------------"API" (Additional Messages)-------------:
@@ -62,43 +64,52 @@ namespace edit_oneline{
 	constexpr cstr password_char = sizeof(password_char) > 1 ? _t('●') : _t('*');
 
 	struct char_sel {//TODO(fran): we should be using size_t and solve the -1 issue by simply checking for size_t_max
-		int anchor;//Eg ABC		anchor=1	anchor is between A and B
-		int cursor;//Eg ABC		cursor=1	cursor is between A and B
+		using type = size_t;
+		type anchor;//Eg ABC		anchor=1	anchor is between A and B
+		type cursor;//Eg ABC		cursor=1	cursor is between A and B
 		//First character of the selection
-		int x_min() {
-			int res = (anchor < cursor) ? anchor : cursor;
+		type x_min() {
+			type res = (anchor < cursor) ? anchor : cursor;
 			return res;
 		}
 		//First character beyond the selection
-		int x_max() {
-			int res = (anchor > cursor) ? anchor : cursor;
+		type x_max() {
+			type res = (anchor > cursor) ? anchor : cursor;
 			return res;
 		}
-		int sel_width() {
-			int res = distance(anchor, cursor);
+		type sel_width() {
+			type res = distance(anchor, cursor);
 			return res;
 		}
-		b32 has_selection() { return sel_width(); }
-		void set_both(int new_val) { anchor = cursor = new_val; }
+		b32 has_selection() { return (b32)sel_width(); }
+		//void set_both(int new_val) { anchor = cursor = new_val; }
 
 		//Example:
 		//			ABCD	EM_SETSEL(1,1)	cursor is placed in between A and B
 		//			ABCD	EM_SETSEL(1,2)	selection covers the letter B, cursor is placed between B and C
 
 		//TODO(fran): not sure whether I should store y position, it's actually more of a UI thing, but it may be necessary for things like scrolling to xth char_sel
-		//int y_min;//First row of the selection
-		//int y_max;
-	};//xth character of the yth row, goes left to right and top to bottom
+	};
+
+	struct Theme {
+		struct {
+			brush_group foreground, bk, border, selection; //NOTE: for now we use the border color for the caret color
+		} brushes;
+		struct {
+			u32 border_thickness = U32MAX;
+		}dimensions;
+		HFONT font = 0;
+	};
+
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
 		u32 identifier;
-		struct editonelinebrushes {
-			HBRUSH txt, bk, border;//NOTE: for now we use the border color for the caret
-			HBRUSH txt_dis, bk_dis, border_dis; //disabled
-		}brushes;
+
+		Theme theme;
+
 		u32 char_max_sz;//doesnt include terminating null, also we wont have terminating null
-		HFONT font;
+		
 		char_sel char_cur_sel;//this is in "character" coordinates, zero-based
 		struct caretnfo {
 			HBITMAP bmp;
@@ -110,8 +121,10 @@ namespace edit_oneline{
 		std::vector<int> char_dims;//NOTE: specifies, for each character, its width
 		//TODO(fran): it's probably better to use signed numbers in case the text overflows ths size of the control
 		int char_pad_x;//NOTE: specifies x offset from which characters start being placed on the screen, relative to the client area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
+
 		cstr placeholder[100]; //NOTE: uses txt_dis brush for rendering
 		bool maintain_placerholder_on_focus;//Hide placeholder text when the user clicks over it
+		
 		cstr invalid_chars[100];
 
 		union EditOnelineControls {
@@ -136,25 +149,38 @@ namespace edit_oneline{
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	//TODO(fran): should have border as first param after repaint to be equal to set_brushes for BUTTON
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	bool _copy_theme(Theme* dst, const Theme* src) {
+		bool repaint = false;
+		repaint |= copy_brush_group(&dst->brushes.foreground, &src->brushes.foreground);
+		repaint |= copy_brush_group(&dst->brushes.bk, &src->brushes.bk);
+		repaint |= copy_brush_group(&dst->brushes.border, &src->brushes.border);
+		repaint |= copy_brush_group(&dst->brushes.selection, &src->brushes.selection);
+
+		if (src->dimensions.border_thickness != U32MAX) {
+			dst->dimensions.border_thickness = src->dimensions.border_thickness; repaint = true;
+		}
+
+		if (src->font) { dst->font = src->font; repaint = true; }
+		return repaint;
+	}
+
+	//Set only what you need, what's not set wont be used
+	//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
+	void set_theme(HWND wnd, const Theme* t) {
 		ProcState* state = get_state(wnd);
-		if (state) {
-			if (txt)state->brushes.txt = txt;
-			if (bk)state->brushes.bk = bk;
-			if (border)state->brushes.border = border;
-			if (txt_disabled)state->brushes.txt_dis = txt_disabled;
-			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-			if (border_disabled)state->brushes.border_dis = border_disabled;
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+		if (state && t) {
+			bool repaint = _copy_theme(&state->theme, t);//TODO(fran): the entire char_dims vector needs to be recalculated on font changes
+
+			if (repaint)  ask_for_repaint(state);
 		}
 	}
 
 	SIZE calc_caret_dim(ProcState* state) {
 		SIZE res;
 		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-		HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 		TEXTMETRIC tm;
 		GetTextMetrics(dc, &tm);
 		int avg_height = tm.tmHeight;
@@ -166,7 +192,7 @@ namespace edit_oneline{
 	int calc_line_height_px(ProcState* state) {
 		int res;
 		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-		HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 		TEXTMETRIC tm;
 		GetTextMetrics(dc, &tm);
 		res = tm.tmHeight;
@@ -181,7 +207,7 @@ namespace edit_oneline{
 
 		SIZE res;
 		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-		HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 		//UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
 		//SetTextAlign(dc, TA_LEFT);
 		GetTextExtentPoint32(dc, &c, 1, &res);
@@ -197,7 +223,7 @@ namespace edit_oneline{
 		}
 		else {
 			HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
-			HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+			HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 			//UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
 			//SetTextAlign(dc, TA_LEFT);
 			GetTextExtentPoint32(dc, state->char_text.c_str(), (int)state->char_text.length(), &res);
@@ -207,9 +233,9 @@ namespace edit_oneline{
 	}
 
 	POINT calc_caret_p(ProcState* state) {
-		Assert(state->char_cur_sel.cursor - 1 < (int)state->char_dims.size());
+		Assert(safe_subtract0(state->char_cur_sel.cursor, (size_t)1) <= state->char_dims.size());
 		POINT res = { state->char_pad_x, 0 };
-		for (int i = 0; i < state->char_cur_sel.cursor; i++) {
+		for (size_t i = 0; i < state->char_cur_sel.cursor; i++) {
 			res.x += state->char_dims[i];
 			//TODO(fran): probably wrong
 		}
@@ -221,35 +247,6 @@ namespace edit_oneline{
 		return res;
 	}
 
-	bool _settext(ProcState* state, cstr* buf /*null terminated*/) {
-		bool res = false;
-		cstr empty = 0;//INFO: compiler doesnt allow you to set it to L''
-		if (!buf) buf = &empty; //NOTE: this is the standard default behaviour
-		size_t char_sz = cstr_len(buf);//not including null terminator
-		if (char_sz <= (size_t)state->char_max_sz) {
-			state->char_text = buf;
-
-			state->char_dims.clear();//Reset dims since we now have new text
-			state->char_cur_sel = { 0,0 };//Reset cursor
-
-			for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x_min() + i, calc_char_dim(state, buf[i]).cx);
-			state->char_cur_sel.set_both((int)char_sz);
-
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			if (style & ES_CENTER) {
-				//Recalc pad_x
-				RECT rc; GetClientRect(state->wnd, &rc);
-				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
-
-			}
-			state->caret.pos = calc_caret_p(state);
-			SetCaretPos(state->caret.pos);
-
-			res = true;
-			InvalidateRect(state->wnd, NULL, TRUE);
-		}
-		return res;
-	}
 
 	void remove_selection(ProcState* state, size_t x_min, size_t x_max) {
 		if (!state->char_text.empty()) {
@@ -274,11 +271,70 @@ namespace edit_oneline{
 	//Removes the current text selection and updates the selection values
 	void remove_selection(ProcState* state) {
 		remove_selection(state, state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
-		//if (!state->char_text.empty() && state->char_cur_sel.sel_width()) {
-		//	state->char_text.erase(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width());
-		//	state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): max minus one ? 
-		//	state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min();
-		//}
+	}
+
+	void insert_character(ProcState* state, utf16_str s, size_t x_min, size_t x_max) {
+		x_min = clamp((size_t)0, x_min, state->char_text.length());
+		x_max = clamp((size_t)0, x_max, state->char_text.length());
+		char_sel sel{ x_min, x_max };
+
+		if (safe_subtract0(state->char_text.length(), sel.sel_width()) < state->char_max_sz) {
+
+			//remove existing selection
+			if (sel.has_selection()) remove_selection(state, x_min, x_max);
+
+			//insert new character
+			state->char_text.insert(state->char_cur_sel.cursor, s.str);
+
+			for (size_t i = 0; i < s.sz_char() - 1; i++)
+				state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor + i, calc_char_dim(state, s[i]).cx);
+
+			size_t anchor = state->char_cur_sel.cursor + safe_subtract0(s.sz_char(), (size_t)1);
+			size_t cursor = anchor;
+
+			SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
+		}
+	}
+
+	//inserts character replacing the current selection
+	void insert_character(ProcState* state, utf16 c) {//TODO(fran): optimized version for single character insertion
+		utf16 txt[2];
+		txt[0] = c;
+		txt[1] = 0;
+
+		insert_character(state, to_utf16_str(txt), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+	}
+
+	//inserts string replacing the current selection
+	void insert_character(ProcState* state, const utf16* s) {
+		if (s && *s)
+			insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+	}
+
+	bool _settext(ProcState* state, cstr* buf /*null terminated*/) {
+		bool res = false;
+		cstr empty = 0;//INFO: compiler doesnt allow you to set it to L''
+		if (!buf) buf = &empty; //NOTE: this is the standard default behaviour
+		size_t char_sz = cstr_len(buf);//not including null terminator
+		if (char_sz <= (size_t)state->char_max_sz) {
+			SendMessage(state->wnd, EM_SETSEL, 0, -1);
+			remove_selection(state);
+			insert_character(state, buf);
+
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			if (style & ES_CENTER) {
+				//Recalc pad_x
+				RECT rc; GetClientRect(state->wnd, &rc);
+				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+
+			}
+			state->caret.pos = calc_caret_p(state);
+			SetCaretPos(state->caret.pos);
+
+			res = true;
+			InvalidateRect(state->wnd, NULL, TRUE);
+		}
+		return res;
 	}
 
 	//NOTE: pasting from the clipboard establishes a couple of invariants: lines end with \r\n, there's a null terminator, we gotta parse it carefully cause who knows whats inside
@@ -294,11 +350,8 @@ namespace edit_oneline{
 	if (char_sz > 0) {
 		//TODO(fran): remove invalid chars (we dont know what could be inside)
 
-		remove_selection(state);//Now selection cursor and anchor are the same
-
-		state->char_text.insert((size_t)state->char_cur_sel.cursor, txt, char_sz);
-		for (size_t i = 0; i < char_sz; i++) state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor + i, calc_char_dim(state, txt[i]).cx);
-		state->char_cur_sel.set_both(state->char_cur_sel.cursor + (int)char_sz);
+		remove_selection(state);//NOTE or TODO(fran): not necessary, insert_character already has to do it, but it's easier to read and understand the steps needed
+		insert_character(state, txt);
 
 		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 		if (style & ES_CENTER) {
@@ -359,7 +412,7 @@ namespace edit_oneline{
 		if (imc != NULL) {
 			defer{ ImmReleaseContext(state->wnd, imc); };
 			LOGFONT lf;
-			int getobjres = GetObject(state->font, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
+			int getobjres = GetObject(state->theme.font, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
 
 			BOOL setres = ImmSetCompositionFont(imc, &lf); Assert(setres);
 		}
@@ -423,8 +476,6 @@ namespace edit_oneline{
 		bool res = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length() == 0);
 		return res;
 	}
-
-	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
 
 	void maintain_placerholder_when_focussed(HWND wnd, bool maintain) {//TODO(fran): idk if this should be standardized and put in the wparam of WM_SETDEFAULTTEXT, it seems kind of annoying especially since this is something you probably only want to set once, different from the text which you may want to change more often
 		ProcState* state = get_state(wnd);
@@ -602,23 +653,23 @@ namespace edit_oneline{
 
 	//Positive direction moves cursor/selection to the right, negative to the left
 	void move_selection(ProcState* state, int direction, bool shift_is_down, bool ctrl_is_down) {
-		int anchor, cursor;
+		size_t anchor, cursor;
 
 		if (shift_is_down && ctrl_is_down) {
 			anchor = state->char_cur_sel.anchor;
-			cursor = (i32)find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, clamp(-1, direction, +1));
+			cursor = find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, clamp(-1, direction, +1));
 		}
 		else if (shift_is_down) {
 			//User is adding one extra character to the selection
 			anchor = state->char_cur_sel.anchor;
-			cursor = clamp(0, state->char_cur_sel.cursor + direction, (i32)/*TODO(fran): should use size_t*/state->char_text.length());
+			cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + direction, state->char_text.length());
 		}
 		else if (ctrl_is_down) {
-			anchor = cursor = (i32)find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,clamp(-1,direction,+1));
+			anchor = cursor = find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,clamp(-1,direction,+1));
 		}
 		else {
 			if (state->char_cur_sel.has_selection()) anchor = cursor = ((direction>=0) ? state->char_cur_sel.x_max() : state->char_cur_sel.x_min());
-			else anchor = cursor = clamp(0, state->char_cur_sel.cursor + direction, (i32)state->char_text.length());
+			else anchor = cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + direction, state->char_text.length());
 		}
 
 		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
@@ -639,14 +690,10 @@ namespace edit_oneline{
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		//printf(msgToString(msg)); printf("\n");
+		printf(msgToString(msg)); printf("\n");
 
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
-			//TODOs(fran):
-			//-on WM_STYLECHANGING check for password changes, that'd need a full recalculation
-			//-on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
-
 		case WM_NCCREATE:
 		{ //1st msg received
 			CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
@@ -764,9 +811,11 @@ namespace edit_oneline{
 		{
 			//TODO(fran): should I make a copy of the font? it seems like windows just tells the user to delete the font only after they deleted the control so probably I dont need a copy
 			HFONT font = (HFONT)wparam;
-			state->font = font;
-			BOOL redraw = LOWORD(lparam);
-			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+
+			Theme new_theme;
+			new_theme.font = font;
+			set_theme(state->wnd, &new_theme);
+
 			return 0;
 		} break;
 		case WM_DESTROY:
@@ -793,28 +842,29 @@ namespace edit_oneline{
 			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 			//ps.rcPaint
 			HDC dc = BeginPaint(state->wnd, &ps);
-			int border_thickness_pen = 0;//means 1px when creating pens
-			int border_thickness = 1;
-			HBRUSH bk_br, txt_br, border_br;
+			HBRUSH bk_br, txt_br, border_br, selection_br;
+			u32 border_thickness = state->theme.dimensions.border_thickness;
 			bool show_placeholder = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length()==0);
 			if (IsWindowEnabled(state->wnd)) {
-				bk_br = state->brushes.bk;
-				txt_br = state->brushes.txt;
-				border_br = state->brushes.border;
+				bk_br = state->theme.brushes.bk.normal;
+				txt_br = state->theme.brushes.foreground.normal;
+				border_br = state->theme.brushes.border.normal;
+				selection_br = state->theme.brushes.selection.normal;
 			}
 			else {
-				bk_br = state->brushes.bk_dis;
-				txt_br = state->brushes.txt_dis;
-				border_br = state->brushes.border_dis;
+				bk_br = state->theme.brushes.bk.disabled;
+				txt_br = state->theme.brushes.foreground.disabled;
+				border_br = state->theme.brushes.border.disabled;
+				selection_br = state->theme.brushes.selection.disabled;
 			}
 			if (show_placeholder) {
-				txt_br = state->brushes.txt_dis;
+				txt_br = state->theme.brushes.foreground.disabled;
 			}
 
 			if (style & ES_ROUNDRECT) {
 	#if 1
 				//Border and Bk
-				HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+				HPEN pen = CreatePen(PS_SOLID, border_thickness, ColorFromBrush(border_thickness ? border_br : bk_br)); defer{ DeletePen(pen); };
 				HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
 				HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
 				i32 roundedness = max(1, (i32)roundf((f32)min(w, h) * .2f));
@@ -828,7 +878,7 @@ namespace edit_oneline{
 			} 
 			else {
 				//Border
-				FillRectBorder(dc, rc, border_thickness, border_br, BORDERLEFT | BORDERTOP | BORDERRIGHT | BORDERBOTTOM);
+				FillRectBorder(dc, rc, border_thickness, border_thickness ? border_br : bk_br, BORDERLEFT | BORDERTOP | BORDERRIGHT | BORDERBOTTOM);//HACK: instead of not rendering the border Im simply making it be the same color as the bk, I may want to change that (a border of 0 size still gets rendered as 1px, which means there will be overdraw with the bk rendering)
 
 				//Bk
 				//Clip the drawing region to avoid overriding the border
@@ -844,14 +894,14 @@ namespace edit_oneline{
 					ExcludeClipRect(dc, bottom.left, bottom.top, bottom.right, bottom.bottom);
 					//TODO(fran): this aint too clever, it'd be easier to set the clipping region to the deflated rect
 				}
-				RECT bk_rc = rc; InflateRect(&bk_rc, -border_thickness, -border_thickness);
+				RECT bk_rc = rc; InflateRect(&bk_rc, -(i32)border_thickness, -(i32)border_thickness);
 				FillRect(dc, &bk_rc, bk_br);//TODO(fran): we need to clip this where the text was already drawn, this will be the last thing we paint
 
 			}
 
 			int text_y;//top of the text
 			{
-				HFONT oldfont = SelectFont(dc, state->font); defer{ SelectFont(dc, oldfont); };
+				HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 				UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
 
 				COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
@@ -903,12 +953,14 @@ namespace edit_oneline{
 					selection.top = text_y;
 					selection.bottom = selection.top + state->caret.dim.cy;
 					selection.left = state->char_pad_x;
-					for (int i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
+					for (size_t i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
 						selection.left += state->char_dims[i];
 					selection.right = selection.left;
-					for (int i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
+					for (size_t i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
 						selection.right += state->char_dims[i];
-					urender::FillRectAlpha(dc, selection, 23, 51, 200, 128); //TODO(fran): user setteable color
+					COLORREF sel_col = ColorFromBrush(selection_br);
+					urender::FillRectAlpha(dc, selection, GetRValue(sel_col), GetGValue(sel_col), GetBValue(sel_col), 128);
+					//TODO(fran): instead of painting over the text with alpha we need to change the bk color of the selected section when rendering the text, otherwise the text color gets too opaqued and looks bad
 				}
 			}
 
@@ -990,7 +1042,6 @@ namespace edit_oneline{
 			SetCapture(state->wnd);//We want to keep capturing the mouse while the user is still pressing some button, even if the mouse leaves our client area
 			state->OnMouseTracking = true;
 
-			//TODO(fran): unify with EDITONELINE_calc_caret_p
 			size_t cursor = point_to_char(state, mouse);
 			SendMessage(state->wnd, EM_SETSEL, cursor, cursor);
 			
@@ -1026,7 +1077,7 @@ namespace edit_oneline{
 				int pitch = caret_dim.cx * 4/*bytes per pixel*/;//NOTE: windows expects word aligned bmps, 32bits are always word aligned
 				int sz = caret_dim.cy * pitch;
 				u32* mem = (u32*)malloc(sz); defer{ free(mem); };
-				COLORREF color = ColorFromBrush(state->brushes.txt_dis);
+				COLORREF color = ColorFromBrush(state->theme.brushes.foreground.disabled);
 
 				//IMPORTANT: changing caret color is gonna be a pain, docs: To display a solid caret (NULL in hBitmap), the system inverts every pixel in the rectangle; to display a gray caret ((HBITMAP)1 in hBitmap), the system inverts every other pixel; to display a bitmap caret, the system inverts only the white bits of the bitmap.
 				//Aka we either calculate how to arrive at the color we want from the caret's bit flipping (will invert bits with 1) or we give up, we should do our own caret
@@ -1078,11 +1129,11 @@ namespace edit_oneline{
 			char vk = (char)wparam;
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
 			bool shift_is_down = HIBYTE(GetKeyState(VK_SHIFT));
-			printf("%c : %d\n", vk, (i32)vk);
+			//printf("%c : %d\n", vk, (i32)vk);
 			switch (vk) {
 			case VK_HOME://Home
 			{
-				int anchor, cursor;
+				size_t anchor, cursor;
 
 				if (shift_is_down && ctrl_is_down) {//Make a selection to the start of the text
 					anchor = state->char_cur_sel.anchor;
@@ -1101,20 +1152,20 @@ namespace edit_oneline{
 			} break;
 			case VK_END://End
 			{
-				int anchor, cursor;
+				size_t anchor, cursor;
 
 				if (shift_is_down && ctrl_is_down) {//Make a selection to the end of the text
 					anchor = state->char_cur_sel.anchor;
-					cursor = (i32)state->char_text.length();
+					cursor = state->char_text.length();
 				}
 				else if (shift_is_down) {//Make a selection to the end of the line
 					anchor = state->char_cur_sel.anchor;
-					cursor = (i32)state->char_text.length();
+					cursor = state->char_text.length();
 				}
 				else if (ctrl_is_down) {//Remove selection and Go to the end of the text
-					anchor = cursor = (i32)state->char_text.length();
+					anchor = cursor = state->char_text.length();
 				}
-				else anchor = cursor = (i32)state->char_text.length();//Remove selection and Go to the end of the line (since we're singleline go to start of text)
+				else anchor = cursor = state->char_text.length();//Remove selection and Go to the end of the line (since we're singleline go to start of text)
 
 				SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 			} break;
@@ -1129,8 +1180,6 @@ namespace edit_oneline{
 			} break;
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
-				//TODO(fran): Ctrl+Shift+Supr deletes everything til the next \n
-
 				if (!state->char_text.empty()) {
 					if (state->char_cur_sel.has_selection())remove_selection(state);
 					else {
@@ -1216,8 +1265,8 @@ namespace edit_oneline{
 						((decltype(&state->char_text[0]))txt)[state->char_cur_sel.sel_width() + 1] = 0;//null terminate
 					}
 					
-					EmptyClipboard();//TODO(fran): is this necessary? (it looks like it is)
-					auto setclipret = SetClipboardData(format, mem);//TODO(fran): mem or txt?
+					EmptyClipboard();
+					auto setclipret = SetClipboardData(format, mem);
 
 					if (!setclipret) GlobalFree(mem);//free mem if for some reason we fail to set the clipboard with our data
 					else state->clipboard_handle = mem;//store handle so we can free it on WM_DESTROYCLIPBOARD
@@ -1325,27 +1374,10 @@ namespace edit_oneline{
 
 				//We have some normal character
 				//TODO(fran): what happens with surrogate pairs? I dont even know what they are -> READ
-				if (state->char_text.length() < state->char_max_sz) {
-
-					if (state->char_cur_sel.sel_width()) {//TODO(fran): make this into a function add_character(state) and add_character(state,pos_x), provide versions for adding single char or 'string'
-						//There's a selection
-
-						//Replace string section with new character
-						state->char_text.replace(state->char_cur_sel.x_min(), state->char_cur_sel.sel_width(), 1, c);
-
-						//Replace char_dims section with new char_dim
-						state->char_dims.erase(state->char_dims.begin() + state->char_cur_sel.x_min(), state->char_dims.begin() + state->char_cur_sel.x_max());//TODO(fran): maybe max needs to be subtracted one?
-						state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.x_min(), calc_char_dim(state, c).cx);
-						state->char_cur_sel.anchor = state->char_cur_sel.cursor = state->char_cur_sel.x_min() + 1;//TODO(fran): annoying
-					}
-					else {
-						//There's no selection
-						state->char_text.insert((size_t)state->char_cur_sel.cursor,1,c);
-						state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor, calc_char_dim(state, c).cx);
-						state->char_cur_sel.anchor = ++state->char_cur_sel.cursor;//TODO(fran): annoying
-					}
+				if (safe_subtract0(state->char_text.length(), state->char_cur_sel.sel_width()) < state->char_max_sz) {
+					insert_character(state, c);
 					
-					LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+					LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);//TODO(fran): again, which function is gonna take the responsibility of doing this?
 					if (style & ES_CENTER) {
 						//Recalc pad_x
 						RECT rc; GetClientRect(state->wnd, &rc);
@@ -1442,6 +1474,8 @@ namespace edit_oneline{
 			//TODO(fran): process this msgs once we manage the ime window
 			u32 command = (u32)wparam;
 
+			//printf("WM_IME_NOTIFY\n");
+
 			//IMN_SETCOMPOSITIONWINDOW IMN_SETSTATUSWINDOWPOS
 			//printf("WM_IME_NOTIFY: wparam = 0x%08x\n", command);
 
@@ -1472,7 +1506,54 @@ namespace edit_oneline{
 		case WM_IME_COMPOSITION://On japanese keyboard, after we press a key to start writing this is 2nd msg received
 		{//doc: sent when IME changes composition status cause of keystroke
 			//wparam = DBCS char for latest change to composition string, TODO(fran): find out about DBCS
-			return DefWindowProc(hwnd, msg, wparam, lparam);
+
+			//TODO(fran): idk which is the best place to handle IME changes, there's also WM_IME_NOTIFY and WM_IME_REQUEST(probably not in this one)
+
+			auto defret = DefWindowProc(hwnd, msg, wparam, lparam);
+			bool en_change = false;
+
+			//TODO(fran): seems like an lparam = 0 means the IME was canceled an we should delete the IME text
+
+			if (lparam == 0) {
+				//IME was cancelled, delete whatever was written with it
+				if (state->char_cur_sel.has_selection()) {
+					remove_selection(state);
+					en_change = true;
+				}
+			}
+			else {
+				HIMC imc = ImmGetContext(state->wnd);
+				if (imc != NULL) {
+					defer{ ImmReleaseContext(state->wnd, imc); };
+					int szbytes = ImmGetCompositionStringW(imc, GCS_COMPSTR, 0, 0);//excluding null terminator
+					if (szbytes > 0) {//otherwise gotta handle possible errors
+						utf16* txt;
+						//szbytes += (1 * sizeof(*txt));//include null terminator
+						txt = (decltype(txt))malloc(szbytes + sizeof(*txt)); defer{ free(txt); };
+
+						auto len = ImmGetCompositionStringW(imc, GCS_COMPSTR, txt, szbytes) / sizeof(*txt);
+						txt[len] = 0;//ImmGetCompositionStringW does _not_ write the null terminator
+
+						insert_character(state, txt);
+
+
+						LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);//TODO(fran): again, which function is gonna take the responsibility of doing this?
+						if (style & ES_CENTER) {
+							//Recalc pad_x
+							RECT rc; GetClientRect(state->wnd, &rc);
+							state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+						}
+						state->caret.pos = calc_caret_p(state);
+						SetCaretPos(state->caret.pos);
+
+						en_change = true;
+
+						SendMessage(state->wnd, EM_SETSEL, safe_subtract0(state->char_cur_sel.cursor, len), state->char_cur_sel.cursor);
+					}
+				}
+			}
+			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
+			return defret;
 		} break;
 		case WM_IME_CHAR://WM_CHAR from the IME window, this are generated once the user has pressed enter on the IME window, so more than one char will probably be coming
 		{
@@ -1545,9 +1626,9 @@ namespace edit_oneline{
 					} break;
 					case CDDS_ITEMPREPAINT://Setup before painting an item
 					{
-						SelectFont(cd->nmcd.hdc, state->font);
-						SetTextColor(cd->nmcd.hdc, ColorFromBrush(state->brushes.txt));
-						SetBkColor(cd->nmcd.hdc, ColorFromBrush(state->brushes.bk));
+						SelectFont(cd->nmcd.hdc, state->theme.font);
+						SetTextColor(cd->nmcd.hdc, ColorFromBrush(state->theme.brushes.foreground.normal));
+						SetBkColor(cd->nmcd.hdc, ColorFromBrush(state->theme.brushes.bk.normal));
 						return CDRF_NEWFONT;
 					} break;
 					default: return CDRF_DODEFAULT;
@@ -1567,7 +1648,7 @@ namespace edit_oneline{
 		} break;
 		case WM_GETFONT:
 		{
-			return (LRESULT)state->font;
+			return (LRESULT)state->theme.font;
 		} break;
 		case WM_DEADCHAR://Very interesting, this is the way that TranslateMessage notifies about things like a tilde being pressed, since this keys arent expected to be directly made into characters on the screen
 		{
@@ -1592,11 +1673,11 @@ namespace edit_oneline{
 		} break;
 		case EM_SETSEL:
 		{
-			int _start = (int)wparam;
-			int _end = (int)lparam;
+			size_t _start = (size_t)wparam;
+			size_t _end = (size_t)lparam;
 			//int anchor = _start; //TODO(fran): store the anchor, useful for extending selection eg when the user clicks while pressing shift
 
-			if (_start < 0) {
+			if (_start == (size_t)-1 || (i32)_start == (i32)-1) {//TODO(fran): find out the best check for this since -1 usually gets automapped to i32 and thus will be different from (size_t)-1 (I think)
 				//Remove current selection
 				if (state->char_cur_sel.anchor != state->char_cur_sel.cursor) {
 					state->char_cur_sel.anchor = state->char_cur_sel.cursor;
@@ -1604,13 +1685,13 @@ namespace edit_oneline{
 				}
 			}
 			else {
-				int end_max = (int)state->char_text.length();
-				if (_end < 0) {
+				size_t end_max = (size_t)state->char_text.length();
+				if (_end == (size_t)-1 || (i32)_end == (i32)-1) {
 					_end = end_max; //Set _end to one past the last valid char
 				}
 
-				_start = clamp(0, _start, end_max);
-				_end = clamp(0, _end, end_max);
+				_start = clamp((size_t)0, _start, end_max);
+				_end = clamp((size_t)0, _end, end_max);
 
 
 				if (state->char_cur_sel.anchor != _start || state->char_cur_sel.cursor != _end) {
@@ -1624,13 +1705,13 @@ namespace edit_oneline{
 
 			return 0;
 		} break;
-		case EM_GETSEL:
+		case EM_GETSEL://TODO(fran): EM_GETSEL_EX (to be able to request for size_t (possibly 64bit) values)
 		{
 			DWORD* start = (decltype(start))wparam;
 			DWORD* end = (decltype(end))lparam;
 
-			if (start) *start = state->char_cur_sel.x_min();
-			if (end) *end = state->char_cur_sel.x_max();
+			if (start) *start = (DWORD)state->char_cur_sel.x_min();
+			if (end) *end = (DWORD)state->char_cur_sel.x_max();
 
 			return -1;//TODO(fran): support for 16bit, should return zero-based value with the starting position of the selection in the LOWORD and the position of the first TCHAR after the last selected TCHAR in the HIWORD. If either of these values exceeds 65535 then the return value is -1.
 		} break;
