@@ -108,6 +108,9 @@ static bool contains_char(cstr c, cstr* chars) {
 utf16_str to_utf16_str(utf16* s) { return { s, (cstr_len(s) + 1) * sizeof(*s) }; }
 utf8_str to_utf8_str(utf8* s) { return { s, (strlen(s) + 1) * sizeof(*s) }; }
 
+utf16_str to_utf16_str(std::wstring& s) { return { const_cast<decltype(&s[0])>(s.c_str()),(s.length() + 1) * sizeof(s[0]) }; }
+utf8_str to_utf8_str(std::string& s) { return { const_cast<decltype(&s[0])>(s.c_str()),(s.length() + 1) * sizeof(s[0]) }; }
+
 //TODO(fran): normalize all this convert functions into one that receives the necesssary params to achieve any conversion
 
 //NOTE: the converted string needs to be freed via free_any_str

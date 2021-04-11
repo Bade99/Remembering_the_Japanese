@@ -9,11 +9,11 @@
 #include "LANGUAGE_MANAGER.h"
 #include "win32_new_msgs.h"
 
-//TODO(fran): at this point there's too much code repetition for text editing, we need general remove & insert functions that work with the new selection feature
+//TODO(fran): at this point there's too much code repetition for text editing, we need general insert functions that work with the new selection feature
 //TODO(fran): show password button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
-//TODO(fran): paint/handle my own IME window
+//TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
 //TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
 
@@ -61,7 +61,7 @@ namespace edit_oneline{
 
 	constexpr cstr password_char = sizeof(password_char) > 1 ? _t('●') : _t('*');
 
-	struct char_sel {
+	struct char_sel {//TODO(fran): we should be using size_t and solve the -1 issue by simply checking for size_t_max
 		int anchor;//Eg ABC		anchor=1	anchor is between A and B
 		int cursor;//Eg ABC		cursor=1	cursor is between A and B
 		//First character of the selection
@@ -606,7 +606,7 @@ namespace edit_oneline{
 
 		if (shift_is_down && ctrl_is_down) {
 			anchor = state->char_cur_sel.anchor;
-			cursor = find_stopper({ const_cast<utf16*>(state->char_text.c_str()),(state->char_text.length() + 1) * sizeof(state->char_text[0]) }, state->char_cur_sel.cursor, clamp(-1, direction, +1));
+			cursor = (i32)find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, clamp(-1, direction, +1));
 		}
 		else if (shift_is_down) {
 			//User is adding one extra character to the selection
@@ -614,7 +614,7 @@ namespace edit_oneline{
 			cursor = clamp(0, state->char_cur_sel.cursor + direction, (i32)/*TODO(fran): should use size_t*/state->char_text.length());
 		}
 		else if (ctrl_is_down) {
-			anchor = cursor = find_stopper({ const_cast<utf16*>(state->char_text.c_str()),(state->char_text.length()+1)*sizeof(state->char_text[0]) },state->char_cur_sel.cursor,clamp(-1,direction,+1));
+			anchor = cursor = (i32)find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,clamp(-1,direction,+1));
 		}
 		else {
 			if (state->char_cur_sel.has_selection()) anchor = cursor = ((direction>=0) ? state->char_cur_sel.x_max() : state->char_cur_sel.x_min());
@@ -626,7 +626,7 @@ namespace edit_oneline{
 
 	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) {
 		size_t res=0;
-		f32 x = state->char_pad_x;
+		f32 x = (decltype(x))state->char_pad_x;
 		int i = 0;
 		for (; i < state->char_dims.size(); i++) {
 			f32 d = (f32)state->char_dims[i] / 2.f;
@@ -646,7 +646,6 @@ namespace edit_oneline{
 			//TODOs(fran):
 			//-on WM_STYLECHANGING check for password changes, that'd need a full recalculation
 			//-on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
-			//- https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 
 		case WM_NCCREATE:
 		{ //1st msg received
@@ -1079,16 +1078,44 @@ namespace edit_oneline{
 			char vk = (char)wparam;
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
 			bool shift_is_down = HIBYTE(GetKeyState(VK_SHIFT));
-			//TODO(fran): handle shift for selection (and control too)
+			printf("%c : %d\n", vk, (i32)vk);
 			switch (vk) {
 			case VK_HOME://Home
 			{
-				int anchor = 0, cursor = anchor;
+				int anchor, cursor;
+
+				if (shift_is_down && ctrl_is_down) {//Make a selection to the start of the text
+					anchor = state->char_cur_sel.anchor;
+					cursor = 0;
+				}
+				else if (shift_is_down) {//Make a selection to the start of the line
+					anchor = state->char_cur_sel.anchor;
+					cursor = 0;
+				}
+				else if (ctrl_is_down) {//Remove selection and Go to the start of the text
+					anchor = cursor = 0;
+				}
+				else anchor = cursor = 0;//Remove selection and Go to the start of the line (since we're singleline go to start of text)
+
 				SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 			} break;
 			case VK_END://End
 			{
-				int anchor = (int)state->char_text.length(), cursor = anchor;
+				int anchor, cursor;
+
+				if (shift_is_down && ctrl_is_down) {//Make a selection to the end of the text
+					anchor = state->char_cur_sel.anchor;
+					cursor = (i32)state->char_text.length();
+				}
+				else if (shift_is_down) {//Make a selection to the end of the line
+					anchor = state->char_cur_sel.anchor;
+					cursor = (i32)state->char_text.length();
+				}
+				else if (ctrl_is_down) {//Remove selection and Go to the end of the text
+					anchor = cursor = (i32)state->char_text.length();
+				}
+				else anchor = cursor = (i32)state->char_text.length();//Remove selection and Go to the end of the line (since we're singleline go to start of text)
+
 				SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 			} break;
 			case VK_LEFT://Left arrow
@@ -1106,7 +1133,33 @@ namespace edit_oneline{
 
 				if (!state->char_text.empty()) {
 					if (state->char_cur_sel.has_selection())remove_selection(state);
-					else remove_selection(state, state->char_cur_sel.cursor, state->char_cur_sel.cursor + 1);
+					else {
+						if (ctrl_is_down && shift_is_down) {//delete everything til end of the line
+							remove_selection(state, state->char_cur_sel.cursor, state->char_text.length());
+						}
+						else if (ctrl_is_down) {//delete everything up to the next stopper
+							remove_selection(state, state->char_cur_sel.cursor, find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,+1));
+						}
+						else if (shift_is_down) {//save whole line to clipboard and then delete it
+							SendMessage(state->wnd, EM_SETSEL, 0, -1);
+							SendMessage(state->wnd, WM_COPY, 0, 0);
+							remove_selection(state);
+						}
+						else remove_selection(state, state->char_cur_sel.cursor, state->char_cur_sel.cursor + 1);//delete character in front of the cursor
+					}
+					en_change = true;
+				}
+			} break;
+			case VK_BACK://Backspace
+			{
+				if (!state->char_text.empty()) {
+					if (state->char_cur_sel.has_selection())remove_selection(state);
+					else {
+
+						if(ctrl_is_down && shift_is_down) remove_selection(state, 0, state->char_cur_sel.cursor); //Remove every character from cursor to line start
+						else if(ctrl_is_down) remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, -1), state->char_cur_sel.cursor);
+						else remove_selection(state, state->char_cur_sel.cursor - 1, state->char_cur_sel.cursor);
+					}
 					en_change = true;
 				}
 			} break;
@@ -1114,21 +1167,21 @@ namespace edit_oneline{
 			case _t('V'):
 			{
 				if (ctrl_is_down) {
-					PostMessage(state->wnd, WM_PASTE, 0, 0);
+					SendMessage(state->wnd, WM_PASTE, 0, 0);
 				}
 			} break;
 			case _t('c'):
 			case _t('C'):
 			{
 				if (ctrl_is_down) {
-					PostMessage(state->wnd, WM_COPY, 0, 0);
+					SendMessage(state->wnd, WM_COPY, 0, 0);
 				}
 			} break;
 			case _t('x'):
 			case _t('X'):
 			{
 				if (ctrl_is_down) {
-					PostMessage(state->wnd, WM_CUT, 0, 0);
+					SendMessage(state->wnd, WM_CUT, 0, 0);
 				}
 			} break;
 			}
@@ -1211,14 +1264,25 @@ namespace edit_oneline{
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
 			//lparam = flags
 			switch (c) { //https://docs.microsoft.com/en-us/windows/win32/menurc/using-carets
-			case VK_BACK://Backspace
+			case 127://Ctrl + Backspace
 			{
-				if (!state->char_text.empty()) {//TODO(fran): add remove function, we need it in other areas too
+				/*if (!state->char_text.empty()) {
 					if (state->char_cur_sel.has_selection())remove_selection(state);
-					else remove_selection(state, state->char_cur_sel.cursor - 1, state->char_cur_sel.cursor);
+					else remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, -1), state->char_cur_sel.cursor);
 
 					en_change = true;
-				}
+				}*/
+				//do nothing, we already handled it on WM_KEYDOWN
+			} break;
+			case VK_BACK://Backspace (for some reason it gets sent as WM_CHAR even though it can be handled in WM_KEYDOWN)
+			{
+				//if (!state->char_text.empty()) {
+				//	if (state->char_cur_sel.has_selection())remove_selection(state);
+				//	else remove_selection(state, state->char_cur_sel.cursor - 1, state->char_cur_sel.cursor);
+
+				//	en_change = true;
+				//}
+				//do nothing, we already handled it on WM_KEYDOWN
 			}break;
 			case VK_TAB://Tab
 			{
