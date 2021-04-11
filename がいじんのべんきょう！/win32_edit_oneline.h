@@ -89,7 +89,6 @@ namespace edit_oneline{
 		//int y_min;//First row of the selection
 		//int y_max;
 	};//xth character of the yth row, goes left to right and top to bottom
-	struct txt_sel { char_sel min, max; }; //TODO(fran): implement selections
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
@@ -123,6 +122,8 @@ namespace edit_oneline{
 		}controls;
 
 		bool OnMouseTracking;//true when capturing the mouse while the user remains with left click down
+
+		HGLOBAL clipboard_handle;
 	};
 
 
@@ -605,12 +606,14 @@ namespace edit_oneline{
 	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) {
 		size_t res=0;
 		f32 x = state->char_pad_x;
-		for (int i = 0; i < state->char_dims.size(); i++) {
+		int i = 0;
+		for (; i < state->char_dims.size(); i++) {
 			f32 d = (f32)state->char_dims[i] / 2.f;
 			x += d;
 			if ((f32)mouse.x < x) { res = i; break; }
 			x += d;
 		}
+		if (i == state->char_dims.size()) res = i;//if the mouse is rightmost of the last character then simply clip to there
 		return res;
 	}
 
@@ -622,8 +625,6 @@ namespace edit_oneline{
 			//TODOs(fran):
 			//-on WM_STYLECHANGING check for password changes, that'd need a full recalculation
 			//-on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
-			//-region selection after WM_LBUTTONDOWN, do tracking
-			//-copy,cut,... (I already have paste) https://docs.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard?redirectedfrom=MSDN#_win32_Copying_Information_to_the_Clipboard
 			//- https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 
 		case WM_NCCREATE:
@@ -1123,11 +1124,61 @@ namespace edit_oneline{
 					PostMessage(state->wnd, WM_PASTE, 0, 0);
 				}
 			} break;
+			case _t('c'):
+			case _t('C'):
+			{
+				if (ctrl_is_down) {
+					PostMessage(state->wnd, WM_COPY, 0, 0);
+				}
+			} break;
+			case _t('x'):
+			case _t('X'):
+			{
+				if (ctrl_is_down) {
+					PostMessage(state->wnd, WM_CUT, 0, 0);
+				}
+			} break;
 			}
+
+
 			InvalidateRect(state->wnd, NULL, TRUE);//TODO(fran): dont invalidate everything, NOTE: also on each wm_paint the cursor will stop so we should add here a bool repaint; to avoid calling InvalidateRect when it isnt needed
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
 			return 0;
 		}break;
+		case WM_CUT:
+		{
+			SendMessage(state->wnd, WM_COPY, 0, 0);
+			remove_selection(state);
+		} break;
+		case WM_COPY:
+		{
+#ifdef UNICODE
+			UINT format = CF_UNICODETEXT;
+#else
+			UINT format = CF_TEXT;
+#endif
+			//Copy text from current selection to clipboard
+			if (state->char_cur_sel.has_selection()) {
+				if (OpenClipboard(state->wnd)) {
+					defer{ CloseClipboard(); };
+					HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (state->char_cur_sel.sel_width() + 1) * sizeof(state->char_text[0])); Assert(mem);//TODO(fran): runtime_assert ?
+
+					{
+						void* txt = GlobalLock(mem); Assert(txt); defer{ GlobalUnlock(mem); };
+
+						memcpy(txt, state->char_text.c_str() + state->char_cur_sel.x_min(), state->char_cur_sel.sel_width() * sizeof(state->char_text[0]));//copy selection
+						((decltype(&state->char_text[0]))txt)[state->char_cur_sel.sel_width() + 1] = 0;//null terminate
+					}
+					
+					EmptyClipboard();//TODO(fran): is this necessary? (it looks like it is)
+					auto setclipret = SetClipboardData(format, mem);//TODO(fran): mem or txt?
+
+					if (!setclipret) GlobalFree(mem);//free mem if for some reason we fail to set the clipboard with our data
+					else state->clipboard_handle = mem;//store handle so we can free it on WM_DESTROYCLIPBOARD
+				}
+			}
+
+		} break;
 		case WM_PASTE:
 		{
 			//Notifications:
@@ -1551,6 +1602,19 @@ namespace edit_oneline{
 		case WM_CAPTURECHANGED://We're losing mouse capture
 		{
 			state->OnMouseTracking = false;
+			return 0;
+		} break;
+		case WM_DESTROYCLIPBOARD:
+		{
+			GlobalFree(state->clipboard_handle);//TODO(fran): should I zero clipboard_handle?
+			//TODO(fran): this and storing the clipboard_handle are actually pointless, windows now owns and knows how to free our clipboard data so we should actually _not_ give it our handle when we OpenClipboard() and this extra work should solve itself
+			return 0;
+		} break;
+		case WM_RENDERALLFORMATS:
+		{
+			//When our application is about to be closed windows requests that we "render" all the clipboard formats that we have previously set
+			//Problem is this is called when you use Delayed Rendering, by calling SetClipboardData with a null hMem parameter, we never use that. So I can only assume two things: either this is a windows bug or TODO(fran): we got a bug
+			//Extra info on 'rendering': https://docs.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard?redirectedfrom=MSDN#_win32_Copying_Information_to_the_Clipboard
 			return 0;
 		} break;
 
