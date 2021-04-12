@@ -663,6 +663,22 @@ namespace listbox {
 			if (idx < state->elements.size()) res = state->elements[idx];
 			return (LRESULT)res;
 		} break;
+		//case WM_CANCELMODE:
+		//{
+		//	TRACKMOUSEEVENT track;
+		//	track.cbSize = sizeof(track);
+		//	track.hwndTrack = state->wnd;
+		//	track.dwFlags = TME_LEAVE | TME_CANCEL;//cancel previous TME_LEAVE request if active //TODO(fran): parametric/automatic way to know what to cancel
+		//	TrackMouseEvent(&track);
+		//	return 0;
+		//} break;
+		//case WM_ENABLE:
+		//{
+		//	BOOL enabled = (BOOL)wparam;//TODO(fran): here we could check whether the enabled state is actually changing and only then ask for repaint
+		//	ask_for_repaint(state);
+		//	return 0;
+		//} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

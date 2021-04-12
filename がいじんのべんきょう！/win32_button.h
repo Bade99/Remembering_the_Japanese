@@ -4,11 +4,13 @@
 #include <windowsx.h>
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
+#include "win32_new_msgs.h"
 
 //TODO(fran): new class btn_text_or_img: if the text fits then draw it, otherwise render the img, great for cool resizing that allows for the same control to take different shapes but maintain all functionality
 
 //-----------------API-----------------:
 // button::set_theme()
+// button::set_tooltip()
 
 //-------------Usage Notes-------------:
 //	this buttons can have text or an img, but not both at the same time
@@ -20,8 +22,14 @@
 //-------------Additional Styles-------------:
 // button::style::roundrect : Border is made of a rounded rectangle
 
+//-------------Tooltip-------------: (NOTE: the tooltip is hidden if the user takes the mouse away from the control)
+// button::default_tooltip_duration
+// button::tooltip_timer_id
+
 namespace button {
 	constexpr cstr wndclass[] = TEXT("unCap_wndclass_button");
+	constexpr i32 default_tooltip_duration = 3000 /*ms*/;
+	constexpr u32 tooltip_timer_id = 0xf1;
 
 	struct Theme {
 		struct {
@@ -41,6 +49,13 @@ namespace button {
 		HWND wnd;
 		HWND parent;
 
+		union Controls {
+			struct {
+				HWND tooltip;
+			};
+			HWND all[1];//REMEMBER TO UPDATE
+		}controls;
+
 		bool onMouseOver;
 		bool onLMouseClick;//The left click is being pressed on the background area
 		bool OnMouseTracking; //Left click was pressed in our bar and now is still being held, the user will probably be moving the mouse around, so we want to track it to move the scrollbar
@@ -51,6 +66,8 @@ namespace button {
 
 		HICON icon;
 		HBITMAP bmp;
+
+		utf16* tooltip_txt;
 	};
 
 	ProcState* get_state(HWND hwnd) {
@@ -63,6 +80,28 @@ namespace button {
 	}
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	//NOTE: text must be null terminated
+	//if txt == 0 the tooltip is removed
+	bool set_tooltip(HWND wnd, const utf16* txt) {
+		//NOTE: no ASCII support
+		bool res = false;
+
+		ProcState* state = get_state(wnd);
+		if (state) {
+			res = true;
+			if(txt) {
+				//store new tooltip text
+				state->tooltip_txt = (decltype(state->tooltip_txt))malloc( (wcslen(txt)+1) * sizeof(*txt));
+				wcscpy(state->tooltip_txt, txt);
+			}
+			else {
+				//remove tooltip text
+				if (state->tooltip_txt) { free(state->tooltip_txt); state->tooltip_txt = 0; }
+			}
+		}
+		return res;
+	}
 
 	bool _copy_theme(Theme* dst, const Theme* src) {
 		bool repaint = false;
@@ -513,6 +552,7 @@ namespace button {
 		} break;
 		case WM_DESTROY:
 		{
+			if (state->tooltip_txt) set_tooltip(state->wnd, 0);
 			free(state);
 		}break;
 		case WM_STYLECHANGING:
@@ -542,6 +582,28 @@ namespace button {
 		} break;
 		case WM_CREATE:
 		{
+
+			//Create our tooltip
+			state->controls.tooltip = CreateWindowEx(WS_EX_TOPMOST/*make sure it can be seen in any wnd config*/, TOOLTIPS_CLASS, NULL,
+				WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,//INFO(fran): TTS_BALLOON doesnt work on windows10, you need a registry change https://superuser.com/questions/1349414/app-wont-show-balloon-tip-notifications-in-windows-10 simply amazing
+				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+				state->wnd, NULL, NULL, NULL);
+			Assert(state->controls.tooltip);
+
+			TOOLINFO toolInfo{ sizeof(toolInfo) };
+			toolInfo.hwnd = state->wnd;
+			toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS /*IMPORTANT TODO(fran): if we dont ask for TTF_SUBCLASS then we're in charge of notifying the tooltip on the events it needs, like WM_MOUSEMOVE,etc this is one way we can prevent the tooltip from working if the user hasnt requested it to*/; /*| TTF_ABSOLUTE | TTF_TRACK*/ /*allows to show the tooltip when we please*/; //TODO(fran): TTF_TRANSPARENT might be useful, mouse msgs that go to the tooltip are sent to the parent aka us
+			toolInfo.uId = (UINT_PTR)state->wnd;
+			toolInfo.rect = { 0 };
+			//toolInfo.hinst = GetModuleHandle(NULL);
+			toolInfo.lpszText = LPSTR_TEXTCALLBACK;//Tooltip control sends us TTN_GETDISPINFO msg so we can tell it what to render
+			toolInfo.lParam = 0;
+			toolInfo.lpReserved = 0;
+			BOOL addtool_res = (BOOL)SendMessage(state->controls.tooltip, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+			//TODO(fran): we dont want the tooltip to be always enabled, only when the user asks for it to be
+			//TODO(fran): hide tooltip if we get hidden
+			Assert(addtool_res);
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		}
 		case WM_IME_SETCONTEXT: //When we get keyboard focus for the first time this gets sent
@@ -601,6 +663,66 @@ namespace button {
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
+		case WM_NOTIFYFORMAT://1st msg sent by our tooltip
+		{
+			switch (lparam) {
+			case NF_QUERY: return sizeof(cstr) > 1 ? NFR_UNICODE : NFR_ANSI; //a child of ours has asked us
+			case NF_REQUERY: return SendMessage((HWND)wparam/*parent*/, WM_NOTIFYFORMAT, (WPARAM)state->wnd, NF_QUERY); //NOTE: the return value is the new notify format, right now we dont do notifications so we dont care, but this could be a TODO(fran)
+			}
+			return 0;
+		} break;
+		case WM_QUERYUISTATE://Strange msg, it wants to know the UI state for a window, I assume that means the tooltip is asking us how IT should look?
+		{
+			return UISF_ACTIVE | UISF_HIDEACCEL | UISF_HIDEFOCUS; //render as active wnd, dont show keyboard accelerators nor focus indicators
+		} break;
+		case WM_NOTIFY:
+		{
+			NMHDR* msg_info = (NMHDR*)lparam;
+			if (msg_info->hwndFrom == state->controls.tooltip) {
+				switch (msg_info->code) {
+				case NM_CUSTOMDRAW:
+				{
+					NMTTCUSTOMDRAW* cd = (NMTTCUSTOMDRAW*)lparam;
+					//INFO: cd->uDrawFlags = flags for DrawText
+					switch (cd->nmcd.dwDrawStage) {
+						//TODO(fran): probably case CDDS_PREERASE: for SetBkColor for the background
+					case CDDS_PREPAINT:
+					{
+						return CDRF_NOTIFYITEMDRAW;//TODO(fran): I think im lacking something here, we never get CDDS_ITEMPREPAINT, it's possible the msgs are not sent cause it uses a visual style, in which case it doesnt care about you, we would have to remove it with setwindowtheme, and since there wont be any style we'll have to draw it completely ourselves I guess
+					} break;
+					case CDDS_ITEMPREPAINT://Setup before painting an item
+					{
+						SelectFont(cd->nmcd.hdc, state->theme.font);
+						SetTextColor(cd->nmcd.hdc, ColorFromBrush(state->theme.brushes.foreground.normal));
+						SetBkColor(cd->nmcd.hdc, ColorFromBrush(state->theme.brushes.bk.normal));
+						return CDRF_NEWFONT;
+					} break;
+					default: return CDRF_DODEFAULT;
+					}
+				} break;
+				case TTN_GETDISPINFO:
+				{
+					NMTTDISPINFO* nfo = (decltype(nfo))lparam;
+					nfo->szText[0] = 0;
+					nfo->lpszText = (state->tooltip_txt) ? state->tooltip_txt : 0;//NOTE: tooltip will use our memory, TODO(fran): this could be dangerous, that mem can get deleted if the user changes the tooltip text
+					return 0;
+				} break;
+				case TTN_LINKCLICK:
+					Assert(0);
+				case TTN_POP://Tooltip is about to be hidden
+					return 0;
+				case TTN_SHOW://Tooltip is about to be shown
+					return 0;//here we can change the tooltip's position
+			}
+		}
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_SETTOOLTIPTEXT:
+		{
+			cstr* txt = (decltype(txt))lparam;
+			return set_tooltip(state->wnd, txt);
+		} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

@@ -53,7 +53,7 @@
 
 //NOTE: does _not_ include the null terminator
 static size_t cstr_len(const cstr* s) {
-	return wcslen(s);
+	return wcslen(s);//TODO(fran): what about when cstr is char?
 }
 
 #define cstr_printf(...)  wprintf(__VA_ARGS__)

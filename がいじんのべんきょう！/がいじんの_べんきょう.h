@@ -28,21 +28,19 @@
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+//TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
-//TODO(fran): all pages: change the preload_page() concept to load_page() to make it very clear that the page is gonna be shown next, an as such needs to not only use the load data but also initialize itself, eg setting colors, invisble windows, etc
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
-//TODO(fran): all pages: chrome style IME, the text is written directly on the control while you write
 //TODO(fran): all pages: I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
 //TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
 //TODO(fran): page show_word: add "Help me remember" button to move a word to the top candidates for practices
-//TODO(fran): page show_word: the center aligned editboxes _still_ render the caret in the wrong place when they have some text already set
 //TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
@@ -248,7 +246,7 @@ struct stored_word {
 
 //Structures for different practice levels
 struct practice_writing_word {
-	learnt_word word;//TODO(fran): change name to 'question' and add extra param 'answer' that points to an element inside of 'question'
+	learnt_word16 word;//TODO(fran): change name to 'question' and add extra param 'answer' that points to an element inside of 'question'
 	enum class type {//TODO(fran): the type differentiation is kinda pointless, instead I could bake all the differences into variables, eg to check the right answer have a separate pointer to the needed string inside the learnt_word
 		hiragana_to_translation,
 		translation_to_hiragana,
@@ -294,7 +292,7 @@ T str_for_learnt_word_elem(_learnt_word<T>* word, learnt_word_elem type) {//TODO
 };
 
 struct practice_multiplechoice_word {
-	learnt_word question;//#free
+	learnt_word16 question;//#free
 	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
 	utf16* question_str;//Points to some element inside of 'question'
 	ptr<utf16*> choices; //#free
@@ -303,7 +301,7 @@ struct practice_multiplechoice_word {
 };
 
 struct practice_drawing_word {
-	learnt_word question;//#free
+	learnt_word16 question;//#free
 	utf16* question_str;//Points to some element inside of 'question'
 	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
 };
@@ -453,9 +451,8 @@ namespace embedded {
 		void show_controls(ProcState* state, bool show) {
 			for (auto& c : state->controls.all) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
 		}
-		//the word must be encoded in utf16
 		//NOTE: a copy of the word is kept internally
-		void set_word(HWND wnd, learnt_word* word) {
+		void set_word(HWND wnd, learnt_word16* word) {
 			ProcState* state = get_state(wnd);
 			if (state && word) {
 				//TODO(fran): we could resize_controls in case we resize by the lenght of the strings
@@ -811,6 +808,7 @@ struct べんきょうProcState {
 
 				type button_modify;
 				type button_delete;
+				type button_remember;//the user can request the system to prioritize showing this word on practices (the same as if it was a new word that the user just added)
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} show_word;
@@ -943,7 +941,7 @@ namespace べんきょう {
 	}
 
 	//NOTE: afterwards you must .free() the accuracy_timeline member
-	//retrieves the last cnt timepoints in order of oldest to newest
+	//retrieves the last cnt timepoints in order of oldest to newest and stores them inside the stats pointer
 	void get_user_stats_accuracy_timeline(sqlite3* db, user_stats* stats, size_t cnt) {//TODO(fran): I feel like returning ptr<u8> is better than asking for a user_stats ptr but Im not sure
 		using namespace std::string_literals;
 		std::string timeline =
@@ -1504,9 +1502,15 @@ namespace べんきょう {
 
 			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_modify, 273);
+			//AWT(controls.list.button_modify, 273);
 			button::set_theme(controls.list.button_delete, &img_btn_theme);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
+
+			controls.list.button_remember = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_remember, 275);
+			AWTT(controls.list.button_remember, 276);
+			button::set_theme(controls.list.button_remember, &base_btn_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2254,6 +2258,12 @@ namespace べんきょう {
 			btn_modify.y = last_cell.bottom() + h_pad;
 			btn_modify.x = (w - btn_modify.w) / 2;
 
+			rect_i32 btn_remember;
+			btn_remember.w = 90;
+			btn_remember.h = wnd_h;
+			btn_remember.y = btn_modify.y;
+			btn_remember.x = btn_modify.right() + w_pad;
+
 			rect_i32 btn_delete;
 			btn_delete.h = wnd_h;
 			btn_delete.w = btn_delete.h;
@@ -2281,6 +2291,7 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.list.static_last_shown_date, static_last_shown_date, FALSE);
 			MyMoveWindow_offset(controls.list.static_score, static_score, FALSE);
 			MyMoveWindow_offset(controls.list.button_modify, btn_modify, FALSE);
+			MyMoveWindow_offset(controls.list.button_remember, btn_remember, FALSE);
 			MyMoveWindow_offset(controls.list.button_delete, btn_delete, FALSE);
 
 		} break;
@@ -2628,7 +2639,7 @@ namespace べんきょう {
 		practices.clear();
 	}
 
-	//Sets the items in the corresponding page to the values on *data
+	//Sets the items in the corresponding page to the values on *data, prepares the page so it can be shown to the user
 	void preload_page(ProcState* state, ProcState::page page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
 		switch (page) {
@@ -3147,11 +3158,14 @@ namespace べんきょう {
 		return res;
 	}
 
-	bool delete_word(sqlite3* db, learnt_word* word) {
+	bool delete_word(sqlite3* db, learnt_word8* word) {//TODO(fran): it'd be better to receive a learnt_word16 and only here convert it to learnt_word8
+		using namespace std::string_literals;
 		bool res = false;
 
 		//To delete you find the word by its primary keys
-		std::string delete_word = std::string(" DELETE FROM ") + べんきょう_table_words + " WHERE " + "hiragana" + " = " + "'" + (utf8*)word->attributes.hiragana.str + "'" + ";";//TODO(fran): parametric filtering by all primary keys
+		std::string delete_word = SQL(
+			DELeTE FROM _べんきょう_table_words WHERE hiragana =
+			) + "'"s + word->attributes.hiragana.str + "'" ";";//TODO(fran): parametric filtering by all primary keys
 
 
 		char* delete_errmsg;
@@ -3162,19 +3176,59 @@ namespace べんきょう {
 
 	bool remove_word(ProcState* state) {
 		bool res = false;
-		learnt_word word_to_delete{ 0 };
+		learnt_word16 word16{ 0 };
 
 		auto& page = state->controls.show_word;
 
-		_get_edit_str(page.list.static_hiragana, word_to_delete.attributes.hiragana); //TODO(fran): should check for valid values? I feel it's pointless in this case
-		defer{ free_any_str(word_to_delete.attributes.hiragana.str); };
+		_get_edit_str(page.list.static_hiragana, word16.attributes.hiragana); //TODO(fran): should check for valid values? I feel it's pointless in this case
+		defer{ free_any_str(word16.attributes.hiragana.str); };
 
-		learnt_word word_to_delete_utf8; //TODO(fran): maybe converting the attributes in place would be nicer, also we could iterate over all the members and check for valid pointers and only convert those
+		learnt_word8 word8; //TODO(fran): maybe converting the attributes in place would be nicer, also we could iterate over all the members and check for valid pointers and only convert those
 
-		word_to_delete_utf8.attributes.hiragana = convert_utf16_to_utf8((utf16*)word_to_delete.attributes.hiragana.str, (int)word_to_delete.attributes.hiragana.sz);
-		defer{ free_any_str(word_to_delete_utf8.attributes.hiragana.str); };
+		word8.attributes.hiragana = convert_utf16_to_utf8(word16.attributes.hiragana.str, (int)word16.attributes.hiragana.sz);
+		defer{ free_any_str(word8.attributes.hiragana.str); };
 
-		res = delete_word(state->settings->db, &word_to_delete_utf8);
+		res = delete_word(state->settings->db, &word8);
+		return res;
+	}
+
+	bool reset_word_priority(sqlite3* db, learnt_word8* word) {
+		using namespace std::string_literals;
+		bool res = false;
+		//HACK: TODO(fran): store on the db two different values for each of the prioritizing columns so we can maintain untouched the one we show to the user but change/reset the real values the system uses when choosing practice words
+
+		//TODO(fran): can I SET to default values?
+		std::string reset_priority = SQL(
+			UPDATE _べんきょう_table_words 
+			SET last_shown_date = 0 comma
+				times_shown = 0
+			WHERE hiragana =
+		) + "'"s + word->attributes.hiragana.str + "'" ";";
+
+		utf8* errmsg;
+		res = sqlite3_exec(db, reset_priority.c_str(), 0, 0, &errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(errmsg);
+		return res;
+	}
+
+	bool reset_word_priority(sqlite3* db, learnt_word16* word16) {
+		learnt_word8 word8{0}/*we actually only need to clear what can be used by the real function*/;
+		//TODO(fran): here we'll only convert what's strictly necessary for the real function to succeed
+		word8.attributes.hiragana = convert_utf16_to_utf8(word16->attributes.hiragana.str, (int)word16->attributes.hiragana.sz); defer{ free_any_str(word8.attributes.hiragana.str); };
+		return reset_word_priority(db, &word8);
+	}
+
+	bool prioritize_word(ProcState* state) {
+		//TODO(fran): should accept any word, not manually take it from the UI
+		bool res = false;
+		learnt_word16 word16{ 0 };
+
+		auto& page = state->controls.show_word;
+
+		_get_edit_str(page.list.static_hiragana, word16.attributes.hiragana); defer{ free_any_str(word16.attributes.hiragana.str); };
+
+		res = reset_word_priority(state->settings->db,&word16);
+
 		return res;
 	}
 
@@ -3254,8 +3308,8 @@ namespace べんきょう {
 		return res;
 	}
 
-	learnt_word get_practice_word(sqlite3* db, bool hiragana_req=false,bool kanji_req=false,bool meaning_req=false) {
-		learnt_word res{0};
+	learnt_word16 get_practice_word(sqlite3* db, bool hiragana_req=false,bool kanji_req=false,bool meaning_req=false) {
+		learnt_word16 res{0};
 
 //Algorithms to decide which words to show:
 //Baseline:
@@ -3305,7 +3359,7 @@ namespace べんきょう {
 		;//Now that's why sql is a piece of garbage, look at the size of that query!! for such a stupid two select + union operation, if they had given you the obvious option of storing the select on a variable, then store the other select on a variable and then union both this would be so much more readable, comprehensible and easier to write
 
 		auto parse_select_practice_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
-			learnt_word* res = (decltype(res))extra_param;
+			learnt_word16* res = (decltype(res))extra_param;
 			//NOTE: we should already know the order of the columns since they should all be specified in their correct order in the select
 			//NOTE: we should always get only one result
 
@@ -3323,41 +3377,41 @@ namespace べんきょう {
 	}
 
 	//TODO(fran): use get_hiragana_kanji_meaning, and rename to has_hiragana_kanji_meaning
-	bool has_hiragana(const learnt_word* word) {
+	bool has_hiragana(const learnt_word16* word) {
 		bool res;
-		res = word && word->attributes.hiragana.str && *((utf16*)word->attributes.hiragana.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+		res = word && word->attributes.hiragana.str && *word->attributes.hiragana.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
 		return res;
 	}
 
-	bool has_translation(const learnt_word* word) {
+	bool has_translation(const learnt_word16* word) {
 		bool res;
-		res = word && word->attributes.translation.str && *((utf16*)word->attributes.translation.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+		res = word && word->attributes.translation.str && *word->attributes.translation.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
 		return res;
 	}
 
-	bool has_kanji(const learnt_word* word) {
+	bool has_kanji(const learnt_word16* word) {
 		bool res;
-		res = word && word->attributes.kanji.str && *((utf16*)word->attributes.kanji.str);//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+		res = word && word->attributes.kanji.str && *word->attributes.kanji.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
 		return res;
 	}
 
 	//NOTE: can return less than 'cnt' if not enough elements exist in the db
-	ptr<utf16*> get_word_choices(sqlite3* db, learnt_word_elem request, u32 cnt, const learnt_word* filter) {
+	ptr<utf16*> get_word_choices(sqlite3* db, learnt_word_elem request, u32 cnt, const learnt_word16* filter) {
 		ptr<utf16*> res; res.alloc(cnt); res.cnt = 0;
 
 		utf8* filter_elem; defer{ free_any_str(filter_elem); };
 		std::string req_column;
 		switch (request) {
 		case decltype(request)::hiragana: 
-			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.hiragana.str, (int)filter->attributes.hiragana.sz).str;
+			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.hiragana.str, (int)filter->attributes.hiragana.sz).str;
 			req_column = "hiragana";
 			break;
 		case decltype(request)::kanji:
-			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.kanji.str, (int)filter->attributes.kanji.sz).str;
+			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.kanji.str, (int)filter->attributes.kanji.sz).str;
 			req_column = "kanji";
 			break;
 		case decltype(request)::meaning:
-			filter_elem = (utf8*)convert_utf16_to_utf8((utf16*)filter->attributes.translation.str, (int)filter->attributes.translation.sz).str;
+			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.translation.str, (int)filter->attributes.translation.sz).str;
 			req_column = "translation";
 			break;
 		default: Assert(0);
@@ -3400,13 +3454,12 @@ namespace べんきょう {
 		
 		ProcState::available_practices practice = practices[random_between(0u,(u32)ARRAYSIZE(practices)-1)];
 
-		auto get_hiragana_kanji_meaning = [](learnt_word* w)->u32 { /*Says which parts of the word are filled/valid*/
+		auto get_hiragana_kanji_meaning = [](learnt_word16* w)->u32 { /*Says which parts of the word are filled/valid*/
 			u32 res = 0;
 			if (w) {
-				if (w->attributes.hiragana.str && *((utf16*)w->attributes.hiragana.str)) res |= (u32)learnt_word_elem::hiragana;
-				if (w->attributes.kanji.str && *((utf16*)w->attributes.kanji.str)) res |= (u32)learnt_word_elem::kanji;
-				if (w->attributes.translation.str && *((utf16*)w->attributes.translation.str)) res |= (u32)learnt_word_elem::meaning;
-				//TODO(fran): learnt_word should have a defined str type, we cant be guessing here. Another option is to not allocate nulls and that way we can simply check for .sz
+				if (w->attributes.hiragana.str && *w->attributes.hiragana.str) res |= (u32)learnt_word_elem::hiragana;
+				if (w->attributes.kanji.str && *w->attributes.kanji.str) res |= (u32)learnt_word_elem::kanji;
+				if (w->attributes.translation.str && *w->attributes.translation.str) res |= (u32)learnt_word_elem::meaning;
 			}
 			return res;
 		};
@@ -3416,7 +3469,7 @@ namespace べんきょう {
 		{
 			//NOTE: writing itself has many different practices
 			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): MEMLEAK practice_writing page will take care of freeing this once the page completes its practice
-			learnt_word practice_word = get_practice_word(state->settings->db);//get a target word
+			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
 			data->word = std::move(practice_word);
 
 			std::vector<practice_writing_word::type> practice_types;
@@ -3434,7 +3487,7 @@ namespace べんきょう {
 		{
 			practice_multiplechoice_word* data = (decltype(data))malloc(sizeof(*data));
 
-			learnt_word practice_word = get_practice_word(state->settings->db);//get a target word
+			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
 			data->question = std::move(practice_word);
 			u32 q_and_a = get_hiragana_kanji_meaning(&data->question);//NOTE: the type of the question and choices is limited by our target word
 			data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
@@ -3452,7 +3505,7 @@ namespace べんきょう {
 				else data->choices[i] = _choices[j++];
 			}
 
-			data->question_str = str_for_learnt_word_elem((learnt_word16*)&data->question, data->question_type).str;
+			data->question_str = str_for_learnt_word_elem(&data->question, data->question_type).str;
 			
 			res.page = ProcState::page::practice_multiplechoice;
 			res.data = data;
@@ -3460,13 +3513,13 @@ namespace べんきょう {
 		case ProcState::available_practices::drawing:
 		{
 			practice_drawing_word* data = (decltype(data))malloc(sizeof(*data));
-			learnt_word practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
+			learnt_word16 practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
 			//TODO(fran): check the word is valid, otherwise recursively call this function
 			data->question = std::move(practice_word);
 			
 			u32 q_elems = get_hiragana_kanji_meaning(&data->question);
 			data->question_type = (decltype(data->question_type))random_bit_set(q_elems & (~(u32)learnt_word_elem::kanji));
-			data->question_str = str_for_learnt_word_elem((learnt_word16*)&data->question, data->question_type).str;
+			data->question_str = str_for_learnt_word_elem(&data->question, data->question_type).str;
 
 			res.page = ProcState::page::practice_drawing;
 			res.data = data;
@@ -3558,9 +3611,9 @@ namespace べんきょう {
 	}
 
 	//NOTE word should be in utf16
-	void word_update_last_shown_date(sqlite3* db,const learnt_word& word) {
+	void word_update_last_shown_date(sqlite3* db,const learnt_word16& word) {
 		using namespace std::string_literals;
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
 		std::string update_last_shown_date = SQL(
 			UPDATE _べんきょう_table_words SET last_shown_date = strftime('%s', 'now') WHERE hiragana =
@@ -3572,10 +3625,10 @@ namespace べんきょう {
 	}
 
 	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
-	void word_increment_times_shown(sqlite3* db, const learnt_word& word) {
+	void word_increment_times_shown(sqlite3* db, const learnt_word16& word) {
 		using namespace std::string_literals;
 		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
 		std::string increment_times_shown = SQL(
 			UPDATE _べんきょう_table_words SET times_shown = times_shown + 1 WHERE hiragana =
@@ -3587,10 +3640,10 @@ namespace べんきょう {
 	}
 
 	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
-	void word_increment_times_right(sqlite3* db, const learnt_word& word) {
+	void word_increment_times_right(sqlite3* db, const learnt_word16& word) {
 		using namespace std::string_literals;
 		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8((utf16*)word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
 		std::string increment_times_right = SQL(
 			UPDATE _べんきょう_table_words SET times_right = times_right + 1 WHERE hiragana =
@@ -3602,7 +3655,7 @@ namespace べんきょう {
 	}
 
 	//NOTE word should be in utf16
-	void word_increment_times_shown__times_right(sqlite3* db, const learnt_word& word, bool inc_times_right) {
+	void word_increment_times_shown__times_right(sqlite3* db, const learnt_word16& word, bool inc_times_right) {
 		//INFO: times_shown _must_ be updated before times_right in order for the triggers to function correctly
 		word_increment_times_shown(db, word);
 		if(inc_times_right)word_increment_times_right(db, word);
@@ -3786,7 +3839,11 @@ namespace べんきょう {
 								//set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
 							}
 						}
-}
+					}
+					if (child == page.list.button_remember) {
+						//TODO(fran): change button bk and mouseover color to green
+						prioritize_word(state);
+					}
 				} break;
 				case ProcState::page::practice_writing:
 				{

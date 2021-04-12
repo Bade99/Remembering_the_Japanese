@@ -748,7 +748,7 @@ namespace edit_oneline{
 			toolInfo.uFlags = TTF_IDISHWND | TTF_ABSOLUTE | TTF_TRACK /*allows to show the tooltip when we please*/; //TODO(fran): TTF_TRANSPARENT might be useful, mouse msgs that go to the tooltip are sent to the parent aka us
 			toolInfo.uId = (UINT_PTR)state->wnd;
 			toolInfo.rect = { 0 };
-			toolInfo.hinst = GetModuleHandle(NULL); //NOTE: this allows us to send the id of the string instead of having to allocate it ourselves
+			toolInfo.hinst = GetModuleHandle(NULL);
 			toolInfo.lpszText = 0;
 			toolInfo.lParam = 0;
 			toolInfo.lpReserved = 0;
@@ -761,11 +761,15 @@ namespace edit_oneline{
 			//NOTE: neat, here you resize your render target, if I had one or cared to resize windows' https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-size
 			//This msg is received _after_ the window was resized
 			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-
-			if (style & ES_CENTER && state->char_text.empty()) {//When the control is empty it's possible for the pad to not be set correctly since no msgs update it, I've seen this happen only on startup
+			if (style & ES_CENTER) {
+				//Recalc pad_x
 				RECT rc; GetClientRect(state->wnd, &rc);
-				state->char_pad_x = RECTW(rc) / 2;
+				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+
 			}
+			state->caret.pos = calc_caret_p(state);
+			//SetCaretPos(state->caret.pos);//TODO(fran): should I be setting the caret? maybe only if on focus
+			
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -1512,8 +1516,7 @@ namespace edit_oneline{
 			auto defret = DefWindowProc(hwnd, msg, wparam, lparam);
 			bool en_change = false;
 
-			//TODO(fran): seems like an lparam = 0 means the IME was canceled an we should delete the IME text
-
+			//TODO(fran): find a way to know when the IME was accepted, we dont really want to receive the accepted text as WM_CHAR messages since we already have the text written into the control
 			if (lparam == 0) {
 				//IME was cancelled, delete whatever was written with it
 				if (state->char_cur_sel.has_selection()) {
@@ -1525,6 +1528,7 @@ namespace edit_oneline{
 				HIMC imc = ImmGetContext(state->wnd);
 				if (imc != NULL) {
 					defer{ ImmReleaseContext(state->wnd, imc); };
+					//INFO: ImmGetCompositionStringW: https://cpp.hotexamples.com/examples/-/-/ImmGetCompositionStringW/cpp-immgetcompositionstringw-function-examples.html
 					int szbytes = ImmGetCompositionStringW(imc, GCS_COMPSTR, 0, 0);//excluding null terminator
 					if (szbytes > 0) {//otherwise gotta handle possible errors
 						utf16* txt;
