@@ -1347,6 +1347,11 @@ namespace べんきょう {
 		button::Theme img_btn_theme = base_btn_theme;
 		img_btn_theme.brushes.foreground.normal = global::colors.Img;
 
+		button::Theme accent_btn_theme = base_btn_theme;
+		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
+		accent_btn_theme.brushes.border.normal = global::colors.Accent;
+		
+
 		embedded::show_word_reduced::Theme eswr_theme;
 		brush_group eswr_bk, eswr_txt, eswr_border;
 		eswr_bk.normal = global::colors.ControlBk;
@@ -1450,6 +1455,7 @@ namespace べんきょう {
 			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 			searchbox::maintain_placerholder_when_focussed(controls.list.searchbox_search, true);
+			edit_oneline::set_IME_wnd(searchbox::get_state(controls.list.searchbox_search)->controls.editbox, true); //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -1510,7 +1516,7 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_remember, 275);
 			AWTT(controls.list.button_remember, 276);
-			button::set_theme(controls.list.button_remember, &base_btn_theme);
+			button::set_theme(controls.list.button_remember, &accent_btn_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2701,6 +2707,11 @@ namespace べんきょう {
 				SendMessageW(controls.list.static_score, WM_SETTEXT, 0, (LPARAM)score.c_str());
 			}
 
+			button::Theme accent_btn_theme;
+			accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
+			accent_btn_theme.brushes.border.normal = global::colors.Accent;
+			button::set_theme(controls.list.button_remember, &accent_btn_theme);
+
 		} break;
 		case decltype(page)::practice:
 		{
@@ -3842,7 +3853,12 @@ namespace べんきょう {
 					}
 					if (child == page.list.button_remember) {
 						//TODO(fran): change button bk and mouseover color to green
-						prioritize_word(state);
+						if (prioritize_word(state)) {
+							button::Theme accent_btn_theme;
+							accent_btn_theme.brushes.foreground.normal = global::colors.Bk_right_answer;
+							accent_btn_theme.brushes.border.normal = global::colors.Bk_right_answer;
+							button::set_theme(page.list.button_remember, &accent_btn_theme);
+						}
 					}
 				} break;
 				case ProcState::page::practice_writing:

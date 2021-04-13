@@ -137,6 +137,8 @@ namespace edit_oneline{
 		bool OnMouseTracking;//true when capturing the mouse while the user remains with left click down
 
 		HGLOBAL clipboard_handle;
+
+		bool hide_IME_wnd;
 	};
 
 
@@ -387,22 +389,48 @@ namespace edit_oneline{
 				cf.ptCurrentPos.y = 0;
 			}
 	#else //IME window no longer draws the unnecessary border with resizing and button, it is placed at cf.ptCurrentPos and has a max size of cf.rcArea in the x axis, the y axis can extend a lot longer, basically it does what it wants with y
-			cf.dwStyle = CFS_RECT;
+			if (!state->hide_IME_wnd) {
+				cf.dwStyle = CFS_RECT;
 
-			//TODO(fran): should I place the IME in line with the caret or below so the user can see what's already written in that line?
-			if (GetFocus() == state->wnd) {
-				cf.ptCurrentPos.x = state->caret.pos.x;
-				cf.ptCurrentPos.y = state->caret.pos.y + state->caret.dim.cy;
-				//TODO(fran): programatically set a good x axis size
-				cf.rcArea = { state->caret.pos.x , state->caret.pos.y + state->caret.dim.cy,state->caret.pos.x + 100,state->caret.pos.y + state->caret.dim.cy + 100 };
+				//TODO(fran): should I place the IME in line with the caret or below so the user can see what's already written in that line?
+				if (GetFocus() == state->wnd) {
+					cf.ptCurrentPos.x = state->caret.pos.x;
+					cf.ptCurrentPos.y = state->caret.pos.y + state->caret.dim.cy;
+					//TODO(fran): programatically set a good x axis size
+					cf.rcArea = { state->caret.pos.x , state->caret.pos.y + state->caret.dim.cy,state->caret.pos.x + 100,state->caret.pos.y + state->caret.dim.cy + 100 };
+				}
+				else {
+					cf.rcArea = { 0,0,0,0 };
+					cf.ptCurrentPos.x = 0;
+					cf.ptCurrentPos.y = 0;
+				}
 			}
 			else {
-				cf.rcArea = { 0,0,0,0 };
-				cf.ptCurrentPos.x = 0;
-				cf.ptCurrentPos.y = 0;
+				cf.dwStyle = CFS_RECT | CFS_FORCE_POSITION;
+				cf.ptCurrentPos.x = state->caret.pos.x;//INFO: it does _not_ respect x that goes beyond the control
+				cf.ptCurrentPos.y = state->caret.pos.y + state->caret.dim.cy;//INFO: it does _not_ respect y that goes beyond the control
+				//TODO(fran): programatically set a good x axis size
+				cf.rcArea = rectWH(cf.ptCurrentPos.x, cf.ptCurrentPos.y, 1, 1);//INFO: it does _not_ respect w & h, if w or h is too small the window isnt shown, otherwise it's shown in one unique size
+				#if 0 //this doesnt work, candidate window still shows up
+				CANDIDATEFORM cnf;
+				cnf.dwIndex = 0;
+				cnf.dwStyle = CFS_EXCLUDE;
+				cnf.ptCurrentPos = { GetSystemMetrics(SM_CXVIRTUALSCREEN) + 1,GetSystemMetrics(SM_CYVIRTUALSCREEN) + 1 };
+				cnf.rcArea = rectWH(GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN)+500, GetSystemMetrics(SM_CYVIRTUALSCREEN) + 500);
+				ImmSetCandidateWindow(imc, &cnf); //this one seems to be the list!
+				#endif
+				//ShowWindow(ImmGetDefaultIMEWnd(state->wnd),SW_HIDE); //maybe I can hide the window? noup
+				//ImmSetStatusWindowPos //no idea what this is
 			}
 	#endif
 			BOOL res = ImmSetCompositionWindow(imc, &cf); Assert(res);
+		}
+	}
+
+	void set_IME_wnd(HWND wnd, bool hidden) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->hide_IME_wnd = hidden;
 		}
 	}
 
@@ -690,7 +718,7 @@ namespace edit_oneline{
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		printf(msgToString(msg)); printf("\n");
+		//printf(msgToString(msg)); printf("\n");
 
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
@@ -1056,18 +1084,6 @@ namespace edit_oneline{
 			ReleaseCapture();
 			state->OnMouseTracking = false;
 		} break;
-		case WM_IME_SETCONTEXT://Sent after SetFocus to us
-		{//TODO(fran): lots to discover here
-			BOOL is_active = (BOOL)wparam;
-			//lparam = display options for IME window
-			u32 disp_flags = (u32)lparam;
-			//NOTE: if we draw the composition window we have to modify some of the lparam values before calling defwindowproc or ImmIsUIMessage
-
-			//NOTE: here you can hide the default IME window and all its candidate windows
-
-			//If we have created an IME window, call ImmIsUIMessage. Otherwise pass this message to DefWindowProc
-			return DefWindowProc(hwnd, msg, wparam, lparam);
-		}break;
 		case WM_SETFOCUS://SetFocus -> WM_IME_SETCONTEXT -> WM_SETFOCUS
 		{
 			//We gained keyboard focus
@@ -1472,23 +1488,74 @@ namespace edit_oneline{
 			//TODO(fran): notify the parent?
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
+		case WM_IME_SETCONTEXT://Sent after SetFocus to us
+		{//TODO(fran): lots to discover here
+			BOOL is_active = (BOOL)wparam;
+			//lparam = display options for IME window
+			u32 disp_flags = (u32)lparam;
+			//NOTE: if we draw the composition window we have to modify some of the lparam values before calling defwindowproc or ImmIsUIMessage
+
+			//NOTE: here you can hide the default IME window and all its candidate windows
+
+			//TODO(fran): with this I get to hide the candidate window & in set_composition_pos I can "hide" the composition window, only problem left is the up and down arrow keys are still bound to the IME window and interact with the now hidden candidate window, I need to block the up&down arrows from getting to the IME and use them myself, or Create my own IME window that's more configurable
+			//TODO(fran): maybe I can intercept the "new candidate request" through WM_IME_NOTIFY or somewhere else, stop it from getting to the IME window and transforming it into a WM_LBUTTONDOWN with up or down arrow as key
+#if 0
+			if (state->hide_IME_wnd) {
+				lparam = 0;
+			}
+#endif
+
+			//If we have created an IME window, call ImmIsUIMessage. Otherwise pass this message to DefWindowProc
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		}break;
 		case WM_IME_NOTIFY:
 		{
 			//Notifies about changes to the IME window
 			//TODO(fran): process this msgs once we manage the ime window
 			u32 command = (u32)wparam;
-
-			//printf("WM_IME_NOTIFY\n");
-
-			//IMN_SETCOMPOSITIONWINDOW IMN_SETSTATUSWINDOWPOS
-			//printf("WM_IME_NOTIFY: wparam = 0x%08x\n", command);
-
 			//lparam = command specific data
+			#if 0
+			const char* notif;
+			switch (command) {
+			case IMN_CHANGECANDIDATE:	   notif = "IMN_CHANGECANDIDATE"; break;
+			case IMN_CLOSECANDIDATE:	   notif = "IMN_CLOSECANDIDATE"; break;
+			case IMN_CLOSESTATUSWINDOW:	   notif = "IMN_CLOSESTATUSWINDOW"; break;
+			case IMN_GUIDELINE:			   notif = "IMN_GUIDELINE"; break;
+			case IMN_OPENCANDIDATE:		   notif = "IMN_OPENCANDIDATE"; break;
+			case IMN_OPENSTATUSWINDOW:	   notif = "IMN_OPENSTATUSWINDOW"; break;
+			case IMN_SETCANDIDATEPOS:	   notif = "IMN_SETCANDIDATEPOS"; break;
+			case IMN_SETCOMPOSITIONFONT:   notif = "IMN_SETCOMPOSITIONFONT"; break;
+			case IMN_SETCOMPOSITIONWINDOW: notif = "IMN_SETCOMPOSITIONWINDOW"; break;
+			case IMN_SETCONVERSIONMODE:	   notif = "IMN_SETCONVERSIONMODE"; break;
+			case IMN_SETOPENSTATUS:		   notif = "IMN_SETOPENSTATUS"; break;
+			case IMN_SETSENTENCEMODE:	   notif = "IMN_SETSENTENCEMODE"; break;
+			case IMN_SETSTATUSWINDOWPOS:   notif = "IMN_SETSTATUSWINDOWPOS"; break;
+			case 0xf:					   notif = "HIDDEN IME NOTIF?! 0xf"; break;//probably IME_SETCOMPOSITION or smth like that, happens when you press a key
+			case 0x10d:					   notif = "HIDDEN IME NOTIF?! 0x10d"; break;
+			case 0x10e:					   notif = "HIDDEN IME NOTIF?! 0x10e"; break;//probably IME_CANCEL or smth like that, happens when the ime window is closed eg by pressing escape
+			default: notif = 0; Assert(0);
+			}
+			printf("WM_IME_NOTIFY: %s\n", notif);
+			#endif
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_IME_REQUEST://After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive this msg
 		{
-			//printf("WM_IME_REQUEST: wparam = 0x%08x\n", wparam);
+			#if 0
+			const char* req;
+			switch (wparam) {
+			case IMR_CANDIDATEWINDOW:			req = "IMR_CANDIDATEWINDOW"; break;
+			case IMR_COMPOSITIONFONT:			req = "IMR_COMPOSITIONFONT"; break;
+			case IMR_COMPOSITIONWINDOW:			req = "IMR_COMPOSITIONWINDOW"; break;
+			case IMR_CONFIRMRECONVERTSTRING:	req = "IMR_CONFIRMRECONVERTSTRING"; break;
+			case IMR_DOCUMENTFEED:				req = "IMR_DOCUMENTFEED"; break;
+			case IMR_QUERYCHARPOSITION:			req = "IMR_QUERYCHARPOSITION"; break;
+			case IMR_RECONVERTSTRING:			req = "IMR_RECONVERTSTRING"; break;
+			default:req = 0; Assert(0);
+			}
+			printf("WM_IME_REQUEST: %s\n", req);
+			#endif
+			
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_INPUTLANGCHANGE://After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) and WM_IME_REQUEST we receive this msg
@@ -1513,7 +1580,7 @@ namespace edit_oneline{
 
 			//TODO(fran): idk which is the best place to handle IME changes, there's also WM_IME_NOTIFY and WM_IME_REQUEST(probably not in this one)
 
-			auto defret = DefWindowProc(hwnd, msg, wparam, lparam);
+			auto defret = DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): this will generate WM_CHAR msgs that I dont really want, I can retrieve the composition string right from here, I shouldnt call DefWindowProc
 			bool en_change = false;
 
 			//TODO(fran): find a way to know when the IME was accepted, we dont really want to receive the accepted text as WM_CHAR messages since we already have the text written into the control
@@ -1524,7 +1591,7 @@ namespace edit_oneline{
 					en_change = true;
 				}
 			}
-			else {
+			else {//TODO(fran): check lparam, we may not always want to update the text depending on the code it has
 				HIMC imc = ImmGetContext(state->wnd);
 				if (imc != NULL) {
 					defer{ ImmReleaseContext(state->wnd, imc); };
