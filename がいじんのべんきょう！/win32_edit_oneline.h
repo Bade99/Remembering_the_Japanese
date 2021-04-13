@@ -17,6 +17,8 @@
 //TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
 //TODO(fran): on WM_STYLECHANGING check for password changes, that'd need a full recalculation
 //TODO(fran): on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
+//TODO(fran): at some point I got to trigger a secondary IME candidates window which for some reason decided to show up, this BUG is probably related to the multiple candidates window, maybe we need to manually block the secondary ones, it could be that if you write too much text this extra candidate windows appear
+//TODO(fran): it seems like the IME window is global or smth like that, if I dont ask for candidate windows on WM_IME_SETCONTEXT then it also wont show them for other controls, wtf
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
@@ -138,7 +140,8 @@ namespace edit_oneline{
 
 		HGLOBAL clipboard_handle;
 
-		bool hide_IME_wnd;
+		bool hideIMEwnd;
+		bool ignoreIMEcandidates;
 	};
 
 
@@ -389,7 +392,7 @@ namespace edit_oneline{
 				cf.ptCurrentPos.y = 0;
 			}
 	#else //IME window no longer draws the unnecessary border with resizing and button, it is placed at cf.ptCurrentPos and has a max size of cf.rcArea in the x axis, the y axis can extend a lot longer, basically it does what it wants with y
-			if (!state->hide_IME_wnd) {
+			if (!state->hideIMEwnd) {
 				cf.dwStyle = CFS_RECT;
 
 				//TODO(fran): should I place the IME in line with the caret or below so the user can see what's already written in that line?
@@ -430,7 +433,7 @@ namespace edit_oneline{
 	void set_IME_wnd(HWND wnd, bool hidden) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			state->hide_IME_wnd = hidden;
+			state->hideIMEwnd = hidden;
 		}
 	}
 
@@ -1253,8 +1256,17 @@ namespace edit_oneline{
 					SendMessage(state->wnd, WM_CUT, 0, 0);
 				}
 			} break;
-			}
+			case (char)VK_PROCESSKEY://TODO(fran): WTF if you dont cast to (char) vk doesnt match ?!
+			{
+				//UINT conv_vk = MapVirtualKeyW(lparam>>16, MAPVK_VSC_TO_VK_EX);//doesnt work for arrow keys, thanks windows
+				u16 scancode = (decltype(scancode))( lparam >> 16);
+				if (scancode == 0x148/*up arrow*/ || scancode == 0x150/*down arrow*/) {
+					//TODO(fran): check that the candidates window has some candidates, if it doesnt then we can simply continue as if nothing happened
+					state->ignoreIMEcandidates = true;
+				}
 
+			} break;
+			}
 
 			InvalidateRect(state->wnd, NULL, TRUE);//TODO(fran): dont invalidate everything, NOTE: also on each wm_paint the cursor will stop so we should add here a bool repaint; to avoid calling InvalidateRect when it isnt needed
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
@@ -1499,8 +1511,8 @@ namespace edit_oneline{
 
 			//TODO(fran): with this I get to hide the candidate window & in set_composition_pos I can "hide" the composition window, only problem left is the up and down arrow keys are still bound to the IME window and interact with the now hidden candidate window, I need to block the up&down arrows from getting to the IME and use them myself, or Create my own IME window that's more configurable
 			//TODO(fran): maybe I can intercept the "new candidate request" through WM_IME_NOTIFY or somewhere else, stop it from getting to the IME window and transforming it into a WM_LBUTTONDOWN with up or down arrow as key
-#if 0
-			if (state->hide_IME_wnd) {
+#if 1
+			if (state->hideIMEwnd) {
 				lparam = 0;
 			}
 #endif
@@ -1578,9 +1590,58 @@ namespace edit_oneline{
 		{//doc: sent when IME changes composition status cause of keystroke
 			//wparam = DBCS char for latest change to composition string, TODO(fran): find out about DBCS
 
-			//TODO(fran): idk which is the best place to handle IME changes, there's also WM_IME_NOTIFY and WM_IME_REQUEST(probably not in this one)
+			#if 0 //At this point there's no way of knowing if the change was caused by the user writing or changing candidates
+			const char* change; static int cnt;
+			printf("WM_IME_COMPOSITION %d:\n",cnt++);
+			if (lparam & GCS_COMPATTR)			{change = "GCS_COMPATTR"; printf("%s\n", change); }
+			if (lparam & GCS_COMPCLAUSE)		{change = "GCS_COMPCLAUSE"; printf("%s\n", change); }
+			if (lparam & GCS_COMPREADSTR)		{change = "GCS_COMPREADSTR"; printf("%s\n", change); }
+			if (lparam & GCS_COMPREADATTR)		{change = "GCS_COMPREADATTR"; printf("%s\n", change);}
+			if (lparam & GCS_COMPREADCLAUSE)	{change = "GCS_COMPREADCLAUSE"; printf("%s\n", change);}
+			if (lparam & GCS_COMPSTR)			{change = "GCS_COMPSTR"; printf("%s\n", change);}
+			if (lparam & GCS_CURSORPOS)			{change = "GCS_CURSORPOS"; printf("%s\n", change);}
+			if (lparam & GCS_DELTASTART)		{change = "GCS_DELTASTART"; printf("%s\n", change);}
+			if (lparam & GCS_RESULTCLAUSE)		{change = "GCS_RESULTCLAUSE"; printf("%s\n", change);}
+			if (lparam & GCS_RESULTREADCLAUSE)	{change = "GCS_RESULTREADCLAUSE"; printf("%s\n", change);}
+			if (lparam & GCS_RESULTREADSTR)		{change = "GCS_RESULTREADSTR"; printf("%s\n", change);}
+			if (lparam & GCS_RESULTSTR)			{change = "GCS_RESULTSTR"; printf("%s\n", change);}
+			if (!lparam)						{change = "CANCEL IME"; printf("%s\n", change); }
+			#endif
 
-			auto defret = DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): this will generate WM_CHAR msgs that I dont really want, I can retrieve the composition string right from here, I shouldnt call DefWindowProc
+
+			if (state->hideIMEwnd && state->ignoreIMEcandidates) {
+				state->ignoreIMEcandidates = false;
+				//TODO(fran): join this with the other cases, for example we probably want to have default handling on lparam==0
+				HIMC imc = ImmGetContext(state->wnd);
+				if (imc != NULL) {
+					defer{ ImmReleaseContext(state->wnd, imc); };
+					//we wanna restore the IME's comp string to what it was before the candidate change, we do it by simulating an ESC key press which tells the IME to cancel the candidate selection
+
+					//auto simres = ImmSimulateHotKey(state->wnd, IME_JHOTKEY_CLOSE_OPEN); Assert(simres);//TODO(fran): there-s only this one hotkey for jp, really?
+					
+					INPUT ip;
+
+					// Set up a generic keyboard event.
+					ip.type = INPUT_KEYBOARD;
+					ip.ki.wScan = 0; // hardware scan code for key
+					ip.ki.time = 0;
+					ip.ki.dwExtraInfo = 0;
+
+					// Press the key
+					ip.ki.wVk = VK_ESCAPE; // virtual-key code for the key
+					ip.ki.dwFlags = 0; // 0 for key press
+					SendInput(1, &ip, sizeof(ip));
+
+					// Release the key
+					ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
+					SendInput(1, &ip, sizeof(ip));
+				}
+				//TODO(fran): if the IME input has been accepted (probably GCS_RESULTSTR) then we gotta manually change the selection so only the cursor remains
+				return 0;
+			}
+
+
+			DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): this will generate WM_CHAR msgs that I dont really want, I can retrieve the composition string right from here, I shouldnt call DefWindowProc
 			bool en_change = false;
 
 			//TODO(fran): find a way to know when the IME was accepted, we dont really want to receive the accepted text as WM_CHAR messages since we already have the text written into the control
@@ -1624,7 +1685,7 @@ namespace edit_oneline{
 				}
 			}
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
-			return defret;
+			return 0;
 		} break;
 		case WM_IME_CHAR://WM_CHAR from the IME window, this are generated once the user has pressed enter on the IME window, so more than one char will probably be coming
 		{
@@ -1633,7 +1694,9 @@ namespace edit_oneline{
 	#ifndef UNICODE
 			Assert(0);//TODO(fran): DBCS
 	#endif 
-			PostMessage(state->wnd, WM_CHAR, wparam, lparam);
+			if (!state->hideIMEwnd) {
+				PostMessage(state->wnd, WM_CHAR, wparam, lparam);
+			}
 
 			return 0;//docs dont mention return value so I guess it dont matter
 		} break;

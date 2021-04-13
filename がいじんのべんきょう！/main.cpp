@@ -29,6 +29,7 @@
 //The Property Sheet control is what you use when you want to create a wizard, ej install wizard/installer, also it seems to give the tab control functionality for real, unlike the wrongly named "tab control" which does very little
 //Windows' hidden window classes (ComboLBox,...) https://docs.microsoft.com/en-us/windows/win32/winmsg/about-window-classes?redirectedfrom=MSDN#system
 //More undocumented windows WM_UAH... https://github.com/adzm/win32-custom-menubar-aero-theme
+//The default IME window class is called: IME
 
 //-----------------Macro Definitions-----------------:
 #define _CRT_SECURE_NO_WARNINGS /*Dont take away functions for which you dont have replacement, and Im not stupid*/
@@ -211,8 +212,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     while ((bRet = GetMessage(&msg, nullptr, 0, 0)) != 0)
     {
         Assert(bRet != -1);//there was an error
-
+        
         TranslateMessage(&msg);
+
         DispatchMessage(&msg);
     }
 
