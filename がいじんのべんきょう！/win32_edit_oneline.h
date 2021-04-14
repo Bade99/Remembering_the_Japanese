@@ -314,6 +314,7 @@ namespace edit_oneline{
 	void insert_character(ProcState* state, const utf16* s) {
 		if (s && *s)
 			insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+		wprintf(L"%s\n", s);
 	}
 
 	bool _settext(ProcState* state, cstr* buf /*null terminated*/) {
@@ -1260,9 +1261,15 @@ namespace edit_oneline{
 			{
 				//UINT conv_vk = MapVirtualKeyW(lparam>>16, MAPVK_VSC_TO_VK_EX);//doesnt work for arrow keys, thanks windows
 				u16 scancode = (decltype(scancode))( lparam >> 16);
-				if (scancode == 0x148/*up arrow*/ || scancode == 0x150/*down arrow*/) {
-					//TODO(fran): check that the candidates window has some candidates, if it doesnt then we can simply continue as if nothing happened
+
+				//TODO(fran): check that the candidates window has some candidates, if it doesnt then we can simply continue as if nothing happened
+				if (scancode == 0x148/*up arrow*/) {
 					state->ignoreIMEcandidates = true;
+					PostMessage(state->wnd, WM_KEYDOWN, VK_UP, lparam);
+				}
+				if( scancode == 0x150/*down arrow*/) {
+					state->ignoreIMEcandidates = true;
+					PostMessage(state->wnd, WM_KEYDOWN, VK_DOWN, lparam);
 				}
 
 			} break;
@@ -1274,8 +1281,11 @@ namespace edit_oneline{
 		}break;
 		case WM_CUT:
 		{
+			bool en_change = false;
 			SendMessage(state->wnd, WM_COPY, 0, 0);
+			if (state->char_cur_sel.has_selection()) en_change = true;
 			remove_selection(state);
+			if (en_change) notify_parent(state, EN_CHANGE);
 		} break;
 		case WM_COPY:
 		{
@@ -1513,10 +1523,10 @@ namespace edit_oneline{
 			//TODO(fran): maybe I can intercept the "new candidate request" through WM_IME_NOTIFY or somewhere else, stop it from getting to the IME window and transforming it into a WM_LBUTTONDOWN with up or down arrow as key
 #if 1
 			if (state->hideIMEwnd) {
-				lparam = 0;
+				lparam = 0;//TODO(fran): after this is executed, it takes two WM_IME_SETCONTEXT from two other different controls that _do_ want IME visible for the IME window to fix itself
 			}
 #endif
-
+			printf("WM_IME_SETCONTEXT: lparam = 0x%x\n",(u32)lparam);
 			//If we have created an IME window, call ImmIsUIMessage. Otherwise pass this message to DefWindowProc
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		}break;
@@ -1590,7 +1600,7 @@ namespace edit_oneline{
 		{//doc: sent when IME changes composition status cause of keystroke
 			//wparam = DBCS char for latest change to composition string, TODO(fran): find out about DBCS
 
-			#if 0 //At this point there's no way of knowing if the change was caused by the user writing or changing candidates
+			#if 1 //At this point there's no way of knowing if the change was caused by the user writing or changing candidates
 			const char* change; static int cnt;
 			printf("WM_IME_COMPOSITION %d:\n",cnt++);
 			if (lparam & GCS_COMPATTR)			{change = "GCS_COMPATTR"; printf("%s\n", change); }
@@ -1608,6 +1618,11 @@ namespace edit_oneline{
 			if (!lparam)						{change = "CANCEL IME"; printf("%s\n", change); }
 			#endif
 
+			if (state->hideIMEwnd && lparam & GCS_RESULTSTR) {//the content of the IME has been accepted by the user
+				SendMessage(state->wnd, EM_SETSEL, state->char_cur_sel.cursor, state->char_cur_sel.cursor);//clear selection
+				//TODO(fran): I think I should do state->ignoreIMEcandidates = false; here
+				return 0;//we already have the result string in the editbox
+			}
 
 			if (state->hideIMEwnd && state->ignoreIMEcandidates) {
 				state->ignoreIMEcandidates = false;

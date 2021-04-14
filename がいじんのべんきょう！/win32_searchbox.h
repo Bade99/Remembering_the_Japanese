@@ -256,6 +256,28 @@ namespace searchbox {
 	//TODO(fran): this functionality could be added to the default edit control
 	LRESULT CALLBACK EditNotifyProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
 		HWND parent = GetParent(hwnd);
+
+		auto close_ime = [&]() {
+			if (HIMC imc = ImmGetContext(hwnd); imc != NULL) {
+				defer{ ImmReleaseContext(hwnd, imc); };
+				if (ImmGetOpenStatus(imc)) {
+					//NOTE: in order for us to scroll through listbox items we need the IME window to be closed, otherwise it can and will generate extra msgs that change the content of the editbox. One solution I found is this, close status so the IME stops bothering, and then reopen it again so the IME can be used, otherwise it switches to standard keyboard mode //TODO(fran): I can probably do smth like this on a SetFocus to change current keyboard to hiragana for the editboxes that need it
+					ImmSetOpenStatus(imc, false);
+					ImmSetOpenStatus(imc, true);
+				}
+			}
+			//INPUT ip;
+			//ip.type = INPUT_KEYBOARD;
+			//ip.ki.wScan = 0; // hardware scan code for key
+			//ip.ki.time = 0;
+			//ip.ki.dwExtraInfo = 0;
+			//ip.ki.wVk = VK_RETURN; // virtual-key code for the key
+			//ip.ki.dwFlags = 0; // 0 for key press
+			//SendInput(1, &ip, sizeof(ip));
+			//ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
+			//SendInput(1, &ip, sizeof(ip));
+		};
+
 		switch (msg) {
 		case WM_KEYDOWN:
 		{
@@ -263,10 +285,12 @@ namespace searchbox {
 			switch (vk) {
 			case VK_UP:
 			{
+				close_ime();
 				PostMessage(parent, WM_COMMAND, MAKELONG(0, EN_UP), (LPARAM)hwnd);
 			} break;
 			case VK_DOWN:
 			{
+				close_ime();
 				PostMessage(parent, WM_COMMAND, MAKELONG(0, EN_DOWN), (LPARAM)hwnd);
 			} break;
 			}
