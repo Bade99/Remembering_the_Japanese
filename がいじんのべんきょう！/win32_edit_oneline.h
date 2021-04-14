@@ -9,9 +9,8 @@
 #include "LANGUAGE_MANAGER.h"
 #include "win32_new_msgs.h"
 
-//TODO(fran): show password button
+//TODO(fran): 'show password' button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
-//TODO(fran): caret stops blinking after a few seconds of being shown, this seems to be a windows """feature""", we may need to set a timer to re-blink the caret every so often while we have keyboard focus
 //TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
 //TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
@@ -52,6 +51,10 @@
 //-------------Tooltip-------------:
 #define EDITONELINE_default_tooltip_duration 3000 /*ms*/
 #define EDITONELINE_tooltip_timer_id 0xf1
+
+
+#define EDITONELINE_default_caret_duration 5000 /*ms*/
+#define EDITONELINE_caret_timer_id 0xf2
 
 
 //---------Differences with default oneline edit control---------:
@@ -721,6 +724,14 @@ namespace edit_oneline{
 		return res;
 	}
 
+	void keep_caret_blinking(ProcState* state) {
+		SetTimer(state->wnd, EDITONELINE_caret_timer_id, EDITONELINE_default_caret_duration, NULL);
+	}
+
+	void stop_caret_blinking(ProcState* state) {
+		KillTimer(state->wnd, EDITONELINE_caret_timer_id);
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf(msgToString(msg)); printf("\n");
 
@@ -861,6 +872,7 @@ namespace edit_oneline{
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
 			//NOTE: the brushes are deleted by whoever created them
+			stop_caret_blinking(state);//TODO(fran): not sure I need this
 			if (state->caret.bmp) {
 				DeleteBitmap(state->caret.bmp);
 				state->caret.bmp = 0;
@@ -1126,6 +1138,9 @@ namespace edit_oneline{
 			bool show_placeholder = *state->placeholder && (state->char_text.length() == 0);//this one doesnt check GetFocus since it's always gonna be us
 			if (show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
 
+			//NOTE: Windows had the brilliant idea of stopping the caret from blinking after a couple of seconds, and the only real fix is via a registry hack, therefore we take the poor man's approach, a 5 sec timer that reblinks the caret
+			keep_caret_blinking(state);
+
 			return 0;
 		} break;
 		case WM_KILLFOCUS:
@@ -1138,6 +1153,8 @@ namespace edit_oneline{
 			if(show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
 
 			PostMessage(GetParent(state->wnd), WM_COMMAND, MAKELONG(state->identifier, EN_KILLFOCUS), (LPARAM)state->wnd);
+
+			stop_caret_blinking(state);
 
 			return 0;
 		} break;
@@ -1451,6 +1468,18 @@ namespace edit_oneline{
 				SendMessage(state->controls.tooltip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&toolInfo);
 				return 0;
 			} break;
+			case EDITONELINE_caret_timer_id:
+			{
+				KillTimer(state->wnd, timerID);
+				
+				//TODO(fran): timing isnt quite right, there's a slight delay between each caret "re-blinking"
+				//			  also we should check the registry to find out the caret timeout, 5 sec is the default on w10 but idk about other OS versions, or maybe the user changed it
+				HideCaret(state->wnd);
+				ShowCaret(state->wnd);
+
+				SetTimer(state->wnd, timerID, EDITONELINE_default_caret_duration, NULL);
+				return 0;
+			} break;
 			default: return DefWindowProc(hwnd, msg, wparam, lparam);
 			}
 		} break;
@@ -1621,6 +1650,7 @@ namespace edit_oneline{
 			if (state->hideIMEwnd && lparam & GCS_RESULTSTR) {//the content of the IME has been accepted by the user
 				SendMessage(state->wnd, EM_SETSEL, state->char_cur_sel.cursor, state->char_cur_sel.cursor);//clear selection
 				//TODO(fran): I think I should do state->ignoreIMEcandidates = false; here
+				state->ignoreIMEcandidates = false;
 				return 0;//we already have the result string in the editbox
 			}
 
