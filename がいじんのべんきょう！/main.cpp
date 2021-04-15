@@ -52,7 +52,7 @@
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
 
 #include "win32_nonclient.h"
-#include "がいじんの_べんきょう.h"
+#include "win32_べんきょう.h"
 
 //----------------------Linker-----------------------:
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
