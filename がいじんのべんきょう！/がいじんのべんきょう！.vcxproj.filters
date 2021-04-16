@@ -95,9 +95,6 @@
     <ClInclude Include="win32_listbox.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32_new_msgs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_printmsg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -123,6 +120,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="win32_べんきょう_db.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="windows_extra_msgs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -7,7 +7,7 @@
 #include "win32_Helpers.h"
 #include "unCap_Reflection.h"
 #include "LANGUAGE_MANAGER.h"
-#include "win32_new_msgs.h"
+#include "windows_extra_msgs.h"
 
 //TODO(fran): 'show password' button
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other

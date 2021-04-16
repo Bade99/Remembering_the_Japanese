@@ -16,7 +16,7 @@
 #include "win32_graph.h"
 #include "win32_gridview.h"
 #include "win32_searchbox.h"
-#include "win32_new_msgs.h"
+#include "windows_extra_msgs.h"
 #include "win32_multibutton.h"
 #include "win32_paint.h"
 #include "win32_Char.h"

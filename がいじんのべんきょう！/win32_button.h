@@ -4,7 +4,7 @@
 #include <windowsx.h>
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
-#include "win32_new_msgs.h"
+#include "windows_extra_msgs.h"
 
 //TODO(fran): new class btn_text_or_img: if the text fits then draw it, otherwise render the img, great for cool resizing that allows for the same control to take different shapes but maintain all functionality
 

@@ -7,7 +7,7 @@
 #include "unCap_Reflection.h"
 #include "unCap_Serialization.h"
 #include "lang.h"
-#include "win32_new_msgs.h"
+#include "windows_extra_msgs.h"
 
 //Request string
 #define RS(stringID) LANGUAGE_MANAGER::Instance().RequestString(stringID)
