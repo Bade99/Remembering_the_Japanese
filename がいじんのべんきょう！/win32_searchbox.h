@@ -670,6 +670,27 @@ namespace searchbox {
 		{
 			return 0;
 		} break;
+		case WM_DESIRED_SIZE:
+		{
+			SIZE* min = (decltype(min))wparam;
+			SIZE* max = (decltype(max))lparam;
+
+			//TODO(fran): I could also request the editbox for its desired sz and simply make it a little bigger
+
+			//Since we know we're a searchbox by default we'll request a max size of 50 characters and min of 15
+			HFONT font = (HFONT)SendMessage(state->controls.editbox, WM_GETFONT, 0, 0);
+			SIZE my_min = avg_str_dim(font, 15);
+			SIZE my_max = avg_str_dim(font, 50);
+
+			min->cx = minimum(min->cx, my_min.cx);
+			min->cy = minimum(min->cy, (long)((f32)my_min.cy * 1.3f));
+
+			max->cx = minimum(max->cx, my_max.cx);
+			max->cy = minimum(max->cy, (long)((f32)my_max.cy * 1.3f));
+
+			return 1;
+
+		} break;
 
 		default:
 #ifdef _DEBUG

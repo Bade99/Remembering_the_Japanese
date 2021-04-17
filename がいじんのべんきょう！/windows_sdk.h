@@ -42,3 +42,5 @@
 #define WM_UAHUPDATE 0x96
 
 #include <windows.h>
+#include <windowsx.h>
+#include "windows_extra_msgs.h"

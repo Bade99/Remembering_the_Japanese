@@ -20,6 +20,7 @@
 #include "win32_multibutton.h"
 #include "win32_paint.h"
 #include "win32_Char.h"
+#include "win32_navbar.h"
 
 #include <string>
 
@@ -513,6 +514,7 @@ struct べんきょうProcState {
 	u32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
 
 	struct {
+		HWND navbar;
 
 		union landingpage_controls {
 			using type = HWND;
@@ -927,6 +929,39 @@ namespace べんきょう {
 		base_editoneline_theme.brushes.selection.normal = global::colors.Selection;
 		base_editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
 
+		//---------------------Header & Footer----------------------:
+		auto& navbar = state->controls.navbar;
+		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		navbar::Theme nav_theme;
+		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
+		nav_theme.dimensions.spacing = 3;
+		navbar::set_theme(navbar, &nav_theme);
+
+		{//navbar test
+			HWND btn1 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			AWT(btn1, 100);
+			button::set_theme(btn1, &base_btn_theme);
+			navbar::attach(navbar, btn1, navbar::attach_point::left, -1);
+			SendMessage(btn1, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			HWND btn2 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			AWT(btn2, 101);
+			button::set_theme(btn2, &base_btn_theme);
+			navbar::attach(navbar, btn2, navbar::attach_point::left, -1);
+			SendMessage(btn2, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			HWND search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			ACC(search, 251);
+			searchbox::set_brushes(search, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled, global::colors.Img_Disabled);
+			navbar::attach(navbar, search, navbar::attach_point::center, -1);
+			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
@@ -1267,6 +1302,15 @@ namespace べんきょう {
 		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
 		int h_pad = (int)((float)h * .05f);
 		
+		{//navbar test
+			rect_i32 navbar;
+			navbar.left = r.left;
+			navbar.top = r.top;
+			navbar.w = w;
+			navbar.h = 35;
+			MoveWindow(state->controls.navbar, navbar.left, navbar.top, navbar.w, navbar.h, FALSE);
+		}
+
 		switch (page) {
 		case ProcState::page::landing:
 		{
@@ -3350,9 +3394,10 @@ namespace べんきょう {
 				}
 			}
 			else {
-				switch (LOWORD(wparam)) {//Menu notifications
-				default:Assert(0);
-				}
+				//switch (LOWORD(wparam)) {//Menu notifications
+				//default:
+					Assert(0);
+				//}
 			}
 			return 0;
 		} break;
@@ -3453,6 +3498,8 @@ namespace べんきょう {
 		} break;
 		case WM_LBUTTONDOWN:
 		{
+			SetFocus(0);//remove focus from whoever had it
+			//TODO(fran): BUG: probably on the editbox, if you click the searchbox in the navbar and then click on the 'new' button of the landing the cursor will get misplaced
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_LBUTTONUP:

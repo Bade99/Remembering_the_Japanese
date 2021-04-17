@@ -133,6 +133,45 @@ namespace button {
 		ProcState* state = get_state(hwnd);
 		//Assert(state); //NOTE: cannot check thanks to the grandeur of windows' msgs before WM_NCCREATE
 		switch (msg) {
+		case WM_DESIRED_SIZE:
+		{
+			SIZE* min = (decltype(min))wparam;
+			SIZE* max = (decltype(max))lparam;
+
+			DWORD style = (DWORD)GetWindowLongPtr(state->wnd, GWL_STYLE);
+			HFONT font = state->theme.font;
+			if (style & BS_ICON) {
+				MYICON_INFO iconnfo = MyGetIconInfo(state->icon);
+				min->cx = minimum((int)min->cx,iconnfo.nWidth);
+				min->cy = minimum((int)min->cy,iconnfo.nHeight);
+
+				*max = *min;//TODO(fran): dont I do rescaling on imgs?
+			}
+			else if (style & BS_BITMAP) {
+				BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);
+
+				min->cx = minimum(min->cx, bitmap.bmWidth);
+				min->cy = minimum(min->cy, bitmap.bmHeight);
+
+				*max = *min;
+			}
+			else { //we got text
+				HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+				SelectFont(dc, font);
+				TEXTMETRIC tm; GetTextMetrics(dc, &tm);
+
+				TCHAR Text[64]; //TODO(fran): this could not be more stupid, I should have the text, at least with a str
+				int len = (int)SendMessage(state->wnd, WM_GETTEXT, ARRAYSIZE(Text), (LPARAM)Text);
+
+				GetTextExtentPoint32(dc, Text, len, min);
+				min->cx = (int)((float)min->cx * 1.2f);
+				min->cy = (int)((float)min->cy * 1.2f);
+
+				*max = *min;
+			}
+
+			return 2;
+		} break;
 		case BCM_GETIDEALSIZE:
 		{
 			SIZE* sz = (SIZE*)lparam;//NOTE: all sizes are relative to the entire button, not just the img or text

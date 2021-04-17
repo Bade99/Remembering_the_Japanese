@@ -19,5 +19,5 @@
 // lparam = pointer to SIZE with maximum bounds, should be modified to represent the maximum SIZE the control can take
 // returns:
 	// 0 : dont care
-	// 1 : the two SIZE params represent the lower and upper bound but also allow for values in between
-	// 2 : the two SIZE params represent the small and big size and dont allow for values in between
+	// 1 : flexible : the two SIZE params represent the lower and upper bound but also allow for values in between
+	// 2 : fixed    : the two SIZE params represent the small and big size and dont allow for values in between
