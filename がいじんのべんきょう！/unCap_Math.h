@@ -243,3 +243,15 @@ size_t safe_subtractN(size_t a, size_t b, size_t n) {
 size_t safe_subtract0(size_t a, size_t b) {
 	return safe_subtractN(a, b, (decltype(a))0);
 }
+
+
+//templates
+template<typename T>
+T minimum(T a, T b) {
+	return (a < b) ? a : b;
+}
+
+template<typename T>
+T maximum(T a, T b) {
+	return (a > b) ? a : b;
+}

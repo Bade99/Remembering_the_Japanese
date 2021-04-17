@@ -15,9 +15,9 @@
 // returns TRUE if the text was set, and FALSE otherwise
 
 #define WM_DESIRED_SIZE (extramsgs_base_msg_addr+3) 
-// wparam = pointer to SIZE with maximum bounds, should be modified to represent the maximum SIZE the control can take
-// lparam = pointer to SIZE with maximum bounds, should be modified to represent the minimum SIZE the control can take
+// wparam = pointer to SIZE with maximum bounds, should be modified to represent the minimum SIZE the control can take
+// lparam = pointer to SIZE with maximum bounds, should be modified to represent the maximum SIZE the control can take
 // returns:
 	// 0 : dont care
-	// 1 : the two SIZE params represent the upper and lower bound but also allow for values in between
-	// 2 : the two SIZE params represent the big and small size and dont allow for values in between
+	// 1 : the two SIZE params represent the lower and upper bound but also allow for values in between
+	// 2 : the two SIZE params represent the small and big size and dont allow for values in between

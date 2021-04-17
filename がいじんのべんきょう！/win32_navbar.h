@@ -1,8 +1,10 @@
 #pragma once
 #include "win32_Platform.h"
 #include "windows_sdk.h"
+#include "windows_extra_msgs.h"
 #include <windowsx.h>
 #include "win32_Helpers.h"
+#include "unCap_Math.h"
 
 #include <vector>
 
@@ -103,8 +105,185 @@ namespace navbar {
 		}
 	}
 
+	//TODO(fran): get this out of here
+	SIZE operator+(const SIZE& lhs, const SIZE& rhs) {
+		SIZE res;
+		res.cx = lhs.cx + rhs.cx;
+		res.cy = lhs.cy + rhs.cy;
+		return res;
+	}
+	SIZE& operator+=(SIZE& lhs, const SIZE& rhs) {
+		lhs = lhs + rhs;
+		return lhs;
+	}
+
 	void resize_controls(ProcState* state) {
-		Assert(0);
+		struct minmaxsz { SIZE min, max; };
+		enum desired_size : u32{dontcare=0,flexible,fixed};
+		struct mmds { SIZE min, max; desired_size flexibility; };
+
+		constexpr int region_cnt = ARRAYSIZE(state->controls.all);
+
+		SIZE total_bounds[region_cnt]{ 0 };//left center right
+
+		RECT rc; GetClientRect(state->wnd, &rc);
+		i32 w_max = RECTW(rc);
+		i32 h_max = RECTH(rc);
+		//TODO(fran): should I add an early out? if(!w_max || !h_max) return;
+
+		std::vector<mmds> bounds[region_cnt];
+		for (int i = 0; i < ARRAYSIZE(bounds); i++) bounds[i].reserve(state->controls.all[i].size());
+
+		std::vector<SIZE> final_bounds[region_cnt];
+		for (int i = 0; i < ARRAYSIZE(final_bounds); i++) final_bounds[i].resize(state->controls.all[i].size());
+
+		//Retrieve all desired sizes
+		for (int i = 0; i < ARRAYSIZE(state->controls.all); i++) {
+			auto& v = state->controls.all[i];
+			for(size_t j = 0; j < v.size(); j++){
+				mmds b; b.max = { w_max,h_max }; b.min = b.max;
+				b.flexibility = (decltype(b.flexibility))SendMessage(v[j], WM_DESIRED_SIZE, (WPARAM)&b.min, (LPARAM)&b.max);
+				if (b.flexibility != flexible && b.flexibility != fixed) {
+					b.flexibility = flexible;
+					//TODO(fran): assign it the smallest minimum and maximum out of all the others
+					b.max.cx = w_max / (region_cnt *3);
+					b.min.cx = 0;
+				}
+				bounds[i].push_back(b);//TODO(fran): could do resize instead of reserve and use the obj inside the vector directly instead of having it outside and then making a copy
+
+				total_bounds[j] += b.max;
+			}
+		}
+		
+		SIZE tot{0}; for (auto s : total_bounds) tot += s;
+		if (tot.cx <= w_max) { //Great, we can place everyone just how they want to
+			
+			for (int i = 0; i < ARRAYSIZE(bounds); i++)
+				for (int j = 0; i < bounds[i].size(); j++)
+					final_bounds[i][j] = bounds[i][j].max;
+
+		}
+		else { //Resizing is necessary
+
+			//First try by only resizing the ones that are flexible
+			int size_to_clear = tot.cx - w_max;
+
+			int flexible_potential=0;
+			//TODO(fran): #speed create array with ptrs to all the flexible wnds
+			for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible) flexible_potential += distance(b.min.cx, b.max.cx);
+
+			if (flexible_potential >= size_to_clear) { //We can fit everyone by simply resizing the flexible windows
+
+				while (size_to_clear > 0) {//TODO(fran): im sure there's some edge case where this never ends
+					std::vector<mmds*> flexibles;
+					for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible && (b.max.cx - b.min.cx) > 0) flexibles.push_back(&b);
+					int per_wnd_reduction = size_to_clear / flexibles.size();//TODO(fran): may need safe_ratio0()
+
+					for (auto f : flexibles) {
+						int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cy));
+						f->max.cx -= reduction;
+						size_to_clear -= reduction;
+					}
+				}
+
+				//store final values
+				for (int i = 0; i < ARRAYSIZE(bounds); i++)
+					for (int j = 0; i < bounds[i].size(); j++)
+						final_bounds[i][j] = bounds[i][j].max;
+			}
+			else { // We need more space, all fixed windows get downgraded to their small size, and then we try with flexible windows again
+				ZeroMemory(total_bounds, sizeof(total_bounds));
+
+				for (int i = 0; i < ARRAYSIZE(bounds); i++) {
+					for (int j = 0; i < bounds[i].size(); j++) {
+						if (bounds[i][j].flexibility == fixed) {
+							final_bounds[i][j] = bounds[i][j].min; //load final values for fixed windows
+
+							total_bounds[i] += final_bounds[i][j];
+						}
+						else total_bounds[i] += bounds[i][j].max;
+					}
+				}
+
+				SIZE tot; for (auto s : total_bounds) tot += s;
+				if (tot.cx <= w_max) {//with fixed windows set to small and flexible ones to max everyone fits
+
+					//load final size for flexible windows
+					for (int i = 0; i < ARRAYSIZE(bounds); i++)
+						for (int j = 0; i < bounds[i].size(); j++)
+							if (bounds[i][j].flexibility == flexible) final_bounds[i][j] = bounds[i][j].max;
+
+				}
+				else {//Resize flexible windows, no matter the result we apply resizing after that
+
+					//TODO(fran): join this with the previous flexible wnd resizing code
+					while (size_to_clear > 0) {//TODO(fran): im sure there's some edge case where this never ends
+						std::vector<mmds*> flexibles;
+						for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible && (b.max.cx - b.min.cx) > 0) flexibles.push_back(&b);
+						if (flexibles.empty()) break;
+						int per_wnd_reduction = size_to_clear / flexibles.size();//TODO(fran): may need safe_ratio0()
+
+						for (auto f : flexibles) {
+							int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cy));
+							f->max.cx -= reduction;
+							size_to_clear -= reduction;
+						}
+					}
+
+					//store final values
+					for (int i = 0; i < ARRAYSIZE(bounds); i++)
+						for (int j = 0; i < bounds[i].size(); j++)
+							final_bounds[i][j] = bounds[i][j].max;
+
+				}
+
+			}
+		}
+
+		//Apply resizing
+		//We try to maintain the left-center-right layout, but we allow moving the center and right sections beyond what they should when we cant fit everything
+		//NOTE: since we currently are a horizontal navbar we also apply vertical centering
+		int start_x = rc.left; // == 0
+
+		auto group_resize = [&](int i) {
+			for (int j = 0; j < final_bounds[i].size(); j++) {
+				auto sz = final_bounds[i][j];
+				rect_i32 r;
+				r.left = start_x;
+				r.w = sz.cx;
+				r.top = (h_max - sz.cy) / 2;
+				r.h = sz.cy;
+
+				start_x = r.right();
+				MoveWindow(state->controls.all[i][j], r.left, r.top, r.w, r.h, FALSE);
+			}
+		};
+
+		for (int i = 0; i < ARRAYSIZE(final_bounds);i++) {
+			if (i == 0) { //left alignment:go from start_x onwards
+				
+				group_resize(i);
+			}
+			else if (i < (ARRAYSIZE(final_bounds) - 1)) { //center alignment: if possible center all the controls relative to the common center
+				
+				Assert(i == 1);//TODO(fran): if I ever actually need more than three alignment points then we need to choose the correct center for each group
+
+				int tot_sz = 0; for (auto& sz : final_bounds[i]) tot_sz += sz.cx;
+
+				int center = w_max / 2;
+
+				start_x = maximum(start_x, center - tot_sz/2);
+
+				group_resize(i);
+			}
+			else { //right alignment: if possible line it up so the last wnd is exactly at the end of the navbar
+				int tot_sz = 0; for (auto& sz : final_bounds[i]) tot_sz += sz.cx;
+
+				start_x = maximum(start_x, (int)rc.right - tot_sz);
+
+				group_resize(i);
+			}
+		}
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -271,6 +450,7 @@ namespace navbar {
 		case WM_SHOWWINDOW: //On startup I received this cause of WS_VISIBLE flag
 		{
 			//Sent when window is about to be hidden or shown, doesnt let it clear if we are in charge of that or it's going to happen no matter what we do
+			//TODO(fran): maybe I should ask for a resize
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_ENABLE:
