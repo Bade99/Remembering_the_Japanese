@@ -192,7 +192,7 @@ namespace navbar {
 				while (size_to_clear > 0) {//TODO(fran): im sure there's some edge case where this never ends
 					std::vector<mmds*> flexibles;
 					for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible && (b.max.cx - b.min.cx) > 0) flexibles.push_back(&b);
-					int per_wnd_reduction = size_to_clear / (int)flexibles.size();//TODO(fran): may need safe_ratio0()
+					int per_wnd_reduction = (int)ceilf( (f32)size_to_clear / (f32)flexibles.size());//TODO(fran): may need safe_ratio0() //TODO(fran): if size_to_clear is less than flexibles.size() then per_wnd_reduction will be 0 and we loop forever, I added the ceil to fix that but that probably introduces the case where the possible extra +1 the ceil adds is more than the flexible potential. See if this assumption is true or not
 
 					for (auto f : flexibles) {
 						int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cy));
@@ -307,7 +307,7 @@ namespace navbar {
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		printf("NAVBAR:%s\n", msgToString(msg));
+		//printf("NAVBAR:%s\n", msgToString(msg));
 		ProcState* state = get_state(hwnd);
 
 		switch (msg) {

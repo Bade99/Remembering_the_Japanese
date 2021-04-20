@@ -74,9 +74,6 @@
     <ClInclude Include="win32_button.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32_combobox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_edit_oneline.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -123,6 +120,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="windows_extra_msgs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_combobox_subclass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_combobox.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

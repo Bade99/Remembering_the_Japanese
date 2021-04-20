@@ -4,7 +4,7 @@
 #include <windowsx.h>
 #include "win32_Helpers.h"
 #include "win32_Renderer.h"
-#include "windows_extra_msgs.h"
+#include "windows_msg_mapper.h"
 
 //TODO(fran): new class btn_text_or_img: if the text fits then draw it, otherwise render the img, great for cool resizing that allows for the same control to take different shapes but maintain all functionality
 
@@ -30,6 +30,18 @@ namespace button {
 	constexpr cstr wndclass[] = TEXT("unCap_wndclass_button");
 	constexpr i32 default_tooltip_duration = 3000 /*ms*/;
 	constexpr u32 tooltip_timer_id = 0xf1;
+
+	struct render_flags {
+		bool isEnabled;//buttons can be enabled (accept input) or disabled (doesnt)
+		bool onMouseover;//the mouse is over the button
+		bool onClicked;//the button is being pushed
+		//INFO: additional hidden state, the user could have pressed the button and while still holding it pressed have moved the mouse outside it, in this case onMouseover==false and onClicked==true
+	};
+
+	//TODO(fran): should I pass the Theme as a param?
+	typedef void(*func_render)(HWND wnd, HDC dc, rect_i32 r, render_flags flags, void* element, void* user_extra);
+	typedef void(*func_free_element)(void* element, void* user_extra);
+	typedef void(*func_on_click)(void* element, void* user_extra);//action to perform once the button has been clicked
 
 	struct Theme {
 		struct {
@@ -68,6 +80,14 @@ namespace button {
 		HBITMAP bmp;
 
 		utf16* tooltip_txt;
+
+
+		void* element;
+		void* user_extra;
+
+		func_free_element free_element;
+		func_render render;
+		func_on_click on_click;
 	};
 
 	ProcState* get_state(HWND hwnd) {
@@ -80,6 +100,45 @@ namespace button {
 	}
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	void set_element(HWND wnd, void* element) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (state->free_element && state->element) state->free_element(state->element,state->user_extra);
+			state->element = element;
+			ask_for_repaint(state);
+		}
+	}
+
+	void set_user_extra(HWND wnd, void* user_extra) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->user_extra = user_extra;
+			//TODO(fran): redraw?
+		}
+	}
+
+	void set_function_free_elements(HWND wnd, func_free_element func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->free_element = func;
+		}
+	}
+
+	void set_function_render(HWND wnd, func_render func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->render = func;
+			ask_for_repaint(state);
+		}
+	}
+
+	void set_function_on_click(HWND wnd, func_on_click func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->on_click = func;
+		}
+	}
 
 	//NOTE: text must be null terminated
 	//if txt == 0 the tooltip is removed
@@ -128,8 +187,150 @@ namespace button {
 		}
 	}
 
-	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+	void paint(ProcState* state, HDC dc) {
+		RECT rc; GetClientRect(state->wnd, &rc);
+		int w = RECTW(rc), h = RECTH(rc);
+		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+		bool enabled = IsWindowEnabled(state->wnd);
+		HFONT font = state->theme.font;
+		//TODO(fran): Check that we are going to paint something new
+		HBRUSH border_br = enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
+		HBRUSH txt_br = enabled ? state->theme.brushes.foreground.normal : state->theme.brushes.foreground.disabled;
+		HBRUSH bk_br;
+		if (enabled) {
+			if (state->onMouseOver && state->onLMouseClick) bk_br = state->theme.brushes.bk.clicked;
+			else if (state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd)) bk_br = state->theme.brushes.bk.mouseover;
+			else bk_br = state->theme.brushes.bk.normal;
+		}
+		else bk_br = state->theme.brushes.bk.disabled;
+		SetBkColor(dc, ColorFromBrush(bk_br));
+		HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc, oldbr); };
 
+		{
+			//Border and Bk
+			HPEN pen = CreatePen(PS_SOLID, state->theme.dimensions.border_thickness, ColorFromBrush(border_br)); defer{ DeletePen(pen); };//INFO: pens with zero thickness get 1px thickness, so we gotta manually avoid using the pen
+			HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
+
+			if (style & style::roundrect) {
+				i32 extent = min(w, h);
+				bool is_small = extent < 50;
+				i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+				if (is_small) {
+					HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+					RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+				}
+				else {
+#if 0
+					//Bk
+					urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+					//Border
+					urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+#elif 0
+					//Bk
+					urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+					//Border
+					urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+					urender::RoundRectangleCornerFill(dc, bk_br, rc, roundedness);//TODO(fran): if this didnt cut a bit of the line it would be semi acceptable
+#elif 1
+
+					//TODO(fran): for some reason the border of the rounded rectangle start to look worse once you mouseover the button, we're probably screwing the border by filling the bk somehow
+
+					//Bk
+#if 0
+					urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
+#else
+					urender::RoundRectangleFill_smooth(dc, bk_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+#endif
+					//Border
+					if (state->theme.dimensions.border_thickness != 0) {
+#if 0
+						//Border Arcs
+						urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+						//Border Lines
+						urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness + 1);
+						//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
+#else
+						urender::RoundRectangleBorder_smooth(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
+#endif
+					}
+#else
+					HDC highresdc = CreateCompatibleDC(dc); defer{ DeleteDC(highresdc); };
+					HBRUSH oldbr = SelectBrush(highresdc, bk_br); defer{ SelectBrush(highresdc,oldbr); };
+					i32 scale_factor = 2;
+					HPEN pen = CreatePen(PS_SOLID, border_thickness * scale_factor, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+					HPEN oldpen = SelectPen(highresdc, pen); defer{ SelectPen(highresdc,oldpen); };
+					HBITMAP highresbmp = CreateCompatibleBitmap(dc, w * scale_factor, h * scale_factor); defer{ DeleteBitmap(highresbmp); };
+					HBITMAP oldbmp = SelectBitmap(highresdc, highresbmp); defer{ SelectBitmap(highresdc, oldbmp); };
+					RoundRect(highresdc, 1, 1, w* scale_factor - 2, h* scale_factor - 2, roundedness* scale_factor * 2, roundedness* scale_factor * 2);
+					int oldstretchmode = SetStretchBltMode(dc, HALFTONE); defer{ SetStretchBltMode(dc, oldstretchmode); };
+					SetBrushOrgEx(dc, 0, 0, nullptr);
+					StretchBlt(dc, rc.left, rc.top, w, h, highresdc, 0, 0, h* scale_factor, w* scale_factor, SRCCOPY);
+
+					//TODO(fran): problems with this option: very expensive, weird glitches on the top, impossible to do transparency since we gotta blit the entire bmp instead of just the roundrect (maybe we can still do transparency via SetWindowRgn() )
+#endif 
+				}
+			}
+			else {
+				//Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
+				//Bk
+				FillRect(dc, &rc, bk_br);
+				//Border
+				FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, bk_br, BORDERALL);
+			}
+		}
+
+		if (style & BS_ICON) {//Here will go buttons that only have an icon
+
+			HICON icon = state->icon;
+			//NOTE: we assume all icons to be squares 1:1
+			MYICON_INFO iconnfo = MyGetIconInfo(icon);
+			int max_sz = (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f);
+			int icon_height = max_sz;
+			int icon_width = icon_height;
+			int icon_align_height = (RECTHEIGHT(rc) - icon_height) / 2;
+			int icon_align_width = (RECTWIDTH(rc) - icon_width) / 2;
+			urender::draw_icon(dc, icon_align_height, icon_align_width, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+		}
+		else if (style & BS_BITMAP) {
+			BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);
+			if (bitmap.bmBitsPixel == 1) {
+				//TODO(fran):unify rect calculation with icon
+				int max_sz = roundNdown(bitmap.bmWidth, (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f)); //HACK: instead use png + gdi+ + color matrices
+				if (!max_sz) {
+					if ((bitmap.bmWidth % 2) == 0) max_sz = bitmap.bmWidth / 2;
+					else max_sz = bitmap.bmWidth; //More HACKs
+				}
+
+				int bmp_height = max_sz;
+				int bmp_width = bmp_height;
+				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
+				int bmp_align_width = (RECTWIDTH(rc) - bmp_width) / 2;
+				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, state->bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, txt_br);
+			}
+		}
+		else { //Here will go buttons that only have text
+			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
+			SetTextColor(dc, ColorFromBrush(txt_br));
+			TCHAR Text[40];
+			int len = (int)SendMessage(state->wnd, WM_GETTEXT, ARRAYSIZE(Text), (LPARAM)Text);
+
+			// Calculate vertical position for the item string so that it will be vertically centered
+			SIZE txt_sz; GetTextExtentPoint32(dc, Text, len, &txt_sz);
+			int yPos = (rc.bottom + rc.top - txt_sz.cy) / 2;
+
+			SetTextAlign(dc, TA_CENTER);
+			int xPos = (rc.right - rc.left) / 2;
+			TextOut(dc, xPos, yPos, Text, len);
+		}
+	}
+
+	void notify_parent(ProcState* state) {
+		if (state->on_click) state->on_click(state->element, state->user_extra);
+		else PostMessage(state->parent, WM_COMMAND, (WPARAM)MAKELONG(state->msg_to_send, 0), (LPARAM)state->wnd);
+	}
+
+	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+		//printf("BUTTON:%s\n", msgToString(msg));
 		ProcState* state = get_state(hwnd);
 		//Assert(state); //NOTE: cannot check thanks to the grandeur of windows' msgs before WM_NCCREATE
 		switch (msg) {
@@ -265,7 +466,7 @@ namespace button {
 		case WM_LBUTTONUP:
 		{
 			if (state->OnMouseTracking) {
-				if (state->onMouseOver) PostMessage(state->parent, WM_COMMAND, (WPARAM)MAKELONG(state->msg_to_send, 0), (LPARAM)state->wnd);//notify parent
+				if (state->onMouseOver) notify_parent(state);
 				ReleaseCapture();//stop capturing the mouse
 				state->OnMouseTracking = false;
 			}
@@ -449,148 +650,25 @@ namespace button {
 			//IMPORTANT TODO(fran): fix rendering bugs, sometimes part of the borders dont get drawn, I think I found the bug, border br doesnt adapt like bk, we have push, mouseover, etc, the border is just one so it's probably creating inconsistency problems
 
 			PAINTSTRUCT ps; //TODO(fran): we arent using the rectangle from the ps, I think we should for performance
-			HDC dc = BeginPaint(state->wnd, &ps);
+			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd, &ps); };
 
-			RECT rc; GetClientRect(state->wnd, &rc);
-			int w = RECTW(rc), h = RECTH(rc);
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			bool enabled = IsWindowEnabled(state->wnd);
-			HFONT font = state->theme.font;
-			//TODO(fran): Check that we are going to paint something new
-			HBRUSH border_br = enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
-			HBRUSH txt_br = enabled ? state->theme.brushes.foreground.normal : state->theme.brushes.foreground.disabled;
-			HBRUSH bk_br;
-			if (enabled) {
-				if (state->onMouseOver && state->onLMouseClick) bk_br = state->theme.brushes.bk.clicked;
-				else if (state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd)) bk_br = state->theme.brushes.bk.mouseover;
-				else bk_br = state->theme.brushes.bk.normal;
+			if (state->render) {
+				RECT rc; GetClientRect(state->wnd, &rc);
+				render_flags flags;
+
+				flags.onClicked = state->onMouseOver && state->onLMouseClick;
+				flags.onMouseover = state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd);
+				flags.isEnabled = IsWindowEnabled(state->wnd);
+				
+				state->render(state->wnd, dc, to_rect_i32(rc), flags, state->element, state->user_extra);
 			}
-			else bk_br = state->theme.brushes.bk.disabled;
-			SetBkColor(dc, ColorFromBrush(bk_br));
-			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc, oldbr); };
+			else paint(state, dc);
 
-			{
-				//Border and Bk
-				HPEN pen = CreatePen(PS_SOLID, state->theme.dimensions.border_thickness, ColorFromBrush(border_br)); defer{ DeletePen(pen); };//INFO: pens with zero thickness get 1px thickness, so we gotta manually avoid using the pen
-				HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
-
-				if (style & style::roundrect) {
-					i32 extent = min(w, h);
-					bool is_small = extent < 50;
-					i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
-					if (is_small) {
-						HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
-						RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
-					}
-					else {
-#if 0
-						//Bk
-						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-						//Border
-						urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
-#elif 0
-						//Bk
-						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-						//Border
-						urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
-						urender::RoundRectangleCornerFill(dc, bk_br, rc, roundedness);//TODO(fran): if this didnt cut a bit of the line it would be semi acceptable
-#elif 1
-
-						//TODO(fran): for some reason the border of the rounded rectangle start to look worse once you mouseover the button, we're probably screwing the border by filling the bk somehow
-
-						//Bk
-#if 0
-						urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-#else
-						urender::RoundRectangleFill_smooth(dc, bk_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
-#endif
-						//Border
-						if (state->theme.dimensions.border_thickness != 0) {
-#if 0
-							//Border Arcs
-							urender::RoundRectangleArcs(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
-							//Border Lines
-							urender::RoundRectangleLines(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness + 1);
-							//TODO(fran): this looks a little better, but still not quite (especially the bottom) and is super hacky
-#else
-							urender::RoundRectangleBorder_smooth(dc, border_br, rc, roundedness, (f32)state->theme.dimensions.border_thickness);
-#endif
-						}
-#else
-						HDC highresdc = CreateCompatibleDC(dc); defer{ DeleteDC(highresdc); };
-						HBRUSH oldbr = SelectBrush(highresdc, bk_br); defer{ SelectBrush(highresdc,oldbr); };
-						i32 scale_factor = 2;
-						HPEN pen = CreatePen(PS_SOLID, border_thickness*scale_factor, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
-						HPEN oldpen = SelectPen(highresdc, pen); defer{ SelectPen(highresdc,oldpen); };
-						HBITMAP highresbmp = CreateCompatibleBitmap(dc, w*scale_factor, h * scale_factor); defer{ DeleteBitmap(highresbmp); };
-						HBITMAP oldbmp = SelectBitmap(highresdc, highresbmp); defer{ SelectBitmap(highresdc, oldbmp); };
-						RoundRect(highresdc, 1, 1, w* scale_factor-2, h* scale_factor-2, roundedness* scale_factor*2, roundedness*scale_factor*2);
-						int oldstretchmode = SetStretchBltMode(dc, HALFTONE); defer{ SetStretchBltMode(dc, oldstretchmode); };
-						SetBrushOrgEx(dc, 0, 0, nullptr);
-						StretchBlt(dc, rc.left, rc.top, w, h, highresdc, 0, 0, h * scale_factor, w * scale_factor, SRCCOPY);
-						
-						//TODO(fran): problems with this option: very expensive, weird glitches on the top, impossible to do transparency since we gotta blit the entire bmp instead of just the roundrect (maybe we can still do transparency via SetWindowRgn() )
-#endif 
-					}
-				}
-				else {
-					//Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
-					//Bk
-					FillRect(dc, &rc, bk_br);
-					//Border
-					FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, bk_br, BORDERALL);
-				}
-			}
-
-			if (style & BS_ICON) {//Here will go buttons that only have an icon
-
-				HICON icon = state->icon;
-				//NOTE: we assume all icons to be squares 1:1
-				MYICON_INFO iconnfo = MyGetIconInfo(icon);
-				int max_sz = (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f);
-				int icon_height = max_sz;
-				int icon_width = icon_height;
-				int icon_align_height = (RECTHEIGHT(rc) - icon_height) / 2;
-				int icon_align_width = (RECTWIDTH(rc) - icon_width) / 2;
-				urender::draw_icon(dc, icon_align_height, icon_align_width, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
-			}
-			else if (style & BS_BITMAP) {
-				BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);
-				if (bitmap.bmBitsPixel == 1) {
-					//TODO(fran):unify rect calculation with icon
-					int max_sz = roundNdown(bitmap.bmWidth, (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f)); //HACK: instead use png + gdi+ + color matrices
-					if (!max_sz) {
-						if ((bitmap.bmWidth % 2) == 0) max_sz = bitmap.bmWidth / 2;
-						else max_sz = bitmap.bmWidth; //More HACKs
-					}
-
-					int bmp_height = max_sz;
-					int bmp_width = bmp_height;
-					int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
-					int bmp_align_width = (RECTWIDTH(rc) - bmp_width) / 2;
-					urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, state->bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, txt_br);
-				}
-			}
-			else { //Here will go buttons that only have text
-				HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
-				SetTextColor(dc, ColorFromBrush(txt_br));
-				TCHAR Text[40];
-				int len = (int)SendMessage(state->wnd, WM_GETTEXT, ARRAYSIZE(Text), (LPARAM)Text);
-
-				// Calculate vertical position for the item string so that it will be vertically centered
-				SIZE txt_sz; GetTextExtentPoint32(dc, Text, len, &txt_sz);
-				int yPos = (rc.bottom + rc.top - txt_sz.cy) / 2;
-
-				SetTextAlign(dc, TA_CENTER);
-				int xPos = (rc.right - rc.left) / 2;
-				TextOut(dc, xPos, yPos, Text, len);
-			}
-
-			EndPaint(state->wnd, &ps);
 			return 0;
 		} break;
 		case WM_DESTROY:
 		{
+			if (state->free_element && state->element) state->free_element(state->element, state->user_extra);
 			if (state->tooltip_txt) set_tooltip(state->wnd, 0);
 			free(state);
 		}break;
@@ -681,7 +759,7 @@ namespace button {
 			case VK_RETURN://Received when the user presses the "enter" key //Carriage Return aka \r
 			{
 				//SendMessage(state->wnd, WM_LBUTTONDOWN, ); //TODO(fran): repaint and show as if the user clicked the button
-				PostMessage(state->parent, WM_COMMAND, (WPARAM)MAKELONG(state->msg_to_send, 0), (LPARAM)state->wnd);//notify parent
+				notify_parent(state);
 
 			}break;
 			}

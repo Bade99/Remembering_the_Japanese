@@ -77,6 +77,12 @@ static any_str alloc_any_str(size_t sz) {
 	any_str res{ malloc(sz), sz };
 	return res;
 }
+static any_str alloc_any_str(std::wstring s) {
+	size_t sz = (s.size() + 1) * sizeof(s[0]);
+	any_str res{ malloc(sz), sz };
+	memcpy(res.str, s.c_str(), sz);
+	return res;
+}
 static void free_any_str(void* str) { free(str); };
 
 //TODO(fran):

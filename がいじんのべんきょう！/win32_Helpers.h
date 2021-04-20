@@ -263,39 +263,6 @@ static f64 EndCounter(i64 CounterStart, f64 PCFreq = GetPCFrequency())
 	return double(li.QuadPart - CounterStart) / PCFreq;
 }
 
-//----------------------RECT_i32-----------------------:
-#include "unCap_Vector.h"
-union rect_i32 {
-	struct { i32 x, y, w, h; };
-	struct { i32 left, top, w, h; };
-	struct { v2_i32 xy, wh; };
-
-	i32 right() const { return left + w; }
-	i32 bottom() const { return top + h; }
-	i32 center_x() const { return left + w / 2; }
-	i32 center_y() const { return top + h / 2; }
-};
-
-RECT toRECT(rect_i32 r) {
-	RECT res;
-	res.left = r.left;
-	res.top = r.top;
-	res.right= r.right();
-	res.bottom = r.bottom();
-	return res;
-}
-
-static bool test_pt_rc(POINT p, const rect_i32& r) {
-	bool res = false;
-	if (p.y >= r.top &&//top
-		p.y < r.bottom() &&//bottom
-		p.x >= r.left &&//left
-		p.x < r.right())//right
-	{
-		res = true;
-	}
-	return res;
-}
 
 //----------------------RECT-----------------------:
 
@@ -438,6 +405,51 @@ static RECT clip_fit_childs(HWND parent, HWND child, RECT r) {
 	return res;
 }
 
+
+//----------------------RECT_i32-----------------------:
+#include "unCap_Vector.h"
+union rect_i32 {
+	struct { i32 x, y, w, h; };
+	struct { i32 left, top, w, h; };
+	struct { v2_i32 xy, wh; };
+
+	i32 right() const { return left + w; }
+	i32 bottom() const { return top + h; }
+	i32 center_x() const { return left + w / 2; }
+	i32 center_y() const { return top + h / 2; }
+};
+
+RECT toRECT(rect_i32 r) {
+	RECT res;
+	res.left = r.left;
+	res.top = r.top;
+	res.right = r.right();
+	res.bottom = r.bottom();
+	return res;
+}
+
+rect_i32 to_rect_i32(RECT r) {
+	rect_i32 res;
+	res.left = r.left;
+	res.top = r.top;
+	res.w = RECTW(r);
+	res.h = RECTH(r);
+
+	return res;
+}
+
+static bool test_pt_rc(POINT p, const rect_i32& r) {
+	bool res = false;
+	if (p.y >= r.top &&//top
+		p.y < r.bottom() &&//bottom
+		p.x >= r.left &&//left
+		p.x < r.right())//right
+	{
+		res = true;
+	}
+	return res;
+}
+
 //----------------------POINT-----------------------:
 bool operator==(POINT p1, POINT p2) {
 	bool res = p1.x == p2.x && p1.y == p2.y;
@@ -536,6 +548,10 @@ static BOOL SetMenuItemString(HMENU hmenu, UINT item, BOOL fByPositon, const cst
 }
 
 //----------------------HWND-----------------------:
+
+static void update_wnd_style(HWND wnd, LONG_PTR new_styles ) {
+	SetWindowLongPtr(wnd, GWL_STYLE, GetWindowLongPtr(wnd, GWL_STYLE) | new_styles);
+}
 
 static void flip_visibility(HWND wnd) {
 	bool visible = IsWindowVisible(wnd);

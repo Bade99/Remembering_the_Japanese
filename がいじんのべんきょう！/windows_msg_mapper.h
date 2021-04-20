@@ -211,6 +211,7 @@ static std::map<int, const char*> wmTranslation = {
 {310, "WM_CTLCOLORDLG" },
 {311, "WM_CTLCOLORSCROLLBAR" },
 {312, "WM_CTLCOLORSTATIC" },
+{0x131, "WM_LBTRACKPOINT" },
 {0x140, "CB_GETEDITSEL" },
 {0x141, "CB_LIMITTEXT" },
 {0x142, "CB_SETEDITSEL" },

@@ -9,7 +9,7 @@
 #include "win32_button.h"
 #include "LANGUAGE_MANAGER.h"
 #include "win32_edit_oneline.h"
-#include "win32_combobox.h"
+#include "win32_combobox_subclass.h"
 #include "unCap_Math.h"
 #include "win32_score.h"
 #include "win32_static_oneline.h"
@@ -21,6 +21,7 @@
 #include "win32_paint.h"
 #include "win32_Char.h"
 #include "win32_navbar.h"
+#include "win32_combobox.h"
 
 #include <string>
 
@@ -52,6 +53,8 @@
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
+//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar
+//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 
 
 //Leftover IDEAs:
@@ -164,9 +167,14 @@ struct practice_drawing_word {
 void languages_setup_combobox(HWND cb) {
 	auto langs = LANGUAGE_MANAGER::Instance().GetAllLanguages();
 	auto current_lang = LANGUAGE_MANAGER::Instance().GetCurrentLanguage();
+
 	for (const auto& lang : *langs) {
-		SendMessage(cb, CB_INSERTSTRING, -1, (LPARAM)lang.c_str());
-		if(!lang.compare(current_lang)) SendMessage(cb, CB_SETCURSEL, (int)SendMessage(cb,CB_GETCOUNT,0,0)-1, 0);
+		utf16_str* l = (decltype(l))malloc(sizeof(*l)); *l = alloc_any_str(lang);
+		listbox::add_elements(combobox::get_controls(cb).listbox, (void**)l, 1);
+		//SendMessage(cb, CB_INSERTSTRING, -1, (LPARAM)lang.c_str());
+		
+		//if(!lang.compare(current_lang)) SendMessage(cb, CB_SETCURSEL, (int)SendMessage(cb,CB_GETCOUNT,0,0)-1, 0);
+		if (!lang.compare(current_lang)) combobox::set_cur_sel(cb, combobox::get_count(cb) - 1);
 	}
 	InvalidateRect(cb, NULL, TRUE);
 }
@@ -522,7 +530,7 @@ struct べんきょうProcState {
 				type button_new;
 				type button_practice;
 				type button_search;
-				type combo_languages;
+				//type combo_languages;
 			}list; //INFO: unfortunately in order to make 'all' auto-update we need to give a name to this struct
 			type all[sizeof(list)/sizeof(type)]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
 		} landingpage;
@@ -853,7 +861,7 @@ namespace べんきょう {
 		}
 	}
 
-	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::listbox_func_renderflags flags, void* element, void* user_extra) {
+	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
 		int w = r.w, h = r.h;
 		learnt_word16* txt = (decltype(txt))element;
 
@@ -885,6 +893,119 @@ namespace べんきょう {
 
 	}
 
+	void langbox_func_free_elements(ptr<void*> elements, void* user_extra) {
+		for (auto& e : elements) { free_any_str(((utf16_str*)e)->str); free(e); }
+	}
+
+	void langbox_func_render_listbox_element(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+
+		int w = r.w, h = r.h;
+		utf16_str* txt = (decltype(txt))element;
+
+		//Draw bk
+		HBRUSH bk_br = global::colors.ControlBk, txt_br = global::colors.ControlTxt;
+		if (flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
+
+		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		FillRect(dc, &bk_rc, bk_br);
+
+		//Draw text
+		HFONT font = global::fonts.General;
+		RECT txt_rc = to_rect(r);
+
+		urender::draw_text(dc, txt_rc, *txt, font, txt_br, bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+	}
+
+	void langbox_func_on_selection_accepted(void* element, void* user_extra){
+		utf16_str* lang = (decltype(lang))element;
+		LANGUAGE_MANAGER::Instance().ChangeLanguage(lang->str);
+		//TODO(fran): we gotta readjust the size of the combobox to account for the new element, which in turn means updating the navbar
+	}
+
+	void langbox_func_render_combobox(HDC dc, rect_i32 r, combobox::render_flags flags, void* element, void* user_extra) {
+
+		HFONT font = global::fonts.General;
+		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br = global::colors.Img;
+		if (flags.isListboxOpen || flags.onClicked) {
+			bk_br = global::colors.ControlBkPush;
+		}
+		else if (flags.onMouseover) {
+			bk_br = global::colors.ControlBkMouseOver;
+		}
+		else {
+			bk_br = global::colors.ControlBk;
+		}
+
+		int border_thickness_pen = 0;//means 1px when creating pens
+		int border_thickness = 1;
+		int x_pad = avg_str_dim(font, 1).cx;
+
+		//Border an Bk
+		{
+			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+			HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
+			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+			i32 extent = min(r.w, r.h);
+			i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+			RoundRect(dc, r.left, r.top, r.right(), r.bottom(), roundedness, roundedness);
+		}
+
+		//Dropbox icon
+		int icon_x=r.w;
+		{//TODO(fran): flicker free
+			HBITMAP bmp = global::bmps.dropdown;
+			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
+			if (bitmap.bmBitsPixel == 1) {
+
+				int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
+				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
+
+				int bmp_height = max_sz;
+				int bmp_width = bmp_height;
+				int bmp_align_width = r.w - bmp_width - x_pad;
+				int bmp_align_height = (r.h - bmp_height) / 2;
+				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric color
+
+				icon_x = bmp_align_width;
+			}
+		}
+		//TODO(fran): clamp txt rect to not go over the icon
+
+		//Text
+		if (element) {
+			SelectFont(dc, font);
+			utf16_str* s = (decltype(s))element;
+
+			SetBkColor(dc, ColorFromBrush(bk_br));
+			SetTextColor(dc, ColorFromBrush(txt_br));
+
+			RECT txt_rc = toRECT(r);
+			txt_rc.left += x_pad;
+			txt_rc.right = icon_x;
+
+			DrawTextW(dc, s->str, (int)s->sz_char(), &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+		}
+
+	}
+
+	int langbox_func_desired_size(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra) {
+
+		int char_cnt = 8 + 3 + 3;//chars, icon, spacing
+		if (element) {
+			utf16_str* s = (decltype(s))element;
+			char_cnt = (int)s->sz_char()-1 + 3 + 3;
+		}
+
+		SIZE sz = avg_str_dim(global::fonts.General, char_cnt);
+
+		min->cx = minimum((int)min->cx, (int)((float)sz.cx * 1.f));
+		min->cy = minimum((int)min->cy, (int)((float)sz.cy * 1.2f));
+
+		*max = *min;
+		return 2;
+	}
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
@@ -906,6 +1027,9 @@ namespace べんきょう {
 		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
 		accent_btn_theme.brushes.border.normal = global::colors.Accent;
 		
+		button::Theme navbar_btn_theme = base_btn_theme;
+		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
+
 
 		embedded::show_word_reduced::Theme eswr_theme;
 		brush_group eswr_bk, eswr_txt, eswr_border;
@@ -942,22 +1066,36 @@ namespace べんきょう {
 			HWND btn1 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			AWT(btn1, 100);
-			button::set_theme(btn1, &base_btn_theme);
+			button::set_theme(btn1, &navbar_btn_theme);
 			navbar::attach(navbar, btn1, navbar::attach_point::left, -1);
 			SendMessage(btn1, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
 			HWND btn2 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			AWT(btn2, 101);
-			button::set_theme(btn2, &base_btn_theme);
+			button::set_theme(btn2, &navbar_btn_theme);
 			navbar::attach(navbar, btn2, navbar::attach_point::left, -1);
 			SendMessage(btn2, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			edit_oneline::Theme search_editoneline_theme = base_editoneline_theme;
+			search_editoneline_theme.brushes.border = search_editoneline_theme.brushes.bk;
 
 			HWND search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			ACC(search, 251);
-			searchbox::set_brushes(search, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled, global::colors.Img_Disabled);
+			searchbox::set_editbox_theme(search, &search_editoneline_theme);
 			navbar::attach(navbar, search, navbar::attach_point::center, -1);
+			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			languages_setup_combobox(combo_lang);
+			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
+			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
+			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
+			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
+			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
+			navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
@@ -981,11 +1119,11 @@ namespace べんきょう {
 			AWT(controls.list.button_search, 102);
 			button::set_theme(controls.list.button_search, &base_btn_theme);
 
-			controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+			/*controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			languages_setup_combobox(controls.list.combo_languages);
 			SetWindowSubclass(controls.list.combo_languages, ComboProc, 0, 0);
-			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
+			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);*/
 			//TODO(fran): more subdued colors for the lang combo, also no border, possibly also bold text, and right aligned
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1035,7 +1173,7 @@ namespace べんきょう {
 			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			ACC(controls.list.searchbox_search, 251);
-			searchbox::set_brushes(controls.list.searchbox_search, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.Img, global::colors.Img, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.Img_Disabled, global::colors.Img_Disabled);
+			searchbox::set_editbox_theme(controls.list.searchbox_search, &base_editoneline_theme);
 			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
 			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
 			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
@@ -1317,7 +1455,7 @@ namespace べんきょう {
 			auto& controls = state->controls.landingpage;
 			//One button on top of the other vertically, all buttons must be squares
 			//TODO(fran): we could, at least to try how it looks, to check whether the wnd is longer on w or h and place the controls vertically or horizontally next to each other
-			int wnd_cnt = ARRAYSIZE(controls.all) -1 /*subtract the lang combobox*/;
+			int wnd_cnt = ARRAYSIZE(controls.all);
 			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 
 			int max_h = h - pad_cnt * h_pad;
@@ -1345,16 +1483,16 @@ namespace べんきょう {
 			button_search.w= wnd_h;
 			button_search.h= wnd_h;
 
-			rect_i32 combo_languages;
-			combo_languages.h = wnd_h;
-			combo_languages.y = h_pad / 2;
-			combo_languages.w = min(distance(w,button_new.right()+w_pad/2), avg_str_dim((HFONT)SendMessage(controls.list.combo_languages, WM_GETFONT, 0, 0), 20).cx);
-			combo_languages.x = w - combo_languages.w - w_pad / 2;
+			//rect_i32 combo_languages;
+			//combo_languages.h = wnd_h;
+			//combo_languages.y = h_pad / 2;
+			//combo_languages.w = min(distance(w,button_new.right()+w_pad/2), avg_str_dim((HFONT)SendMessage(controls.list.combo_languages, WM_GETFONT, 0, 0), 20).cx);
+			//combo_languages.x = w - combo_languages.w - w_pad / 2;
 
 			MyMoveWindow(controls.list.button_new, button_new,FALSE);
 			MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
 			MyMoveWindow(controls.list.button_search, button_search,FALSE);
-			MyMoveWindow(controls.list.combo_languages, combo_languages,FALSE);
+			//MyMoveWindow(controls.list.combo_languages, combo_languages,FALSE);
 		} break;
 		case ProcState::page::new_word:
 		{
@@ -2972,25 +3110,25 @@ namespace べんきょう {
 						store_previous_page(state, state->current_page);
 						set_current_page(state, ProcState::page::search);
 					}
-					else if (child == page.list.combo_languages) {
-						WORD notif = HIWORD(wparam);
-						switch (notif) {
-						case CBN_SELENDOK:
-						{
-							//user requested a language change
-							//TODO(fran): pretty sure I can reduce all this to _get_edit_str() instead of going through the listbox
-							i32 cur_sel = (i32)SendMessage(child, CB_GETCURSEL, 0, 0);
-							if (cur_sel != CB_ERR) {
-								utf16_str lang = alloc_any_str(sizeof(*lang.str) * (SendMessage(child, CB_GETLBTEXTLEN, cur_sel, 0) + 1)); defer{ if(lang.sz) free_any_str(lang.str); };
-								if (lang.sz) {
-									SendMessage(child, CB_GETLBTEXT, cur_sel, (LPARAM)lang.str);
-									LANGUAGE_MANAGER::Instance().ChangeLanguage(lang.str);
-								}
-							}
+					//else if (child == page.list.combo_languages) {
+					//	WORD notif = HIWORD(wparam);
+					//	switch (notif) {
+					//	case CBN_SELENDOK:
+					//	{
+					//		//user requested a language change
+					//		//TODO(fran): pretty sure I can reduce all this to _get_edit_str() instead of going through the listbox
+					//		i32 cur_sel = (i32)SendMessage(child, CB_GETCURSEL, 0, 0);
+					//		if (cur_sel != CB_ERR) {
+					//			utf16_str lang = alloc_any_str(sizeof(*lang.str) * (SendMessage(child, CB_GETLBTEXTLEN, cur_sel, 0) + 1)); defer{ if(lang.sz) free_any_str(lang.str); };
+					//			if (lang.sz) {
+					//				SendMessage(child, CB_GETLBTEXT, cur_sel, (LPARAM)lang.str);
+					//				LANGUAGE_MANAGER::Instance().ChangeLanguage(lang.str);
+					//			}
+					//		}
 
-						} break;
-						}
-					}
+					//	} break;
+					//	}
+					//}
 				} break;
 				case ProcState::page::new_word:
 				{

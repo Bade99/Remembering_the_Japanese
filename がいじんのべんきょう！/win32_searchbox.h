@@ -5,15 +5,13 @@
 #include "win32_Renderer.h"
 #include "win32_edit_oneline.h"
 #include "win32_listbox.h"
-#include <windowsx.h>
 #include <CommCtrl.h>//SetWindowSubclass
-#include "windows_extra_msgs.h"
 
 //NOTE: no ASCII support, always utf16
 
 //------------------"API"------------------:
 //searchbox::wndclass identifies the window class to be used when calling CreateWindow()
-//searchbox::set_brushes() to set the HBRUSHes used by the searchbox, its editbox and listbox
+//searchbox::set_editbox_theme() the searchbox in itself doesnt have any visible parts, simply the editbox is rendered
 //searchbox::set_function_free_elements() to free the content of N elements in the listbox, this is called when we need to clear the listbox, for example when it's hidden or when the search options change
 //searchbox::set_function_retrieve_search_options()
 //searchbox::set_function_perform_search()
@@ -49,11 +47,10 @@ namespace searchbox {
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
-		struct brushes {
-			HBRUSH bk, img;
-			HBRUSH bk_disabled, img_disabled;
-		}brushes;
-		HFONT font;//simply cause windows msgs ask for it
+		//struct brushes {
+		//	HBRUSH bk, img;
+		//	HBRUSH bk_disabled, img_disabled;
+		//}brushes;
 
 		struct {
 			HWND editbox;
@@ -84,36 +81,45 @@ namespace searchbox {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	//Any null HBRUSH param is ignored and the current one remains
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH img, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled, HBRUSH img_disabled) {
-		ProcState* state = get_state(wnd);
-		if (state) {
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); } //RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 
-			edit_oneline::Theme editoneline_theme;
-			editoneline_theme.dimensions.border_thickness = 1;
-			editoneline_theme.brushes.foreground.normal = txt;
-			editoneline_theme.brushes.foreground.disabled = txt_disabled;
-			editoneline_theme.brushes.bk.normal = bk;
-			editoneline_theme.brushes.bk.disabled = bk_disabled;
-			editoneline_theme.brushes.border.normal = border;
-			editoneline_theme.brushes.border.disabled = border_disabled;
-			editoneline_theme.brushes.selection.normal = global::colors.Selection;//TODO(fran): user setteable
-			editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
-
-			edit_oneline::set_theme(state->controls.editbox, &editoneline_theme);
-
-			//TODO(fran): set listbox brushes (though we want to allow the user to choose the render function)
-
-			if (bk)state->brushes.bk = bk;
-			if (bk_disabled)state->brushes.bk_disabled = bk_disabled;
-
-			if (img)state->brushes.img = img;
-			if (img_disabled)state->brushes.img_disabled = img_disabled;
-
-			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
+	void set_editbox_theme(HWND search, const edit_oneline::Theme* t) {
+		ProcState* state = get_state(search);
+		if (state && t) {
+			edit_oneline::set_theme(state->controls.editbox, t);
 		}
 	}
+
+	//NOTE: the caller takes care of deleting the brushes, we dont do it
+	//Any null HBRUSH param is ignored and the current one remains
+	//void set_editbox_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH img, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled, HBRUSH img_disabled) {
+	//	ProcState* state = get_state(wnd);
+	//	if (state) {
+
+	//		edit_oneline::Theme editoneline_theme;
+	//		editoneline_theme.dimensions.border_thickness = 1;
+	//		editoneline_theme.brushes.foreground.normal = txt;
+	//		editoneline_theme.brushes.foreground.disabled = txt_disabled;
+	//		editoneline_theme.brushes.bk.normal = bk;
+	//		editoneline_theme.brushes.bk.disabled = bk_disabled;
+	//		editoneline_theme.brushes.border.normal = border;
+	//		editoneline_theme.brushes.border.disabled = border_disabled;
+	//		editoneline_theme.brushes.selection.normal = global::colors.Selection;//TODO(fran): user setteable
+	//		editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
+
+	//		edit_oneline::set_theme(state->controls.editbox, &editoneline_theme);
+
+	//		//TODO(fran): set listbox brushes (though we want to allow the user to choose the render function)
+
+	//		if (bk)state->brushes.bk = bk;
+	//		if (bk_disabled)state->brushes.bk_disabled = bk_disabled;
+
+	//		if (img)state->brushes.img = img;
+	//		if (img_disabled)state->brushes.img_disabled = img_disabled;
+
+	//		if (repaint)ask_for_repaint(state);
+	//	}
+	//}
 
 	void set_user_extra(HWND wnd, void* user_extra) {
 		ProcState* state = get_state(wnd);
@@ -391,15 +397,14 @@ namespace searchbox {
 		{
 			HFONT font = (HFONT)wparam;
 			BOOL redraw = LOWORD(lparam);
-			state->font = font;
 			SendMessage(state->controls.editbox, msg, wparam, lparam);
 			SendMessage(state->controls.listbox, msg, wparam, lparam);
-			if (redraw) RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+			if (redraw) ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_GETFONT:
 		{
-			return (LRESULT)state->font;
+			return SendMessage(state->controls.editbox, msg, wparam, lparam);
 		} break;
 		case WM_DESTROY:
 		{

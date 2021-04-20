@@ -1,313 +1,696 @@
 ﻿#pragma once
 #include "windows_sdk.h"
-#include <windowsx.h>
-#include <CommCtrl.h> //DefSubclassProc
+#include "win32_Platform.h"
 #include "win32_Helpers.h"
-#include "win32_Global.h"
+#include "win32_button.h"
+#include "win32_listbox.h"
 
-//-------------Additional Styles-------------:
-#define CBS_ROUNDRECT 0x8000L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
+//NOTE: no ASCII support, always utf16
 
-struct ComboProcState {
-	HWND wnd;
-	HBITMAP dropdown; //NOTE: we dont handle releasing the HBITMAP sent to us
-	bool on_mouseover;
-};
+//------------------"API"------------------:
+//combobox::wndclass identifies the window class to be used when calling CreateWindow()
 
-#define CB_SETDROPDOWNIMG (WM_USER+1) //Only accepts monochrome bitmaps (.bmp), wparam=HBITMAP ; lparam=0
-#define CB_GETDROPDOWNIMG (WM_USER+2) //wparam=0 ; lparam=0 ; returns HBITMAP
+//combobox::insert_element()
+//combobox::set_function_free_elements() to free the content of N elements in the listbox, this is called when we need to clear the listbox, for example when it's hidden or when the search options change
+//combobox::set_function_on_selection_accepted() operation to perform when the user has confirmed a new selection
+//combobox::set_function_render_listbox_element()
+//combobox::set_function_measure_combobox()
+//combobox::set_function_measure_listbox_element() //TODO(fran)
+//combobox::set_function_render_combobox()
+//combobox::set_user_extra() extra user-defined data to be sent on each function call
 
-//BUGs:
-//-when the user opens the combobox there's a small window of time where the text shown on top will get changed if the mouse got over some item of the list. To replicate: press combobox and quickly move the mouse straight down
+//IMPORTANT: everything related to drawing will be left to be decided by the user, we will store nothing at all
 
-//TODO(fran): for comboboxes with WS_TABSTOP style it might be good to open the listbox when we ge keyboard focus
+//-------------"API" (Additional Messages)-------------:
+#define combobox_base_msg_addr (WM_USER + 3300)
+#define CBM_CLKOUTSIDE (combobox_base_msg_addr + 20) //do not use, internal msg
 
-LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
 
-	//printf(msgToString(msg)); printf("\n");
+namespace combobox {
 
-	//INFO: we require GetWindowLongPtr at "position" GWLP_USERDATA to be left for us to use
-	//NOTE: Im pretty sure that "position" 0 is already in use
-	ComboProcState* state = (ComboProcState*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-	if (!state) {
-		ComboProcState* st = (ComboProcState*)calloc(1, sizeof(ComboProcState));
-		st->wnd = hwnd;
-		SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)st);
-		state = st;
+	constexpr cstr wndclass[] = L"win32_wndclass_combobox";
+
+	struct render_flags {
+		bool isEnabled, onMouseover, onClicked, isListboxOpen;
+		//INFO: additional hidden state, the user could have pressed the button and while still holding it pressed have moved the mouse outside it, in this case onMouseover==false and onClicked==true
+	};
+
+	typedef void(*func_free_elements)(ptr<void*> elements, void* user_extra);
+	typedef void(*func_on_selection_accepted)(void* element, void* user_extra);
+	typedef void(*func_render_combobox)(HDC dc, rect_i32 r, render_flags flags, void* element, void* user_extra);
+	//For Handling WM_DESIRED_SIZE
+	typedef int(*func_desired_size_combobox)(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra);//NOTE: the dc is simply to be used for functions such as GetTextExtentPoint32 that need a dc
+
+
+	struct ProcState {
+		HWND wnd;
+		HWND parent;
+
+		struct {
+			HWND button;
+			HWND listbox;
+			//HWND button; //TODO(fran): replace manual handling of combobox to a button with custom rendering, the only thing is we would need to setfocus to the button and intercept vk_up and vk_down to scroll the cb when the listbox isnt open
+		}controls;
+
+		void* user_extra;
+
+		func_free_elements free_elements;
+		func_on_selection_accepted on_selection_accepted;
+		func_render_combobox render_combobox;
+		func_desired_size_combobox desired_size_combobox;
+
+		struct {
+			HHOOK hookmouseclick;
+		}impl;
+	};
+
+
+	ProcState* get_state(HWND wnd) {
+		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
+		return state;
 	}
 
-	switch (msg)
-	{
-	case WM_NCDESTROY: //TODO(fran): better way to cleanup our state, we could have problems with state being referenced after WM_NCDESTROY and RemoveSubclass taking us out without being able to free our state, we need a way to find out when we are being removed
-	{
-		if (state) free(state);
-		return DefSubclassProc(hwnd, msg, wparam, lParam);
+	void set_state(HWND wnd, ProcState* state) {//NOTE: only used on creation
+		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
-	case CB_GETDROPDOWNIMG:
-	{
-		return (LRESULT)state->dropdown;
-	} break;
-	case CB_SETDROPDOWNIMG:
-	{
-		state->dropdown = (HBITMAP)wparam;
-		return 0;
-	} break;
-	case CB_SETCURSEL:
-	{
-		LONG_PTR  dwStyle = GetWindowLongPtr(hwnd, GWL_STYLE);
-		// turn off WS_VISIBLE
-		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle & ~WS_VISIBLE);
 
-		// perform the default action, minus painting
-		LRESULT ret = DefSubclassProc(hwnd, msg, wparam, lParam); //defproc for setcursel DOES DRAWING, we gotta do the good ol' trick of invisibility, also it seems that it stores a paint request instead, cause after I make it visible again it asks for wm_paint, as it should have in the first place
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); } //RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 
-		// turn on WS_VISIBLE
-		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle);
-
-		//Notify parent (once again something that should be the default but isnt)
-		SendMessage(GetParent(hwnd), WM_COMMAND, MAKELONG(GetDlgCtrlID(hwnd), CBN_SELCHANGE), (LPARAM)hwnd);
-		return ret;
-	}
-	case WM_NCPAINT:
-	{
-		return 0;
-	} break;
-	case WM_MOUSEHOVER:
-	{
-		//force button to repaint and specify hover or not
-		if (state->on_mouseover) break;
-		state->on_mouseover = true;
-		InvalidateRect(hwnd, 0, TRUE);
-		return DefSubclassProc(hwnd, msg, wparam, lParam);
-	}
-	case WM_MOUSELEAVE:
-	{
-		state->on_mouseover = false;
-		InvalidateRect(hwnd, 0, TRUE);
-		return DefSubclassProc(hwnd, msg, wparam, lParam);
-	}
-	case WM_MOUSEMOVE:
-	{
-		//TODO(fran): We are tracking the mouse every single time it moves, kind of suspect solution
-		TRACKMOUSEEVENT tme;
-		tme.cbSize = sizeof(TRACKMOUSEEVENT);
-		tme.dwFlags = TME_HOVER | TME_LEAVE;
-		tme.dwHoverTime = 1;
-		tme.hwndTrack = hwnd;
-
-		TrackMouseEvent(&tme);
-		return DefSubclassProc(hwnd, msg, wparam, lParam);
-	}
-	//case CBN_DROPDOWN://lets us now that the list is about to be show, therefore the user clicked us
-	case WM_PAINT:
-	{
-		PAINTSTRUCT ps;
-		HDC dc = BeginPaint(hwnd, &ps); defer{ EndPaint(hwnd, &ps); };
-
-		RECT rc; GetClientRect(hwnd, &rc);
-		int w = RECTW(rc), h = RECTH(rc);
-		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE); Assert(style & CBS_DROPDOWNLIST);
-		int border_thickness_pen = 0;//means 1px when creating pens
-		int border_thickness = 1;
-
-		BOOL ButtonState = (BOOL)SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0);
-		HBRUSH bk_br, border_br = global::colors.Img;
-		if (ButtonState) {
-			bk_br = global::colors.ControlBkPush;
+	void set_user_extra(HWND wnd, void* user_extra) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->user_extra = user_extra;
+			listbox::set_user_extra(state->controls.listbox, user_extra);
+			//TODO(fran): should I redraw?
 		}
-		else if (state->on_mouseover) {
-			bk_br = global::colors.ControlBkMouseOver;
+	}
+
+	void set_function_free_elements(HWND wnd, func_free_elements func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->free_elements = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_on_selection_accepted(HWND wnd, func_on_selection_accepted func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->on_selection_accepted = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_desired_size_combobox(HWND wnd, func_desired_size_combobox func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->desired_size_combobox = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_render_combobox(HWND wnd, func_render_combobox func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->render_combobox = func;
+			//TODO(fran): should I redraw?
+		}
+	}
+
+	void set_function_render_listbox_element(HWND wnd, listbox::listbox_func_renderelement func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			listbox::set_render_function(state->controls.listbox, func);
+		}
+	}
+
+	//TODO(fran): instead of working as a pasamanos it'd be best to provide an attach_listbox() function with a full configured listbox that abides by our listbox specification
+	void set_listbox_dimensions(HWND wnd, listbox::dimensions dims) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			listbox::set_dimensions(state->controls.listbox, dims);
+		}
+	}
+
+	bool is_listbox_open(HWND wnd) {
+		bool res = false;
+
+		ProcState* state = get_state(wnd);
+		if (state) {
+			res = IsWindowVisible(state->controls.listbox);//TODO(fran): better check
+		}
+		return res;
+	}
+
+	auto get_controls(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			return state->controls;
+		}
+		return decltype(state->controls){0};
+	}
+
+	size_t get_count(HWND wnd) {
+		size_t res = 0;
+		ProcState* state = get_state(wnd);
+		if (state) {
+			res = SendMessage(state->controls.listbox, LB_GETCOUNT, 0, 0);
+		}
+		return res;
+	}
+
+	void set_cur_sel(HWND wnd, size_t idx) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			listbox::set_sel(state->controls.listbox, idx);//TODO(fran): the code for this in the listbox needs a pass, we're basically calling the listbox so it calls us telling about the change in a different future msg
+		}
+	}
+
+	//IMPORTANT (multiwnd/multithreading dubious): uses a static object to store the hwnd, since we use it to hide listboxes, and only one is active at any single time this shouldnt be a problem, but you never know
+	HWND __hookmouseclick_store_hwnd(HWND _wnd = (HWND)INT32_MIN) {
+		static HWND wnd{ 0 };
+		if (_wnd != (HWND)INT32_MIN) {
+			wnd = _wnd;
+		}
+		return wnd;
+	}
+
+	LRESULT CALLBACK hookmouseclick(int code, WPARAM wparam, LPARAM lparam) {
+		//printf("MOUSECLICKHOOK:0x%08x\n", wparam);
+		if (code == HC_ACTION) {//TODO(fran): WH_MOUSE also includes a HC_NOREMOVE code
+			switch (wparam) {
+			case WM_LBUTTONDOWN:
+			case WM_RBUTTONDOWN:
+			case WM_NCLBUTTONDOWN:
+			case WM_NCRBUTTONDOWN:
+			{
+				HWND wnd = __hookmouseclick_store_hwnd();
+				ProcState* state = get_state(wnd);
+				if (state) {
+					//check if the mouse is inside our controls
+#if 0
+					POINT mouse = ((MSLLHOOKSTRUCT*)lparam)->pt;//TODO(fran): _per-monitor-aware_ screen coordinates (idk I that changes something)
+#else
+					POINT mouse = ((MOUSEHOOKSTRUCT*)lparam)->pt;//screen coordinates
+#endif
+					RECT lbrc; GetWindowRect(state->controls.listbox, &lbrc);
+					if (!test_pt_rc(mouse, lbrc)) {
+						//Mouse clicked outside our control -> hide the listbox
+						PostMessage(state->wnd, CBM_CLKOUTSIDE, 0, 0);
+					}
+
+				}
+			}break;
+			}
+		}
+		return CallNextHookEx(0, code, wparam, lparam);
+	}
+
+	void show_listbox(ProcState* state, bool show) {
+		if (show) {
+			RECT rw;  GetWindowRect(state->wnd, &rw);
+			i32 w = RECTW(rw), h = RECTH(rw) * (i32)listbox::get_element_cnt(state->controls.listbox);
+#if 0
+			//REMEMBER: SetWindowPos activates the window no matter how many times you tell it not to if you're doing many things like in this case
+			SetWindowPos(state->controls.listbox, HWND_NOTOPMOST, rw.left, rw.bottom, w, h, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+#else
+			SetWindowPos(state->controls.listbox, HWND_NOTOPMOST/*TODO(fran): we may want HWND_TOP or HWND_TOPMOST*/, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE);
+			MoveWindow(state->controls.listbox, rw.left, rw.bottom, w, h, TRUE);
+			ShowWindow(state->controls.listbox, SW_SHOWNA);//TODO(fran): make sure it's on top of the z order, at least on top of us
+#endif
+			//We need to know when the user clicks outside of our editbox/listbox to be able to hide the listbox
+			if (!state->impl.hookmouseclick) {
+				//TODO(fran): maybe this should be standar implementation in the listbox
+				__hookmouseclick_store_hwnd(state->wnd);
+				state->impl.hookmouseclick = SetWindowsHookEx(WH_MOUSE, hookmouseclick, 0, GetCurrentThreadId()); //attach the hook
+				//state->impl.hookmouseclick = SetWindowsHookEx(WH_MOUSE_LL, hookmouseclick, 0, GetCurrentThreadId()); //TODO(fran): I wanted to use this one but apparently low level hooks cannot be run on debug threads, the docs recommend using raw input instead //https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawmouse
+				Assert(state->impl.hookmouseclick);
+			}
+
 		}
 		else {
-			bk_br = global::colors.ControlBk;
+			//printf("SEARCHBOX:HIDE LISTBOX\n");
+			ShowWindow(state->controls.listbox, SW_HIDE);
+
+			UnhookWindowsHookEx(state->impl.hookmouseclick); // remove the hook
+			state->impl.hookmouseclick = 0;
 		}
-		SetBkColor(dc, ColorFromBrush(bk_br));
+	}
 
-		//TODO(fran): this code is structured horribly
+	//TODO(fran): im pretty sure every single button now has to go through this, if that is the case we need to implement stricter checks, also in that case setwindowsubclass sucks
+	LRESULT CALLBACK ButtonPaintProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
+		HWND parent = GetParent(hwnd);
+		auto button_state = button::get_state(hwnd);
+		auto combo_state = combobox::get_state(parent);
 
-		HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br));
-
-		HBRUSH oldbrush = SelectBrush(dc, (HBRUSH)GetStockObject(HOLLOW_BRUSH)); defer{ SelectObject(dc, oldbrush); };
-		HPEN oldpen = SelectPen(dc, pen);
-
-		SelectFont(dc, (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0));
-		//SetBkColor(hdc, bkcolor);
-		SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt));
-
-		//Border and Bk
+		switch (msg) {
+		case WM_PAINT:
 		{
-			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
-			if (style & CBS_ROUNDRECT) {
-				i32 extent = min(w, h);
-				bool is_small = extent < 50;
-				i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
-				if (is_small) {
-					RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
+			if (combo_state->render_combobox) {
+				PAINTSTRUCT ps; //TODO(fran): we arent using the rectangle from the ps, I think we should for performance
+				HDC dc = BeginPaint(button_state->wnd, &ps); defer{ EndPaint(button_state->wnd, &ps); };
+				RECT rc; GetClientRect(button_state->wnd, &rc);
+
+				render_flags flags;
+				flags.onClicked = button_state->onMouseOver && button_state->onLMouseClick;
+				flags.onMouseover = button_state->onMouseOver || button_state->OnMouseTracking || (GetFocus() == button_state->wnd);
+				flags.isEnabled = IsWindowEnabled(button_state->wnd);
+				flags.isListboxOpen = is_listbox_open(parent);
+
+				combo_state->render_combobox(dc, to_rect_i32(rc), flags, listbox::get_sel_element(combo_state->controls.listbox), combo_state->user_extra);
+				return 0;
+			}
+		} break;
+		}
+
+		return DefSubclassProc(hwnd, msg, wparam, lParam);
+	}
+
+	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+		ProcState* state = get_state(hwnd);
+		switch (msg) {
+		case WM_NCCREATE:
+		{ //1st msg received
+			CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
+
+			ProcState* st = (ProcState*)calloc(1, sizeof(ProcState));
+			Assert(st);
+			set_state(hwnd, st);
+			st->wnd = hwnd;
+			st->parent = creation_nfo->hwndParent;
+			return TRUE; //continue creation
+		} break;
+		case WM_CREATE:
+		{
+			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
+			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+
+			//TODO(fran): settext is redirected to the editbox
+			if (createnfo->lpszName) PostMessage(state->wnd, WM_SETTEXT, 0, (LPARAM)createnfo->lpszName);
+
+			state->controls.button = CreateWindowW(button::wndclass, NULL, WS_CHILD | WS_VISIBLE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+
+			SetWindowSubclass(state->controls.button, ButtonPaintProc, 0, 0);
+
+			state->controls.listbox = CreateWindowEx(WS_EX_TOOLWINDOW /*| WS_EX_TOPMOST*/, listbox::wndclass, 0, WS_POPUP
+				, 0, 0, 0, 0, NULL, 0, NULL, NULL);
+			listbox::set_parent(state->controls.listbox, state->wnd);
+
+			return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
+		} break;
+		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
+			if (wparam) {
+				//Indicate part of current client area that is valid
+				NCCALCSIZE_PARAMS* calcsz = (NCCALCSIZE_PARAMS*)lparam;
+				return 0; //causes the client area to resize to the size of the window, including the window frame
+			}
+			else {
+				RECT* client_rc = (RECT*)lparam;
+				//TODO(fran): make client_rc cover the full window area
+				return 0;
+			}
+		} break;
+		case WM_SIZE: //4th, sent _after_ the wnd has been resized
+		{
+			//TODO(fran): do I resize the listbox here, or only when I want to show it?
+			RECT r; GetClientRect(state->wnd, &r);
+			i32 w = RECTW(r), h = RECTH(r);
+			MoveWindow(state->controls.button, 0, 0, w, h, FALSE);
+
+			//TODO(fran): this should be set by the user, we need to add the measure listbox so we know the window height they want
+			listbox::set_dimensions(state->controls.listbox, listbox::dimensions().set_border_thickness(1).set_element_h(h));
+
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_MOVE: //5th, This msg is received _after_ the window was moved
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_WINDOWPOSCHANGING:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_WINDOWPOSCHANGED:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_SHOWWINDOW: //6th. On startup you receive this cause of WS_VISIBLE flag
+		{
+			//Sent when window is about to be hidden or shown, doesnt let it clear if we are in charge of that or it's going to happen no matter what we do
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_NCPAINT://7th
+		{
+			//Paint non client area, we shouldnt have any
+			//HDC hdc = GetDCEx(hwnd, (HRGN)wparam, DCX_WINDOW | DCX_USESTYLE);
+			//ReleaseDC(hwnd, hdc);
+			return 0; //we process this message, for now
+		} break;
+		case WM_ERASEBKGND://8th, you receive this msg if you didnt specify hbrBackground when you registered the class, now it's up to you to draw the background
+		{
+			HDC dc = (HDC)wparam;
+			return 0; //If you return 0 then on WM_PAINT fErase will be true, aka paint the background there
+		} break;
+		case WM_SETFONT:
+		{
+			HFONT font = (HFONT)wparam;
+			BOOL redraw = LOWORD(lparam);
+			//SendMessage(state->controls.editbox, msg, wparam, lparam);
+			//SendMessage(state->controls.listbox, msg, wparam, lparam);
+			if (redraw) ask_for_repaint(state);
+			return 0;
+		} break;
+		case WM_GETFONT:
+		{
+			return 0;// SendMessage(state->controls.editbox, msg, wparam, lparam);
+		} break;
+		case WM_DESTROY:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
+		{
+			if (state) {
+				DestroyWindow(state->controls.listbox);//NOTE: since this isnt a child I dont think it gets automatically destroyed
+				free(state);
+			}
+			return 0;
+		}break;
+		case WM_NCHITTEST://When the mouse goes over us this is 1st msg received
+		{
+			//Received when the mouse goes over the window, on mouse press or release, and on WindowFromPoint
+
+			// Get the point coordinates for the hit test.
+			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Screen coords, relative to upper-left corner
+
+			// Get the window rectangle.
+			RECT rw; GetWindowRect(state->wnd, &rw);
+
+			LRESULT hittest = HTNOWHERE;
+
+			// Determine if the point is inside the window
+			if (test_pt_rc(mouse, rw))hittest = HTCLIENT;
+
+			return hittest;
+		} break;
+		case WM_SETCURSOR://When the mouse goes over us this is 2nd msg received
+		{
+			//DefWindowProc passes this to its parent to see if it wants to change the cursor settings, we'll make a decision, setting the mouse cursor, and halting proccessing so it stays like that
+			//Sent after getting the result of WM_NCHITTEST, mouse is inside our window and mouse input is not being captured
+
+			/* https://docs.microsoft.com/en-us/windows/win32/learnwin32/setting-the-cursor-image
+				if we pass WM_SETCURSOR to DefWindowProc, the function uses the following algorithm to set the cursor image:
+				1. If the window has a parent, forward the WM_SETCURSOR message to the parent to handle.
+				2. Otherwise, if the window has a class cursor, set the cursor to the class cursor.
+				3. If there is no class cursor, set the cursor to the arrow cursor.
+			*/
+			//NOTE: I think this is good enough for now
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_MOUSEMOVE /*WM_MOUSEFIRST*/://When the mouse goes over us this is 3rd msg received
+		{
+			//wparam = test for virtual keys pressed
+			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
+		{
+			HWND parent = (HWND)wparam;
+			WORD hittest = LOWORD(lparam);
+			WORD mouse_msg = HIWORD(lparam);
+			return MA_ACTIVATE; //Activate our window and post the mouse msg
+		} break;
+		case WM_LBUTTONDOWN:
+		{
+			//wparam = test for virtual keys pressed
+			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+			return 0;
+		} break;
+		case WM_LBUTTONUP:
+		{
+			return 0;
+		} break;
+		case WM_IME_SETCONTEXT://Sent after SetFocus to us
+		{
+			BOOL is_active = (BOOL)wparam;
+			u32 disp_flags = (u32)lparam;
+			return 0; //We dont want IME
+		}break;
+		case WM_PAINT:
+		{
+			PAINTSTRUCT ps;
+			RECT rc; GetClientRect(state->wnd, &rc);
+			int w = RECTW(rc), h = RECTH(rc);
+			//ps.rcPaint
+			HDC dc = BeginPaint(state->wnd, &ps);
+			bool window_enabled = IsWindowEnabled(state->wnd);
+			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			//TODO(fran): maybe draw a user defined image (on the right if ES_LEFT or ES_CENTER, on the left otherwise)
+			EndPaint(hwnd, &ps);
+			return 0;
+		} break;
+		case WM_PARENTNOTIFY:
+		{
+			WORD event = LOWORD(wparam);
+			Assert(event == WM_CREATE || event == WM_DESTROY || event == WM_LBUTTONDOWN || event == WM_MBUTTONDOWN || event == WM_RBUTTONDOWN || event == WM_XBUTTONDOWN);
+			return 0;
+		} break;
+		case WM_COMMAND:
+		{
+			HWND child = (HWND)lparam;
+			if (child) {//Notifs from our childs
+				WORD notif = HIWORD(wparam);
+				//if (child == state->controls.editbox) {
+					//switch (notif) {
+					//case EN_CHANGE:
+					//{
+					//	//The user has modified the editbox -> retrieve search options based on the content of the editbox
+					//	utf16_str txt; _get_edit_str(state->controls.editbox, txt); defer{ if (txt.sz) free_any_str(txt.str); };
+					//	//TODO(fran): check what happens if the editbox is empty -> malloc(0) is implementation dependant
+
+					//	//Clear previous search options
+					//	if (state->free_elements)
+					//		state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+					//	listbox::remove_all_elements(state->controls.listbox);//NOTE: this is inefficient since in the case of set_elements() we'll basically perform two repaints on the listbox
+
+					//	bool show_lb = false;
+
+					//	if (txt.sz_char() > 1 /*not null nor just the null terminator*/) {
+					//		//Get search options
+					//		ptr<void*> search_options{ 0 }; defer{ search_options.free(); };
+					//		if (state->retrieve_search_options)
+					//			search_options = state->retrieve_search_options(txt, state->user_extra);
+
+					//		if (search_options.cnt) {
+					//			//Set new elements (auto removes existing ones), show the listbox
+					//			listbox::set_elements(state->controls.listbox, search_options.mem, search_options.cnt);
+					//			show_lb = true;
+					//		}
+					//		else {
+					//			//No search options, hide the listbox
+					//			show_lb = false;
+					//		}
+					//	}
+					//	else {
+					//		//The editbox is empty, hide the listbox
+					//		show_lb = false;
+					//	}
+
+					//	show_listbox(state, show_lb);
+
+					//} break;
+					//case EN_ENTER:
+					//{
+					//	//TODO(fran): it's not that easy to know what to tell the user, we have to differentiate between "the user chose an element from the listbox" and "the user wrote something", also the user could first move to some element of the listbox but afterwards write something more (well actually the problem is mine, it's easy to differentiate, a click is obviously for listbox, and enter is listbox if it's visible (since the value is linked with the editbox's) and editbox if not visible aka listbox has no elements). My problem comes when there's the same writing for different words and then I need to filter with more info, specifically the info that the listbox's elements have (since I plan to add it there). Well actually this is bullshit, it's very simple, we need two cases, if the listbox is not visible then what's in the editbox counts and it's just that info, _but_ if the listbox is visible then what count is that element's data (since the editbox is, in this case, simply showing part of the info the listbox provided).
+					//	//A different idea would be the google/internet-search-engine searchbar approach, when the user selects an existing listbox item we go directly to it, otherwise we show possible results on a non floating listbox below the searchbar
+
+					//	//SOLUTION: the listbox's selection is cleared each time the user writes smth, that means we have a way of differentiating between enter for listbox and enter for editbox, if a valid selection is present in the listbox then it's a listbox enter, otherwise it's an editbox one
+
+					//	size_t lb_sel = listbox::get_cur_sel(state->controls.listbox);
+					//	size_t lb_cnt = listbox::get_element_cnt(state->controls.listbox);
+					//	if (lb_sel < lb_cnt) {
+					//		//Valid listbox selection, use the listbox item
+					//		if (state->perform_search)
+					//			state->perform_search(listbox::get_element_at(state->controls.listbox, lb_sel), true, state->user_extra);
+					//	}
+					//	else {
+					//		//Invalid listbox selection, use the editbox's text
+					//		utf16_str txt; _get_edit_str(state->controls.editbox, txt); defer{ if (txt.sz) free_any_str(txt.str); };
+					//		if (state->perform_search)
+					//			state->perform_search(&txt, false, state->user_extra);
+					//	}
+
+					//	//Clear search options
+					//	if (state->free_elements)
+					//		state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+					//	listbox::remove_all_elements(state->controls.listbox);
+					//	show_listbox(state, false);
+
+
+					//} break;
+					//case EN_ESCAPE:
+					//{
+					//	show_listbox(state, false);
+					//	if (state->free_elements)
+					//		state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+					//	listbox::remove_all_elements(state->controls.listbox);
+					//	//TODO(fran): restore the content of the editbox (WM_SETTEXT_NONOTIF)
+					//} break;
+					//case EN_UP:
+					//{
+					//	listbox::sel_up(state->controls.listbox);
+					//} break;
+					//case EN_DOWN:
+					//{
+					//	listbox::sel_down(state->controls.listbox);
+					//} break;
+					//case EN_KILLFOCUS:
+					//{
+					//	//NOTE: since killfocus arrives _before_ LBN_CLK, we need to check who is the one with focus now, if it's the listbox cause the user clicked it then we are okay, otherwise we gotta clear it
+					//	if (state->controls.listbox != GetFocus()) {
+					//		//Clear search options
+					//		if (state->free_elements)
+					//			state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+					//		listbox::remove_all_elements(state->controls.listbox);
+					//		show_listbox(state, false);
+					//	}
+					//} break;
+					/*default: Assert(0);
+					}
+				}*/
+				/*else*/
+				if (child == state->controls.button) {
+					show_listbox(state, true);
+				}
+				else if (child == state->controls.listbox) {
+					switch (notif) {
+					case LBN_CLK:
+					{
+						if (state->on_selection_accepted)
+							state->on_selection_accepted(listbox::get_clicked_element(state->controls.listbox), state->user_extra);
+
+						show_listbox(state, false);
+						ask_for_repaint(state);//TODO(fran): I added this to make sure the combobox (button) is re-rendered after a selection, but I feel like this should already be called somewhere else, like when we set_element to the button
+
+					} break;
+					case LBN_SELCHANGE://The user is moving up and down the elements of the listbox
+					{
+						/*
+						size_t lb_sel = listbox::get_cur_sel(state->controls.listbox);
+						size_t lb_cnt = listbox::get_element_cnt(state->controls.listbox);
+						if (lb_sel < lb_cnt) {
+							//Valid listbox selection
+							if (state->show_element_on_editbox)
+								state->show_element_on_editbox(state->controls.editbox, listbox::get_element_at(state->controls.listbox, lb_sel), state->user_extra);
+							//TODO(fran): save what the user currently wrote to be able to restore it later
+						}
+						else {
+							//Invalid listbox selection
+						}
+						*/
+					} break;
+					default: Assert(0);
+					}
 				}
 				else {
-					//Bk
-					urender::RoundRectangleFill(dc, bk_br, rc, roundedness);
-					//Border
-					urender::RoundRectangleBorder(dc, border_br, rc, roundedness, (f32)border_thickness);
+					Assert(0);
 				}
 			}
 			else {
-				Rectangle(dc, rc.left, rc.top, rc.right, rc.bottom); //uses pen for border and brush for bk
+				//Menu notifications
+				Assert(0);
 			}
-		}
-
-		SelectObject(dc, oldpen);
-		DeletePen(pen);
-
+			return 0;
+		} break;
+		case CBM_CLKOUTSIDE://The user clicked outside our listbox -> hide the listbox
+		{
+			//Clear search options
+			//if (state->free_elements)
+			//	state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
+			//listbox::remove_all_elements(state->controls.listbox);
+			show_listbox(state, false);
+		} break;
 		/*
-		if (GetFocus() == hwnd)
+		case CB_SETCUEBANNER:
 		{
-			//INFO: with this we know when the control has been pressed
-			RECT temp = rc;
-			InflateRect(&temp, -2, -2);
-			DrawFocusRect(hdc, &temp);
-		}
+			return SendMessage(state->controls.editbox, WM_SETDEFAULTTEXT, wparam, lparam);
+		} break;
 		*/
-		int DISTANCE_TO_SIDE = 5;
+		//case CB_GETCUEBANNER://TODO(fran): I dont have a WM_GETDEFAULTTEXT
+		//{
+		//	//NOTE: there is more than one stupid thing about this msg, first the paramaters are REVERSED compared to WM_GETTEXT, and second there's no CB_GETCUEBANNERLENGTH!
+		//	return SendMessage(state->controls.editbox, WM_GETDEFAULTTEXT, lparam, wparam);
+		//} break;
+		//Msgs redirected to editbox
+		case WM_SETDEFAULTTEXT:
+		case WM_SETTEXT:
+		case WM_GETTEXT:
+		case WM_GETTEXTLENGTH:
 		{
-			cstr* buf=0;
-			bool cuebanner = false;
-
-			int index = (int)SendMessage(hwnd, CB_GETCURSEL, 0, 0);
-			if (index >= 0)
-			{
-				int buflen = (int)SendMessage(hwnd, CB_GETLBTEXTLEN, index, 0);
-				buf = (decltype(buf))malloc((buflen + 1)*sizeof(*buf));
-				SendMessage(hwnd, CB_GETLBTEXT, index, (LPARAM)buf);
-			} 
-			else if( index == CB_ERR){//No item has been selected yet
-				buf = (decltype(buf))malloc((100) * sizeof(*buf));
-				//TODO(fran): I think that CB_GETCUEBANNER is the same as WM_GETTEXT
-				cuebanner = SendMessage(hwnd, CB_GETCUEBANNER, (WPARAM)buf, 100);//INFO: the only way to know it there's a cue banner is by the return value, it also doesnt seem like you can retrieve the required size of the buffer
-				if (!cuebanner) { free(buf); buf = 0; }
-			}
-			if (buf) {
-				RECT txt_rc = rc;
-				txt_rc.left += DISTANCE_TO_SIDE;
-				COLORREF prev_txt_clr;
-				if (cuebanner) {//TODO(fran): this double if is horrible
-					prev_txt_clr = SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt_Disabled));
-				}
-				DrawText(dc, buf, -1, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-				if (cuebanner) {
-					SetTextColor(dc, prev_txt_clr);
-				}
-				free(buf);
-			}
-		}
-
-		if (state->dropdown) {//TODO(fran): flicker free
-			HBITMAP bmp = state->dropdown;
-			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
-			if (bitmap.bmBitsPixel == 1) {
-
-				int max_sz = roundNdown(bitmap.bmWidth, (int)((float)RECTHEIGHT(rc)*.6f)); //HACK: instead use png + gdi+ + color matrices
-				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
-
-				int bmp_height = max_sz;
-				int bmp_width = bmp_height;
-				int bmp_align_width = RECTWIDTH(rc) - bmp_width - DISTANCE_TO_SIDE;
-				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
-				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric color
-			}
-		}
-		
-		return 0;
-	} break;
-	case WM_ERASEBKGND:
-	{
-		return 1;
-	} break;
-	case WM_CHAR:
-	{
-		//Here we check for tab
-		TCHAR c = (TCHAR)wparam;
-		switch (c) {
-		case VK_TAB://Tab
+			return 0;// SendMessage(state->controls.editbox, msg, wparam, lparam);
+		} break;
+		case WM_SETFOCUS:
 		{
-			SetFocus(GetNextDlgTabItem(GetParent(state->wnd), state->wnd, FALSE));
-			//INFO: GetNextDlgTabItem also check that the new item is visible and not disabled
-			//TODO(fran): return 0; ?
-		}break;
-		}
-	} break;
-	//case WM_NCDESTROY:
-	//{
-	//	RemoveWindowSubclass(hwnd, this->ComboProc, uIdSubclass);
-	//	break;
-	//}
+			return 0;
+		} break;
+		case WM_KILLFOCUS:
+		{
+			return 0;
+		} break;
+		case WM_DESIRED_SIZE:
+		{
+			//state->measure_combobox(,state->user_extra);
+			SIZE* min = (decltype(min))wparam;
+			SIZE* max = (decltype(max))lparam;
 
-	}
+			if (state->desired_size_combobox) {
+				HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+				return state->desired_size_combobox(min,max, dc, listbox::get_sel_element(state->controls.listbox), state->user_extra);
+			}
+			else return 0;
 
-	return DefSubclassProc(hwnd, msg, wparam, lParam);
-}
+		} break;
 
-//INFO: only use for CBS_DROPDOWN comboboxes
-LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
-	//{ static int msg_count; printf("TEST Combo: %d : ", msg_count++); printf(msgToString(msg)); printf("\n"); }
-	switch (msg) {
-	case WM_PAINT:
-	{
-		PAINTSTRUCT p;
-		HDC dc = BeginPaint(hwnd, &p);
-		FillRect(dc,&p.rcPaint,global::colors.ControlTxt);
-		EndPaint(hwnd, &p);
-	} break;
-#if 1 /*Remove button for opening listbox*/
-	case WM_SIZE:
-	{
-		LRESULT res = DefSubclassProc(hwnd, msg, wparam, lparam);
-		COMBOBOXINFO info = { sizeof(info) };
-		GetComboBoxInfo(hwnd, &info);
-		RECT rc; GetClientRect(hwnd,&rc);
-		InflateRect(&rc, -1, -1);//Allow for a little border, for now
-		//MoveWindow(info.hwndItem, rc.left, rc.top, RECTWIDTH(rc), RECTHEIGHT(rc), FALSE);
-		MoveWindow(info.hwndItem, rc.left, info.rcItem.top, RECTWIDTH(rc), RECTHEIGHT(info.rcItem), FALSE);
-		//NOTE: doing this I think I may have found the reason for their control not fully accepting the dimensions you want, their edit control doesnt have vertical centering, so the text wouldnt look center in the middle of the control, if this is the reason it's as pathetic as can be
 
-		//TODO(fran): now the edit control is correctly centered but we have too much of the bk seeping through
-
-		return res;
-	} break;
+		default:
+#ifdef _DEBUG
+			Assert(0);
+#else 
+			return DefWindowProc(hwnd, msg, wparam, lparam);
 #endif
-	case WM_NCPAINT:
-	{
-		//return 0;
-		return DefSubclassProc(hwnd, msg, wparam, lparam);
-	} break;
-	case WM_ERASEBKGND:
-	{
+		}
 		return 0;
-	} break;
-	case CB_SETCURSEL:
-	{
-		LONG_PTR  dwStyle = GetWindowLongPtr(hwnd, GWL_STYLE);
-		// turn off WS_VISIBLE
-		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle & ~WS_VISIBLE);
-
-		// perform the default action, minus painting
-		LRESULT ret = DefSubclassProc(hwnd, msg, wparam, lparam); //defproc for setcursel DOES DRAWING, we gotta do the good ol' trick of invisibility, also it seems that it stores a paint request instead, cause after I make it visible again it asks for wm_paint, as it should have in the first place
-
-		// turn on WS_VISIBLE
-		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle);
-
-		//Notify parent (once again something that should be the default but isnt)
-		SendMessage(GetParent(hwnd), WM_COMMAND, MAKELONG(GetDlgCtrlID(hwnd), CBN_SELCHANGE), (LPARAM)hwnd);
-		return ret;
-	} break;
-	default: return DefSubclassProc(hwnd, msg, wparam, lparam);
 	}
-	return 0;
-}
 
-void COMBOBOX_clear_list_items(HWND cb) {
-	int item_cnt = (int)SendMessage(cb, CB_GETCOUNT, 0, 0);
-	for (int i = 0; i < item_cnt; i++) {
-		SendMessageW(cb, CB_DELETESTRING, 0, 0);
+
+	void init_wndclass(HINSTANCE instance) {
+		WNDCLASSEXW cl;
+
+		cl.cbSize = sizeof(cl);
+		cl.style = CS_HREDRAW | CS_VREDRAW;
+		cl.lpfnWndProc = Proc;
+		cl.cbClsExtra = 0;
+		cl.cbWndExtra = sizeof(ProcState*);
+		cl.hInstance = instance;
+		cl.hIcon = NULL;
+		cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
+		cl.hbrBackground = NULL;
+		cl.lpszMenuName = NULL;
+		cl.lpszClassName = wndclass;
+		cl.hIconSm = NULL;
+
+		ATOM class_atom = RegisterClassExW(&cl);
+		runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
 	}
+
+	struct pre_post_main {
+		pre_post_main() {
+			init_wndclass(GetModuleHandleW(NULL));
+		}
+		~pre_post_main() { //INFO: you can also use the atexit function
+			//Classes are de-registered automatically by the os
+		}
+	};
+	static const pre_post_main PREMAIN_POSTMAIN;
 }

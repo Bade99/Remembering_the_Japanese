@@ -33,10 +33,10 @@ namespace listbox {
 
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_listbox";
 
-	struct listbox_func_renderflags {
+	struct renderflags {
 		bool onSelected, onClicked;//TODO(fran): we may want to differentiate between selected and mousehover
 	};
-	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, listbox_func_renderflags flags, void* element, void* user_extra);
+	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, renderflags flags, void* element, void* user_extra);
 
 	struct ProcState {
 		HWND wnd;
@@ -57,6 +57,8 @@ namespace listbox {
 		size_t selected_element;//idx of the currently selected element
 		size_t mousehover_element;//idx of the element currently under the mouse
 		size_t clicked_element;//idx of the element that was clicked/pressed enter
+
+		size_t stored_clicked_element;//stores the last user chosen element, either via left click or enter key press
 
 		HDC offscreendc;
 
@@ -144,7 +146,7 @@ namespace listbox {
 					};
 					//TODO(fran): offset rectangle by state->border_thickness
 
-					listbox_func_renderflags flags;
+					renderflags flags;
 					flags.onClicked = state->clicked_element == i;
 					flags.onSelected = state->selected_element == i || state->mousehover_element == i;
 
@@ -229,7 +231,7 @@ namespace listbox {
 	}
 
 	void clear_selection(ProcState* state) {
-		state->selected_element = state->mousehover_element = state->clicked_element = UINT32_MAX;
+		state->selected_element = state->mousehover_element = state->clicked_element = state->stored_clicked_element = UINT32_MAX;
 		//TODO(fran): not sure whether I want to clear everything or just the selected_element
 		notify_parent(state, LBN_SELCHANGE);
 	}
@@ -283,6 +285,17 @@ namespace listbox {
 		return res;
 	}
 
+	//Gets the user chosen element, either via click or enter key press
+	void* get_sel_element(HWND wnd) {
+		void* res = 0;
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (state->stored_clicked_element < state->elements.size())
+				res = state->elements[state->stored_clicked_element];
+		}
+		return res;
+	}
+
 	//returns the currently selected item index, if no item is selected this value will be higher than the current element count
 	size_t get_cur_sel(HWND wnd) {
 		size_t res = SendMessage(wnd, LB_GETCURSEL, 0, 0);
@@ -325,6 +338,23 @@ namespace listbox {
 		}
 	}
 
+	void set_sel(HWND wnd, size_t idx) {//TODO(fran): idk if it makes sense that this one is different and sends lbn_clk
+		ProcState* state = get_state(wnd);
+		if (state) {
+			if (idx == (size_t)-1) state->selected_element = UINT32_MAX;
+			else if (idx < state->elements.size()) {
+				state->selected_element = idx;
+				//TODO(fran): only re-render if the selected_element changed 
+				state->clicked_element = idx;
+				state->stored_clicked_element = state->clicked_element;
+				notify_parent(state, LBN_CLK);
+				state->clicked_element = UINT32_MAX;
+				render_backbuffer(state);
+				ask_for_repaint(state);
+			}
+		}
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf("LISTBOX:%s\n",msgToString(msg));
 		ProcState* state = get_state(hwnd);
@@ -341,7 +371,7 @@ namespace listbox {
 			Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
 			st->elements = decltype(st->elements)();
 
-			st->selected_element = st->mousehover_element = st->clicked_element = UINT32_MAX;//TODO(fran): use std::limits<size_t>::max()
+			st->selected_element = st->mousehover_element = st->clicked_element = st->stored_clicked_element = UINT32_MAX;//TODO(fran): use std::limits<size_t>::max()
 
 			HDC __front_dc = GetDC(st->wnd); defer{ ReleaseDC(st->wnd,__front_dc); };
 			st->offscreendc = CreateCompatibleDC(__front_dc);
@@ -536,6 +566,7 @@ namespace listbox {
 			//Check the user released the click on the same element, otherwise they're canceling it
 			if (state->clicked_element == unclicked_element  && state->clicked_element < state->elements.size()) {
 				//IMPORTANT: this must be sent via SendMessage since the selection/click will be cleared afterwards
+				state->stored_clicked_element = state->clicked_element;
 				SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, LBN_CLK), (LPARAM)state->wnd);
 			}
 			//Clear the clicked element since the mouse btn is now up
