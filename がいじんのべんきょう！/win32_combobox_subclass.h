@@ -24,7 +24,7 @@ struct ComboProcState {
 
 LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
 
-	static int __cnt; printf("%d:COMBO:%s\n", __cnt++, msgToString(msg));
+	//static int __cnt; printf("%d:COMBO:%s\n", __cnt++, msgToString(msg));
 
 	//INFO: we require GetWindowLongPtr at "position" GWLP_USERDATA to be left for us to use
 	//NOTE: Im pretty sure that "position" 0 is already in use

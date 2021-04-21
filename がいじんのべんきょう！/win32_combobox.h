@@ -26,6 +26,8 @@
 #define CBM_CLKOUTSIDE (combobox_base_msg_addr + 20) //do not use, internal msg
 
 
+//TODO(fran): I could provide default functionality for some things via always having all the functions set to my defaults, when the user changes them we use theirs, if they removed it we use ours, this also removes the branching inefficiency of having to check for valid function pointers before every call
+
 namespace combobox {
 
 	constexpr cstr wndclass[] = L"win32_wndclass_combobox";
@@ -610,6 +612,7 @@ namespace combobox {
 			//	state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
 			//listbox::remove_all_elements(state->controls.listbox);
 			show_listbox(state, false);
+			ask_for_repaint(state);//TODO(fran): I feel this should already happen somewhere
 		} break;
 		/*
 		case CB_SETCUEBANNER:

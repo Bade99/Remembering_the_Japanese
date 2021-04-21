@@ -110,6 +110,8 @@ namespace nonclient {
 		SetWindowLongPtr(uncapnc, 0, (LONG_PTR)state);
 	}
 
+	void ask_for_repaint(ProcState* state){ RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE); }
+
 	void calc_caption(ProcState* state) {
 		GetClientRect(state->wnd, &state->rc_caption);
 
@@ -164,6 +166,8 @@ namespace nonclient {
 		return rc;
 	}
 
+	void ask_for_menu_repaint(ProcState* state) { RECT menurc = calc_menu_rc(state); RedrawWindow(state->wnd, &menurc, NULL, RDW_INVALIDATE); }
+
 	HMENU get_menu(HWND uncapnc) {
 		ProcState* state = get_state(uncapnc);
 		return state->menu;
@@ -192,7 +196,7 @@ namespace nonclient {
 		RECT wndrc; GetWindowRect(state->wnd, &wndrc);
 		//Update to accommodate for menu change
 		MoveWindow(state->wnd, wndrc.left, wndrc.top, RECTWIDTH(wndrc), RECTHEIGHT(wndrc), FALSE);//NOTE: for some reason specifying TRUE for the last param doesnt force repainting
-		RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
+		ask_for_repaint(state);
 
 	}
 
@@ -667,7 +671,7 @@ namespace nonclient {
 			SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle);
 
 			// perform custom painting, aka dont and do what should be done, repaint, it's really not that expensive for our case, we barely call WM_SETTEXT, and it can be optimized out later
-			RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
+			ask_for_repaint(state);
 
 			return ret;
 		} break;
@@ -704,7 +708,7 @@ namespace nonclient {
 				SetMenuInfo(state->menu, &mi);
 			}
 
-			RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
+			ask_for_repaint(state);
 			return TRUE; //NOTE: it says we can return FALSE to "prevent the change"
 		} break;
 		//NOTE: WM_NCPAINT: check https://chromium.googlesource.com/chromium/chromium/+/5db69ae220c803e9c1675219b5cc5766ea3bb698/chrome/views/window.cc they block drawing so windows doesnt draw on top of them, cause the non client area is also painted in other msgs like settext
@@ -1189,7 +1193,6 @@ namespace nonclient {
 		case WM_NCMOUSEMOVE:
 		{
 			POINT mouse{ GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) }; ScreenToClient(state->wnd, &mouse);
-			RECT menurc = calc_menu_rc(state);
 			if (wparam == HTMENU || wparam == HTSYSMENU) {
 				//Trackmouse to know when it leaves the nc area
 				TRACKMOUSEEVENT trackmouse{ sizeof(trackmouse) };
@@ -1201,14 +1204,14 @@ namespace nonclient {
 				for (int i = 0; i < state->menubar_itemcnt; i++) {
 					if (test_pt_rc(mouse, state->menubar_items[i])) {
 						state->menubar_mouseover_idx_from1 = i + 1;
-						RedrawWindow(state->wnd, &menurc, NULL, RDW_INVALIDATE);//TODO(fran): we only need to redraw the menu rc
+						ask_for_menu_repaint(state);
 						hit = true;
 						break;
 					}
 				}
 				if (!hit && state->menubar_mouseover_idx_from1) {
 					state->menubar_mouseover_idx_from1 = 0;
-					RedrawWindow(state->wnd, &menurc, NULL, RDW_INVALIDATE);//TODO(fran): we only need to redraw the menu rc
+					ask_for_menu_repaint(state);
 				}
 				return 0;
 			}
@@ -1216,7 +1219,7 @@ namespace nonclient {
 				//check whether the menu has some item drawn as on mousehover, in which case we need to redraw without it
 				if (state->menubar_mouseover_idx_from1) {
 					state->menubar_mouseover_idx_from1 = 0;
-					RedrawWindow(state->wnd, &menurc, NULL, RDW_INVALIDATE);//TODO(fran): we only need to redraw the menu rc
+					ask_for_menu_repaint(state);
 				}
 			}
 			return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -1225,8 +1228,7 @@ namespace nonclient {
 		{
 			if (state->menubar_mouseover_idx_from1) {
 				state->menubar_mouseover_idx_from1 = 0;
-				RECT menurc = calc_menu_rc(state);
-				RedrawWindow(state->wnd, &menurc, NULL, RDW_INVALIDATE);//TODO(fran): we only need to redraw the menu rc
+				ask_for_menu_repaint(state);
 			}
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -1423,7 +1425,7 @@ namespace nonclient {
 			BOOL show = (BOOL)wparam;
 			state->btn_back_visible = show;
 			ShowWindow(state->btn_back, state->btn_back_visible ? SW_SHOW : SW_HIDE);
-			RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);//TODO(fran): we can avoid redraw if the show state didnt change
+			ask_for_repaint(state);//TODO(fran): we can avoid redraw if the show state didnt change
 			return 0;
 		} break;
 

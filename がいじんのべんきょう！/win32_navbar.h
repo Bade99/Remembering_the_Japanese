@@ -225,7 +225,7 @@ namespace navbar {
 					}
 				}
 
-				SIZE tot; for (auto s : total_bounds) tot += s;
+				SIZE tot{0}; for (auto s : total_bounds) tot += s;
 				if (tot.cx <= w_max) {//with fixed windows set to small and flexible ones to max everyone fits
 
 					//load final size for flexible windows

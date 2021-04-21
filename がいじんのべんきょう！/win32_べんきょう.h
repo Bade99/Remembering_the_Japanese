@@ -42,6 +42,7 @@
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
+//TODO(fran): page landing: renovation: all the buttons it had now go onto the navbar and we can use the landing page to provide useful information to the user, namely the words added the previous day or couple of days, some stats, ...
 //TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
 //TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
@@ -527,9 +528,10 @@ struct べんきょうProcState {
 		union landingpage_controls {
 			using type = HWND;
 			struct {
-				type button_new;
+				type nothing;
+				/*type button_new;
 				type button_practice;
-				type button_search;
+				type button_search;*/
 				//type combo_languages;
 			}list; //INFO: unfortunately in order to make 'all' auto-update we need to give a name to this struct
 			type all[sizeof(list)/sizeof(type)]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
@@ -1006,6 +1008,11 @@ namespace べんきょう {
 		return 2;
 	}
 
+	void button_new_func_on_click(void* element, void* user_extra);
+	
+
+	void button_practice_func_on_click(void* element, void* user_extra);
+	
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
@@ -1063,19 +1070,23 @@ namespace べんきょう {
 		navbar::set_theme(navbar, &nav_theme);
 
 		{//navbar test
-			HWND btn1 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			AWT(btn1, 100);
-			button::set_theme(btn1, &navbar_btn_theme);
-			navbar::attach(navbar, btn1, navbar::attach_point::left, -1);
-			SendMessage(btn1, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+			AWT(button_new, 100);
+			button::set_theme(button_new, &navbar_btn_theme);
+			button::set_user_extra(button_new, state->wnd);
+			button::set_function_on_click(button_new, button_new_func_on_click);
+			navbar::attach(navbar, button_new, navbar::attach_point::left, -1);
+			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
-			HWND btn2 = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+			HWND button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			AWT(btn2, 101);
-			button::set_theme(btn2, &navbar_btn_theme);
-			navbar::attach(navbar, btn2, navbar::attach_point::left, -1);
-			SendMessage(btn2, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+			AWT(button_practice, 101);
+			button::set_theme(button_practice, &navbar_btn_theme);
+			button::set_user_extra(button_practice, state->wnd);
+			button::set_function_on_click(button_practice, button_practice_func_on_click);
+			navbar::attach(navbar, button_practice, navbar::attach_point::left, -1);
+			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
 			edit_oneline::Theme search_editoneline_theme = base_editoneline_theme;
 			search_editoneline_theme.brushes.border = search_editoneline_theme.brushes.bk;
@@ -1084,8 +1095,18 @@ namespace べんきょう {
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			ACC(search, 251);
 			searchbox::set_editbox_theme(search, &search_editoneline_theme);
+			searchbox::set_user_extra(search, state->wnd);
+			searchbox::set_function_free_elements(search, searchbox_free_elements_func);
+			searchbox::set_function_retrieve_search_options(search, searchbox_retrieve_search_options_func);
+			searchbox::set_function_perform_search(search, searchbox_func_perform_search);
+			searchbox::set_function_show_element_on_editbox(search, searchbox_func_show_on_editbox);
+			searchbox::set_function_render_listbox_element(search, listbox_search_renderfunc);
+			searchbox::maintain_placerholder_when_focussed(search, true);
+			edit_oneline::set_IME_wnd(searchbox::get_controls(search).editbox, true);
 			navbar::attach(navbar, search, navbar::attach_point::center, -1);
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+
 
 			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
@@ -1104,20 +1125,20 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.landingpage;
 
-			controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_new, 100);
-			button::set_theme(controls.list.button_new, &base_btn_theme);
+			//controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
+			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//AWT(controls.list.button_new, 100);
+			//button::set_theme(controls.list.button_new, &base_btn_theme);
 
-			controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_practice, 101);
-			button::set_theme(controls.list.button_practice, &base_btn_theme);
+			//controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
+			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//AWT(controls.list.button_practice, 101);
+			//button::set_theme(controls.list.button_practice, &base_btn_theme);
 
-			controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_search, 102);
-			button::set_theme(controls.list.button_search, &base_btn_theme);
+			//controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
+			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//AWT(controls.list.button_search, 102);
+			//button::set_theme(controls.list.button_search, &base_btn_theme);
 
 			/*controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1489,9 +1510,9 @@ namespace べんきょう {
 			//combo_languages.w = min(distance(w,button_new.right()+w_pad/2), avg_str_dim((HFONT)SendMessage(controls.list.combo_languages, WM_GETFONT, 0, 0), 20).cx);
 			//combo_languages.x = w - combo_languages.w - w_pad / 2;
 
-			MyMoveWindow(controls.list.button_new, button_new,FALSE);
-			MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
-			MyMoveWindow(controls.list.button_search, button_search,FALSE);
+			//MyMoveWindow(controls.list.button_new, button_new,FALSE);
+			//MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
+			//MyMoveWindow(controls.list.button_search, button_search,FALSE);
 			//MyMoveWindow(controls.list.combo_languages, combo_languages,FALSE);
 		} break;
 		case ProcState::page::new_word:
@@ -2169,25 +2190,6 @@ namespace べんきょう {
 		return true;
 	}
 
-	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
-		ptr<void*> res{ 0 };
-		ProcState* state = get_state((HWND)user_extra);
-		if (state && state->current_page == ProcState::page::search && user_input.sz) {
-
-			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
-			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
-			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
-
-			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
-			//TODO(fran): search_word_matches should return a ptr
-			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
-			for (size_t i = 0; i < search_res.cnt; i++)
-				//res[i] = search_res.matches[i];
-				res[i] = &search_res[i];
-		}
-		return res;
-	}
-
 	void clear_practices_vector(decltype(decltype(ProcState::pagestate)::practice_review_state::practices)& practices) {
 		for (auto p : practices) {
 			switch (p->type) {
@@ -2642,9 +2644,28 @@ namespace べんきょう {
 		}
 	}
 
+	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
+		ptr<void*> res{ 0 };
+		ProcState* state = get_state((HWND)user_extra);
+		if (state && user_input.sz) {
+
+			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
+			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
+			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
+
+			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			//TODO(fran): search_word_matches should return a ptr
+			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
+			for (size_t i = 0; i < search_res.cnt; i++)
+				//res[i] = search_res.matches[i];
+				res[i] = &search_res[i];
+		}
+		return res;
+	}
+
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra) {
 		ProcState* state = get_state((HWND)user_extra);
-		if (state && state->current_page == ProcState::page::search) {
+		if (state) {
 			//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
 			//utf16* search;
 			learnt_word_elem search_type;
@@ -2978,15 +2999,6 @@ namespace べんきょう {
 		}
 	}
 
-	void user_stats_increment_times_practiced(sqlite3* db) {
-		utf8 update_increment_times_practiced[] = SQL(
-			UPDATE _べんきょう_table_user SET times_practiced = times_practiced + 1;
-		);
-		utf8* errmsg;
-		sqlite3_exec(db, update_increment_times_practiced, 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-	}
-
 	void _next_practice_level(HWND hwnd, UINT /*msg*/, UINT_PTR anim_id, DWORD /*sys_elapsed*/) {
 		ProcState* state = get_state(hwnd);
 		KillTimer(state->wnd, anim_id);
@@ -3011,6 +3023,27 @@ namespace べんきょう {
 		u32 delay = ms_delay != USER_TIMER_MAXIMUM ? ms_delay : 500;
 		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
 	}
+
+	void button_new_func_on_click(void* element, void* user_extra) {
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			store_previous_page(state, state->current_page);
+			reset_page(state, ProcState::page::new_word);
+			set_current_page(state, ProcState::page::new_word);
+		}
+	}
+
+	void button_practice_func_on_click(void* element, void* user_extra) {
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			store_previous_page(state, state->current_page);
+			user_stats stats = get_user_stats(state->settings->db);
+			get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
+			preload_page(state, ProcState::page::practice, &stats);
+			set_current_page(state, ProcState::page::practice);
+		}
+	}
+
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -3093,23 +3126,23 @@ namespace べんきょう {
 				switch (state->current_page) {
 				case ProcState::page::landing:
 				{
-					auto& page = state->controls.landingpage;
-					if (child == page.list.button_new) {
-						store_previous_page(state, state->current_page);
-						reset_page(state, ProcState::page::new_word);
-						set_current_page(state, ProcState::page::new_word);
-					}
-					else if (child == page.list.button_practice) {
-						store_previous_page(state, state->current_page);
-						user_stats stats = get_user_stats(state->settings->db);
-						get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
-						preload_page(state, ProcState::page::practice, &stats);
-						set_current_page(state, ProcState::page::practice);
-					}
-					else if (child == page.list.button_search) {
-						store_previous_page(state, state->current_page);
-						set_current_page(state, ProcState::page::search);
-					}
+					//auto& page = state->controls.landingpage;
+					//if (child == page.list.button_new) {
+					//	store_previous_page(state, state->current_page);
+					//	reset_page(state, ProcState::page::new_word);
+					//	set_current_page(state, ProcState::page::new_word);
+					//}
+					//else if (child == page.list.button_practice) {
+					//	store_previous_page(state, state->current_page);
+					//	user_stats stats = get_user_stats(state->settings->db);
+					//	get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
+					//	preload_page(state, ProcState::page::practice, &stats);
+					//	set_current_page(state, ProcState::page::practice);
+					//}
+					//else if (child == page.list.button_search) {
+					//	store_previous_page(state, state->current_page);
+					//	set_current_page(state, ProcState::page::search);
+					//}
 					//else if (child == page.list.combo_languages) {
 					//	WORD notif = HIWORD(wparam);
 					//	switch (notif) {
@@ -3731,126 +3764,3 @@ namespace べんきょう {
 	};
 	static const pre_post_main PREMAIN_POSTMAIN;
 }
-
-
-//- WM_COMMAND page::search old implementation, has info about how windows manages comboboxes, specifically the listbox
-//#if 0
-//					if (child == page.list.combo_search) {
-//						WORD notif = HIWORD(wparam);
-//						switch (notif) {
-//						case CBN_EDITCHANGE://The user has changed the content of the edit box, this msg is sent after the change is rendered in the control (if we use CBN_EDITUPDATE whick is sent before re-rendering it slows down user input and feels bad to type)
-//						{
-//
-//							//For now we'll get a max of 5 results, the best would be to set the max to reach the bottom of the parent window (aka us) so it can get to look like a full window instead of feeling so empty //TODO(fran): we could also append the "searchbar" in the landing page
-//
-//							COMBOBOX_clear_list_items(page.list.combo_search);
-//
-//							int sz_char = (int)SendMessage(page.list.combo_search, WM_GETTEXTLENGTH, 0, 0)+1;
-//							if (sz_char > 1) {
-//								utf16* search = (decltype(search))malloc(sz_char * sizeof(*search));
-//								SendMessage(page.list.combo_search, WM_GETTEXT, sz_char, (LPARAM)search);
-//
-//								//TODO(fran): this might be an interesting case for multithreading, though idk how big the db has to be before this search is slower than the user writing, also for jp text the IME wont allow for the search to start til the user presses enter, that may be another <-TODO(fran): chrome-like handling for IME, text goes to the edit control at the same time as the IME
-//
-//								auto search_res = search_word_matches(state->settings->db, search, 5); defer{ free_search_word(search_res); };
-//								//TODO(fran): clear the listbox
-//
-//								//Semi HACK: set first item of the listbox to what the user just wrote, to avoid the stupid combobox from selecting something else
-//								//Show the listbox
-//								SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, TRUE, 0);
-//								SendMessageW(page.list.combo_search, CB_INSERTSTRING, 0, (LPARAM)search);
-//
-//								if (search_res.cnt) {
-//									for (int i = 0; i < search_res.cnt; i++)
-//										SendMessageW(page.list.combo_search, CB_INSERTSTRING, -1, (LPARAM)search_res.matches[i]);
-//
-//									//TODO(fran): for some reason the cb decides to set the selection once we insert some strings, if we try to set it to "no selection" it erases the user's string, terrible, we must fix this from the subclass
-//
-//#if 1
-//									//TODO(fran): why the hell does this make the mouse disappear, just terrible, I really need to make my own one
-//									//TODO(fran): not all the items are shown if they are too many, I think there's a msg that increases the number of items to show
-//
-//									//NOTE: ok now we have even more garbage, the cb sets the selection to the whole word, which means that the next char the user writes _overrides_ the previous one, I really cant comprehend how this is so awful to use, I must be doing something wrong
-//									//SendMessage(page.list.combo_search, CB_SETEDITSEL, 0, MAKELONG(sel_start,sel_end));//This is also stupid, you go from DWORD on CB_GETEDITSEL to WORD here, you loose a whole byte of info
-//
-//									//IMPORTANT INFO: I think that the "autoselection" problem only happens when you call CB_SHOWDROPDOWN, if we called it _before_ adding elements to the list we may be ok, the answer is yes and no, my idea works _but_ the listbox doesnt update its size to accomodate for the items added after showing it, gotta do that manually
-//
-//									//COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-//									//int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
-//									//int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
-//									//RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
-//									//MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
-//									//AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-//#else
-//									COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-//									int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);//returns -1 on error, but who cares
-//									//NOTE: unless LBS_OWNERDRAWVARIABLE style is defined all items have the same height
-//									int list_h = max(SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt,2);
-//									RECT rw; GetWindowRect(page.list.combo_search, &rw);
-//									MoveWindow(nfo.hwndList, rw.left, rw.bottom, RECTWIDTH(rw), list_h, TRUE);
-//									SetWindowPos(nfo.hwndList, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);//INFO: here was the problem, the window was being occluded
-//									//ShowWindow(nfo.hwndList, SW_SHOWNA);
-//									AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-//									SendMessage(nfo.hwndList, 0x1ae/*LBCB_STARTTRACK*/, 0, 0); //does start mouse tracking
-//									//NOTE: I think LBCB_ENDTRACK is handled by itself
-//#endif
-//									//TODO(fran): add something to the default list item or add extra info to the db results to differentiate the default first listbox item from the results
-//									//TODO(fran): now we have semi success with the cb, but still the first character comes out a little too late, it feels bad, we probably cant escape creating our own combobox (I assume that happens because animatewindow is happening?)
-//									//TODO(fran): actually we can implement this in the subclass, we can add a msg for a non stupid way of showing the listbox, we can probaly handle everything well from there
-//								}
-//								//else {
-//									//Hide the listbox, well... maybe not since we now show the search string on the first item
-//									//SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
-//								//}
-//								//Update listbox size
-//								COMBOBOXINFO nfo = { sizeof(nfo) }; GetComboBoxInfo(page.list.combo_search, &nfo);
-//								int item_cnt = (int)SendMessage(nfo.hwndList, LB_GETCOUNT, 0, 0);
-//								int list_h = max((int)SendMessage(nfo.hwndList, LB_GETITEMHEIGHT, 0, 0) * item_cnt, 2);
-//								RECT combo_rw; GetWindowRect(page.list.combo_search, &combo_rw);
-//								MoveWindow(nfo.hwndList, combo_rw.left, combo_rw.bottom, RECTWIDTH(combo_rw), list_h, TRUE); //TODO(fran): handle showing it on top of the control if there's no space below
-//#if 0
-//								AnimateWindow(nfo.hwndList, 200, AW_VER_POSITIVE | AW_SLIDE);//TODO(fran): AW_VER_POSITIVE : AW_VER_NEGATIVE depending on space
-//#else
-//								//ShowWindow(nfo.hwndList, SW_SHOW);//NOTE: dont call AnimateWindow, for starters SW_SHOW appears to already animate, unfortunately we dont want animation, we want the results as fast as possible, also the animation seems to be performed by the same thread which slows down user input
-//#endif
-//							}
-//							else {
-//							//Hide the listbox
-//							SendMessage(page.list.combo_search, CB_SHOWDROPDOWN, FALSE, 0);
-//							}
-//						} break;
-//						case CBN_CLOSEUP:
-//						{
-//							//SendMessage(page.list.combo_search, CB_RESETCONTENT, 0, 0);//Terrible again, what if you just want to clear the listbox alone? we need the poor man's solution:
-//							COMBOBOX_clear_list_items(page.list.combo_search);
-//						} break;
-//						case CBN_SELENDOK://User has selected an item from the list
-//						{
-//							//TODO(fran): lets hope this gets sent _before_ hiding the list, otherwise I'd have already deleted the elements by this point
-//							int sel = (int)SendMessageW(page.list.combo_search, CB_GETCURSEL, 0, 0);
-//							if (sel != CB_ERR) {
-//								int char_sz = (int)SendMessageW(page.list.combo_search, CB_GETLBTEXTLEN, sel, 0) + 1;
-//								any_str word = alloc_any_str(char_sz * sizeof(utf16)); defer{ free_any_str(word.str); };
-//								SendMessageW(page.list.combo_search, CB_GETLBTEXT, sel, (LPARAM)word.str);
-//								//We got the word, it may or may not be valid, so there are two paths, show error or move to the next page "show_word"
-//								get_word_res res = get_word(state->settings->db, (utf16*)word.str); defer{ free_get_word(res); };
-//								if (res.found) {
-//									preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
-//									store_previous_page(state, state->current_page);
-//									set_current_page(state, ProcState::page::show_word);
-//								}
-//								else {
-//									int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
-//									if (ret == IDYES) {
-//										learnt_word new_word{ 0 };
-//										new_word.attributes.hiragana = word;
-//										preload_page(state, ProcState::page::new_word, &new_word);
-//										store_previous_page(state, state->current_page);
-//										set_current_page(state, ProcState::page::new_word);
-//									}
-//								}
-//							}
-//						} break;
-//						}
-//					}
-//#endif

@@ -99,7 +99,7 @@ namespace button {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
 	}
 
-	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); } //RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
 
 	void set_element(HWND wnd, void* element) {
 		ProcState* state = get_state(wnd);
@@ -306,6 +306,7 @@ namespace button {
 				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
 				int bmp_align_width = (RECTWIDTH(rc) - bmp_width) / 2;
 				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, state->bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, txt_br);
+
 			}
 		}
 		else { //Here will go buttons that only have text
@@ -330,7 +331,7 @@ namespace button {
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		//printf("BUTTON:%s\n", msgToString(msg));
+		//static int __cnt; printf("%d:BUTTON:%s\n", __cnt++, msgToString(msg));
 		ProcState* state = get_state(hwnd);
 		//Assert(state); //NOTE: cannot check thanks to the grandeur of windows' msgs before WM_NCCREATE
 		switch (msg) {
@@ -444,7 +445,7 @@ namespace button {
 			}
 			state->onLMouseClick = false;
 			state->onMouseOver = false;
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_NCDESTROY:
@@ -460,7 +461,7 @@ namespace button {
 		case WM_CAPTURECHANGED:
 		{
 			//We lost mouse capture
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_LBUTTONUP:
@@ -485,14 +486,14 @@ namespace button {
 				state->OnMouseTracking = true;
 				state->onLMouseClick = true;
 			}
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_MOUSELEAVE:
 		{
 			//we asked TrackMouseEvent for this so we can update when the mouse leaves our client area, which we dont get notified about otherwise and is needed, for example when the user hovers on top the button and then hovers outside the client area
 			state->onMouseOver = false;
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_MOUSEMOVE:
@@ -514,7 +515,7 @@ namespace button {
 
 			bool state_change = prev_onMouseOver != state->onMouseOver;
 			if (state_change) {
-				InvalidateRect(state->wnd, NULL, TRUE);
+				ask_for_repaint(state);
 				TRACKMOUSEEVENT track;
 				track.cbSize = sizeof(track);
 				track.hwndTrack = state->wnd;
@@ -641,8 +642,8 @@ namespace button {
 			SetWindowLongPtr(state->wnd, GWL_STYLE, dwStyle);
 
 			// perform custom painting, aka dont and do what should be done, repaint, it's really not that expensive for our case, we barely call WM_SETTEXT, and it can be optimized out later
-			RedrawWindow(state->wnd, NULL, NULL, RDW_INVALIDATE);
-
+			ask_for_repaint(state);
+			
 			return ret;
 		} break;
 		case WM_PAINT:
@@ -734,7 +735,7 @@ namespace button {
 		case WM_SETFOCUS: //Button has WS_TABSTOP style and we got keyboard focus thanks to that
 		{
 			//TODO(fran): repaint and show as if the user is hovering over the button
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		}
 		case WM_KEYUP:
@@ -767,13 +768,13 @@ namespace button {
 		} break;
 		case WM_KILLFOCUS:
 		{
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_ENABLE:
 		{
 			BOOL enable = (BOOL)wparam;
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);
 			return 0;
 		} break;
 		case WM_UAHDESTROYWINDOW:

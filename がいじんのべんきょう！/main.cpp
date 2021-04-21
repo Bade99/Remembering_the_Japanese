@@ -30,6 +30,7 @@
 //Windows' hidden window classes (ComboLBox,...) https://docs.microsoft.com/en-us/windows/win32/winmsg/about-window-classes?redirectedfrom=MSDN#system
 //More undocumented windows WM_UAH... https://github.com/adzm/win32-custom-menubar-aero-theme
 //The default IME window class is called: IME
+//For some strange reason windows requests WM_PAINT when the window is offscreen and moving towards being on screen, it seems like it requests repainting on every WM_MOVE(wm_windowposchanging/ed) it generates, which is _very_ wasteful and the moment the full window is back on screen it stops sending paint requests, completely pointless in my opinion and it also reveals a strange bug of MaskBlt, it renders in completely gitchy/buggy fashion when the dc is offscreen
 
 //-----------------Macro Definitions-----------------:
 #define _CRT_SECURE_NO_WARNINGS /*Dont take away functions for which you dont have replacement, and Im not stupid*/

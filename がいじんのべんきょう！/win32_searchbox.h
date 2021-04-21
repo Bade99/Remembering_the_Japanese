@@ -256,6 +256,13 @@ namespace searchbox {
 		}
 	}
 
+	auto get_controls(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			return state->controls;
+		}
+		return decltype(state->controls){0};
+	}
 
 #define EN_UP (EN_ESCAPE+50)
 #define EN_DOWN (EN_ESCAPE+51)
@@ -362,6 +369,11 @@ namespace searchbox {
 			RECT r; GetClientRect(state->wnd, &r);
 			i32 w = RECTW(r), h =RECTH(r);
 			MoveWindow(state->controls.editbox, 0, 0, w, h, FALSE);
+
+			//TODO(fran): add user setteable function measure listbox element, or smth like that
+			//TODO(fran): get the border thickness thing out of here
+			searchbox::set_listbox_dimensions(state->wnd, listbox::dimensions().set_border_thickness(1).set_element_h(h));
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
 		case WM_MOVE: //5th, This msg is received _after_ the window was moved

@@ -244,6 +244,15 @@ namespace べんきょう {
 		sqlite3_finalize(stmt);
 	}
 
+	void user_stats_increment_times_practiced(sqlite3* db) {
+		utf8 update_increment_times_practiced[] = SQL(
+			UPDATE _べんきょう_table_user SET times_practiced = times_practiced + 1;
+		);
+		utf8* errmsg;
+		sqlite3_exec(db, update_increment_times_practiced, 0, 0, &errmsg);
+		sqlite_exec_runtime_assert(errmsg);
+	}
+
 
 	struct get_word_res { stored_word16 word; bool found; };
 	void free_get_word(stored_word16& word) {
