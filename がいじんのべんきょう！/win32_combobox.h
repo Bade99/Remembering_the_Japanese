@@ -39,6 +39,7 @@ namespace combobox {
 
 	typedef void(*func_free_elements)(ptr<void*> elements, void* user_extra);
 	typedef void(*func_on_selection_accepted)(void* element, void* user_extra);
+	typedef void(*func_on_listbox_opening)(HWND combo, HWND listbox, void* user_extra);
 	typedef void(*func_render_combobox)(HDC dc, rect_i32 r, render_flags flags, void* element, void* user_extra);
 	//For Handling WM_DESIRED_SIZE
 	typedef int(*func_desired_size_combobox)(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra);//NOTE: the dc is simply to be used for functions such as GetTextExtentPoint32 that need a dc
@@ -57,13 +58,16 @@ namespace combobox {
 		void* user_extra;
 
 		func_free_elements free_elements;
-		func_on_selection_accepted on_selection_accepted;
 		func_render_combobox render_combobox;
 		func_desired_size_combobox desired_size_combobox;
+		func_on_selection_accepted on_selection_accepted;
+		func_on_listbox_opening on_listbox_opening;
 
 		struct {
 			HHOOK hookmouseclick;
 		}impl;
+
+		b32 reject_button;//do not open listbox on the next button press if the listbox is already open and the button is clicked
 	};
 
 
@@ -119,10 +123,17 @@ namespace combobox {
 		}
 	}
 
+	void set_function_on_listbox_opening(HWND wnd, func_on_listbox_opening func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->on_listbox_opening = func;
+		}
+	}
+	
 	void set_function_render_listbox_element(HWND wnd, listbox::listbox_func_renderelement func) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			listbox::set_render_function(state->controls.listbox, func);
+			listbox::set_function_render(state->controls.listbox, func);
 		}
 	}
 
@@ -196,9 +207,10 @@ namespace combobox {
 					POINT mouse = ((MOUSEHOOKSTRUCT*)lparam)->pt;//screen coordinates
 #endif
 					RECT lbrc; GetWindowRect(state->controls.listbox, &lbrc);
+					RECT cbrc; GetWindowRect(state->wnd, &cbrc);
 					if (!test_pt_rc(mouse, lbrc)) {
 						//Mouse clicked outside our control -> hide the listbox
-						PostMessage(state->wnd, CBM_CLKOUTSIDE, 0, 0);
+						PostMessage(state->wnd, CBM_CLKOUTSIDE, test_pt_rc(mouse, cbrc), 0);
 					}
 
 				}
@@ -218,6 +230,7 @@ namespace combobox {
 #else
 			SetWindowPos(state->controls.listbox, HWND_NOTOPMOST/*TODO(fran): we may want HWND_TOP or HWND_TOPMOST*/, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE);
 			MoveWindow(state->controls.listbox, rw.left, rw.bottom, w, h, TRUE);
+			if (state->on_listbox_opening) state->on_listbox_opening(state->wnd, state->controls.listbox, state->user_extra);
 			ShowWindow(state->controls.listbox, SW_SHOWNA);//TODO(fran): make sure it's on top of the z order, at least on top of us
 #endif
 			//We need to know when the user clicks outside of our editbox/listbox to be able to hide the listbox
@@ -563,7 +576,8 @@ namespace combobox {
 				}*/
 				/*else*/
 				if (child == state->controls.button) {
-					show_listbox(state, true);
+					if (!state->reject_button) show_listbox(state, true);
+					else state->reject_button = false;
 				}
 				else if (child == state->controls.listbox) {
 					switch (notif) {
@@ -611,6 +625,7 @@ namespace combobox {
 			//if (state->free_elements)
 			//	state->free_elements(listbox::get_all_elements(state->controls.listbox)/*HACK*/, state->user_extra);
 			//listbox::remove_all_elements(state->controls.listbox);
+			state->reject_button = (b32)wparam;
 			show_listbox(state, false);
 			ask_for_repaint(state);//TODO(fran): I feel this should already happen somewhere
 		} break;

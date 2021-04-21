@@ -336,6 +336,113 @@ namespace べんきょう {
 		return std::move(res);
 	}
 
+	//TODO(fran): I should handle gmt to localtime and viceversa conversions inside the db and leave the rest of the program to work in localtime
+	//NOTE: returns an array of learnt_words that are contiguous in memory, which means that freeing the base pointer frees all the elements at once
+	ptr<learnt_word16> get_learnt_word_by_date(sqlite3* db, time64 gmt_start, time64 gmt_end) {
+		using namespace std::string_literals;
+		ptr<learnt_word16> res;
+		std::string columns = ""s + _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
+
+		std::string filter = 
+			" FROM "s + べんきょう_table_words +
+			" WHERE " + "creation_date" + ">=" + std::to_string(gmt_start) +
+			" AND " + "creation_date" + "<=" + std::to_string(gmt_end) + ";";
+
+		std::string count_words = "SELECT "s + "COUNT(*)" + filter;
+		std::string select_words = "SELECT "s + columns + filter;
+		
+		i64 cnt;
+		{
+			sqlite3_stmt* stmt;
+			int errcode;
+			errcode = sqlite3_prepare_v2(db, count_words.c_str(), (int)(count_words.length()+1)*sizeof(count_words[0]), &stmt, nullptr);
+
+			if (errcode == SQLITE_OK) {
+				errcode = sqlite3_step(stmt);
+				if (errcode == SQLITE_ROW) cnt = sqlite3_column_int64(stmt, 0);
+				else cnt = 0;
+			}
+			else cnt = 0;
+
+			sqlite3_finalize(stmt);
+		}
+
+		res.alloc(cnt);//TODO(fran): I think allocating zero size works just as well but im not sure
+		res.cnt = 0;
+
+		auto parse_learnt_word_array = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			//NOTE: everything comes in utf8
+			Assert(column_cnt == (0 + _foreach_learnt_word_member(_generate_count)));
+			ptr<learnt_word16>* res = (decltype(res))extra_param;
+
+			for (int i = 0; i < column_cnt; i++)
+				res->mem[res->cnt].all[i] = convert_utf8_to_utf16(results[i], (int)strlen(results[i]) + 1);
+
+			res->cnt++;
+			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
+		};
+
+		char* select_errmsg;
+		sqlite3_exec(db, select_words.c_str(), parse_learnt_word_array, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+
+		return res;
+	}
+
+	//returns GMT unixtime
+	time64 get_latest_word_creation_date(sqlite3* db) {
+		time64 res;
+
+		utf8 select_last_creation_date[] = SQL(
+			SELECT creation_date
+			FROM _べんきょう_table_words
+			ORDER BY creation_date DESC
+			LIMIT 1;
+		);
+
+		{
+			sqlite3_stmt* stmt;
+			int errcode;
+			errcode = sqlite3_prepare_v2(db, select_last_creation_date, sizeof(select_last_creation_date), &stmt, nullptr);
+
+			if (errcode == SQLITE_OK) {
+				errcode = sqlite3_step(stmt);
+				if (errcode == SQLITE_ROW) res = sqlite3_column_int64(stmt, 0);
+				else res = 0;
+			}
+			else res = 0;
+
+			sqlite3_finalize(stmt);
+		}
+
+		return res;
+		
+	}
+
+	struct unixtime_day_range { time64 start, end; };
+	//returns the gmt timestamp for start and end of the day of the requested gmt unixtime converted to localtime
+	unixtime_day_range day_range(time64 unixtime_gmt) {
+		unixtime_day_range res;
+
+		std::time_t temp = unixtime_gmt;
+		std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
+		time->tm_hour = 0;
+		time->tm_min = 0;
+		time->tm_sec = 0;
+
+		//TODO(fran): make sure this is correct.
+			//what im trying to do: I get a unixtime (in gmt), I convert it to localtime, I get start and end of that day in localtime, finally I convert those two values to unixtime (hopefully, I think, gmt)
+			//examples: https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/mkgmtime-mkgmtime32-mkgmtime64?view=msvc-160
+		res.start = _mktime64(time);
+
+		time->tm_hour = 23;
+		time->tm_min = 59;
+		time->tm_sec = 59;
+
+		res.end = _mktime64(time);
+
+		return res;
+	}
 
 	//returns sqlite error codes, SQLITE_OK,...
 	int insert_word(sqlite3* db, const learnt_word8* word) {

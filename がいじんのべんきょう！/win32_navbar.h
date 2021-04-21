@@ -68,6 +68,11 @@ namespace navbar {
 
 	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
 
+	void ask_for_resize(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) PostMessage(state->wnd, WM_SIZE, 0, 0);
+	}
+
 	struct __copy_theme { bool repaint, resize; };
 	__copy_theme _copy_theme(Theme* dst, const Theme* src) {
 		bool repaint = false, resize = false;

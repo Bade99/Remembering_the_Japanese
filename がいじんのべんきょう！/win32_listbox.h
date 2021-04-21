@@ -24,6 +24,7 @@
 //TODO(fran): try to implement this, we'll need ws_ex_layered or ws_ex_transparent
 
 //TODO(fran): rendering: there's something clearly screwed up, when you hover with the mouse along many elements you can see a vertical cut as it changes from one to another, wtf is that? also it doesnt always happen
+//TODO(fran): clicking on the listbox should not deactivate the wnd that was previously active
 
 #define LBN_CLK (LBN_KILLFOCUS+10) //NOTE: LBN_KILLFOCUS is the last default listbox notif
 
@@ -34,9 +35,10 @@ namespace listbox {
 	constexpr cstr wndclass[] = L"がいじんの_wndclass_listbox";
 
 	struct renderflags {
-		bool onSelected, onClicked;//TODO(fran): we may want to differentiate between selected and mousehover
+		bool onSelected, onClicked, onMouseover;
 	};
 	typedef void(*listbox_func_renderelement)(HDC dc, rect_i32 r, renderflags flags, void* element, void* user_extra);
+	typedef void(*listbox_func_on_click)(void* element, void* user_extra);
 
 	struct ProcState {
 		HWND wnd;
@@ -50,6 +52,7 @@ namespace listbox {
 		std::vector<void*> elements;//each row will contain data sent by the user
 
 		listbox_func_renderelement render_element;
+		listbox_func_on_click on_click;
 
 		SIZE element_dim;//NOTE: all elements are of the same size
 		i32 border_thickness;
@@ -148,7 +151,8 @@ namespace listbox {
 
 					renderflags flags;
 					flags.onClicked = state->clicked_element == i;
-					flags.onSelected = state->selected_element == i || state->mousehover_element == i;
+					flags.onSelected = state->selected_element == i;
+					flags.onMouseover = state->mousehover_element == i;
 
 					state->render_element(dc, elem_rc,flags, state->elements[i],state->user_extra);
 				}
@@ -190,12 +194,19 @@ namespace listbox {
 		}
 	}
 
-	void set_render_function(HWND wnd, listbox_func_renderelement render_func) {
+	void set_function_render(HWND wnd, listbox_func_renderelement func) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			state->render_element = render_func;
+			state->render_element = func;
 			render_backbuffer(state); //re-render with new element rendering function
 			ask_for_repaint(state);
+		}
+	}
+
+	void set_function_on_click(HWND wnd, listbox_func_on_click func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->on_click = func;
 		}
 	}
 
@@ -227,13 +238,21 @@ namespace listbox {
 	}
 
 	void notify_parent(ProcState* state, WORD notif) {
-		SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, notif), (LPARAM)state->wnd);
+		if (notif == LBN_CLK && state->on_click) state->on_click(state->elements[state->clicked_element], state->user_extra);
+		else SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, notif), (LPARAM)state->wnd);
 	}
 
 	void clear_selection(ProcState* state) {
 		state->selected_element = state->mousehover_element = state->clicked_element = state->stored_clicked_element = UINT32_MAX;
 		//TODO(fran): not sure whether I want to clear everything or just the selected_element
 		notify_parent(state, LBN_SELCHANGE);
+	}
+
+	void clear_selected_noNotify(HWND wnd) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->selected_element = UINT32_MAX;
+		}
 	}
 
 	//Removes any elements already present and sets the new ones
@@ -368,7 +387,7 @@ namespace listbox {
 			set_state(hwnd, st);
 			st->wnd = hwnd;
 			st->parent = creation_nfo->hwndParent;//NOTE: we could also be a floating wnd and parent be null
-			Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
+			//Assert(st->parent == 0);//NOTE: we only handle floating listboxes for now
 			st->elements = decltype(st->elements)();
 
 			st->selected_element = st->mousehover_element = st->clicked_element = st->stored_clicked_element = UINT32_MAX;//TODO(fran): use std::limits<size_t>::max()
@@ -567,7 +586,7 @@ namespace listbox {
 			if (state->clicked_element == unclicked_element  && state->clicked_element < state->elements.size()) {
 				//IMPORTANT: this must be sent via SendMessage since the selection/click will be cleared afterwards
 				state->stored_clicked_element = state->clicked_element;
-				SendMessage(state->parent ? state->parent : state->foster_parent, WM_COMMAND, MAKELONG(0, LBN_CLK), (LPARAM)state->wnd);
+				notify_parent(state, LBN_CLK);
 			}
 			//Clear the clicked element since the mouse btn is now up
 			state->clicked_element = UINT32_MAX;

@@ -165,7 +165,7 @@ namespace searchbox {
 	void set_function_render_listbox_element(HWND wnd, listbox::listbox_func_renderelement func) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			listbox::set_render_function(state->controls.listbox, func);
+			listbox::set_function_render(state->controls.listbox, func);
 		}
 	}
 

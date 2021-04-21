@@ -28,6 +28,7 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori (talk to bren)
+//TODO(fran): scrolling: once we implement scrolling we'll need to add support in all wnds, basically to do scrolling if they have it active (user can scroll, no matter which direction) or send the scroll msg to their parent
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): db: load the whole db in ram
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
@@ -528,7 +529,7 @@ struct べんきょうProcState {
 		union landingpage_controls {
 			using type = HWND;
 			struct {
-				type nothing;
+				type listbox_recents;
 				/*type button_new;
 				type button_practice;
 				type button_search;*/
@@ -869,7 +870,7 @@ namespace べんきょう {
 
 		//Draw bk
 		HBRUSH bk_br = global::colors.ControlBk;
-		if (flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
 		if(flags.onClicked) bk_br = global::colors.ControlBkPush;
 
 		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
@@ -906,7 +907,7 @@ namespace べんきょう {
 
 		//Draw bk
 		HBRUSH bk_br = global::colors.ControlBk, txt_br = global::colors.ControlTxt;
-		if (flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onMouseover || flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
 		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
 
 		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
@@ -922,22 +923,35 @@ namespace べんきょう {
 	void langbox_func_on_selection_accepted(void* element, void* user_extra){
 		utf16_str* lang = (decltype(lang))element;
 		LANGUAGE_MANAGER::Instance().ChangeLanguage(lang->str);
-		//TODO(fran): we gotta readjust the size of the combobox to account for the new element, which in turn means updating the navbar
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			navbar::ask_for_resize(state->controls.navbar);
+			//TODO(fran):I dont like having to do this manually
+		}
+	}
+
+	void langbox_func_on_listbox_opening(HWND combo, HWND listbox, void* user_extra) {
+		listbox::clear_selected_noNotify(listbox);
 	}
 
 	void langbox_func_render_combobox(HDC dc, rect_i32 r, combobox::render_flags flags, void* element, void* user_extra) {
 
 		HFONT font = global::fonts.General;
-		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br = global::colors.Img;
-		if (flags.isListboxOpen || flags.onClicked) {
+		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br;
+		if (flags.isListboxOpen) {
+			bk_br = global::colors.ControlBk;
+		}
+		else if (flags.onClicked) {
 			bk_br = global::colors.ControlBkPush;
 		}
 		else if (flags.onMouseover) {
 			bk_br = global::colors.ControlBkMouseOver;
 		}
 		else {
-			bk_br = global::colors.ControlBk;
+			bk_br = global::colors.ControlBk_Disabled;
 		}
+		border_br = bk_br;
+
 
 		int border_thickness_pen = 0;//means 1px when creating pens
 		int border_thickness = 1;
@@ -986,20 +1000,26 @@ namespace べんきょう {
 			txt_rc.left += x_pad;
 			txt_rc.right = icon_x;
 
-			DrawTextW(dc, s->str, (int)s->sz_char(), &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+			DrawTextW(dc, s->str, (int)s->sz_char(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 		}
 
 	}
 
 	int langbox_func_desired_size(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra) {
+		SIZE sz;
+		HFONT font = global::fonts.General;
 
-		int char_cnt = 8 + 3 + 3;//chars, icon, spacing
 		if (element) {
 			utf16_str* s = (decltype(s))element;
-			char_cnt = (int)s->sz_char()-1 + 3 + 3;
+			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
+			GetTextExtentPoint32W(dc, s->str, (int)s->sz_char() - 1, &sz);
+			int char_cnt = 2 + 3;//icon, spacing
+			sz.cx += avg_str_dim(font, char_cnt).cx;
 		}
-
-		SIZE sz = avg_str_dim(global::fonts.General, char_cnt);
+		else {
+			int char_cnt = 8 + 2 + 3;//chars, icon, spacing
+			sz = avg_str_dim(font, char_cnt);
+		}
 
 		min->cx = minimum((int)min->cx, (int)((float)sz.cx * 1.f));
 		min->cy = minimum((int)min->cy, (int)((float)sz.cy * 1.2f));
@@ -1010,9 +1030,45 @@ namespace べんきょう {
 
 	void button_new_func_on_click(void* element, void* user_extra);
 	
-
 	void button_practice_func_on_click(void* element, void* user_extra);
+
+
+	void listbox_recents_func_render(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+		//TODO(fran): make common function between this and the searchbox's listbox rendering func
+		int w = r.w, h = r.h;
+		learnt_word16* txt = (decltype(txt))element;
+
+		//Draw bk
+		HBRUSH bk_br = global::colors.ControlBk;
+		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
+
+		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		FillRect(dc, &bk_rc, bk_br);
+
+		//Draw text
+		HFONT font = global::fonts.General;
+		i32 third_w = r.w / 3;
+		rect_i32 tempr = r; tempr.w = third_w;
+
+		RECT hira_rc = to_rect(tempr);
+
+		tempr.left += tempr.w;
+
+		RECT kanji_rc = to_rect(tempr);
+
+		tempr.left += tempr.w;
+
+		RECT meaning_rc = to_rect(tempr);
+
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, global::colors.hiragana, bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, global::colors.kanji, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, global::colors.translation, bk_br, urender::txt_align::left, 3);
+	}
+
+	void listbox_recents_func_on_click(void* element, void* user_extra);
 	
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
@@ -1034,7 +1090,12 @@ namespace べんきょう {
 		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
 		accent_btn_theme.brushes.border.normal = global::colors.Accent;
 		
+		navbar::Theme nav_theme;
+		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
+		nav_theme.dimensions.spacing = 3;
+
 		button::Theme navbar_btn_theme = base_btn_theme;
+		navbar_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
 		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
 
 
@@ -1064,9 +1125,6 @@ namespace べんきょう {
 		auto& navbar = state->controls.navbar;
 		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		navbar::Theme nav_theme;
-		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
-		nav_theme.dimensions.spacing = 3;
 		navbar::set_theme(navbar, &nav_theme);
 
 		{//navbar test
@@ -1089,6 +1147,7 @@ namespace べんきょう {
 			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
 			edit_oneline::Theme search_editoneline_theme = base_editoneline_theme;
+			search_editoneline_theme.brushes.bk.normal = CreateSolidBrush(RGB(30, 31, 25));
 			search_editoneline_theme.brushes.border = search_editoneline_theme.brushes.bk;
 
 			HWND search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT | WS_VISIBLE
@@ -1111,8 +1170,10 @@ namespace べんきょう {
 			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			languages_setup_combobox(combo_lang);
+			combobox::set_user_extra(combo_lang, state->wnd);
 			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
 			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
+			combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
 			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
 			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
 			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
@@ -1124,6 +1185,12 @@ namespace べんきょう {
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
+
+			controls.list.listbox_recents = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			listbox::set_function_render(controls.list.listbox_recents, listbox_recents_func_render);
+			listbox::set_user_extra(controls.list.listbox_recents, state->wnd);
+			listbox::set_function_on_click(controls.list.listbox_recents, listbox_recents_func_on_click);
 
 			//controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
 			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1476,44 +1543,28 @@ namespace べんきょう {
 			auto& controls = state->controls.landingpage;
 			//One button on top of the other vertically, all buttons must be squares
 			//TODO(fran): we could, at least to try how it looks, to check whether the wnd is longer on w or h and place the controls vertically or horizontally next to each other
-			int wnd_cnt = ARRAYSIZE(controls.all);
-			int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
+			//int wnd_cnt = ARRAYSIZE(controls.all);
+			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 
-			int max_h = h - pad_cnt * h_pad;
-			int max_w = w - 2 * w_pad;
-			int wnd_h = clamp(0, max_h / wnd_cnt, max_w);
-			int wnd_w = wnd_h;
-			int wnd_x = (w - wnd_w) / 2;
-			int h_step = (h - (wnd_h*wnd_cnt)) / pad_cnt;
+			int max_w = w - w_pad * 2;
+			int wnd_h = 30;
 
-			rect_i32 button_new;
-			button_new.x = wnd_x;
-			button_new.y = h_step;
-			button_new.w = wnd_h;
-			button_new.h = wnd_h;
+			int start_y = 0;
 
-			rect_i32 button_practice;
-			button_practice.x = wnd_x;
-			button_practice.y = button_new.bottom() + h_step;
-			button_practice.w= wnd_h;
-			button_practice.h= wnd_h;
+			rect_i32 listbox_recents;
+			listbox_recents.y = start_y;
+			listbox_recents.h = wnd_h * 5;
+			listbox_recents.w = min(max_w, avg_str_dim(global::fonts.General, 40).cx);
+			listbox_recents.x = (w - listbox_recents.w) / 2;
 
-			rect_i32 button_search;
-			button_search.x = wnd_x;
-			button_search.y = button_practice.bottom() + h_step;
-			button_search.w= wnd_h;
-			button_search.h= wnd_h;
+			rect_i32 bottom_most_control = listbox_recents;
 
-			//rect_i32 combo_languages;
-			//combo_languages.h = wnd_h;
-			//combo_languages.y = h_pad / 2;
-			//combo_languages.w = min(distance(w,button_new.right()+w_pad/2), avg_str_dim((HFONT)SendMessage(controls.list.combo_languages, WM_GETFONT, 0, 0), 20).cx);
-			//combo_languages.x = w - combo_languages.w - w_pad / 2;
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
-			//MyMoveWindow(controls.list.button_new, button_new,FALSE);
-			//MyMoveWindow(controls.list.button_practice, button_practice,FALSE);
-			//MyMoveWindow(controls.list.button_search, button_search,FALSE);
-			//MyMoveWindow(controls.list.combo_languages, combo_languages,FALSE);
+			MyMoveWindow_offset(controls.list.listbox_recents, listbox_recents, FALSE);
+			listbox::set_dimensions(controls.list.listbox_recents, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
 		} break;
 		case ProcState::page::new_word:
 		{
@@ -2138,6 +2189,30 @@ namespace べんきょう {
 			auto& controls = state->controls.practice_writing;
 			//SetFocus(controls.list.edit_answer);//TODO(fran): problem is now we cant see in which lang we have to write, we have two options, either give the edit control an extra flag of show placeholder even if cursor is visible; option 2 setfocus to us (main wnd) wait for the user to press something, redirect the msg to the edit box and setfocus. INFO: wanikani shows the placeholder and the caret at the same time, lets do that
 		} break;
+		case decltype(new_page)::landing:
+		{
+			//The 'Recently Added' listbox needs to have elements added to it, TODO(fran): this could be handled on smth like func_on_wm_show
+			//TODO(fran): this should only be done if there was a change on the db since the last time it was called
+
+			auto& controls = state->controls.landingpage;
+
+			auto [start,end] = day_range(get_latest_word_creation_date(state->settings->db));
+
+			ptr<learnt_word16> recents = get_learnt_word_by_date(state->settings->db, start, end);
+
+			//TODO(fran): this idea of returning an array and then having to add an extra array in order to be able to use it is pretty annoying, yeah it's faster and scales really well, but it's beyond confusing
+			ptr<void*> elems{ 0 }; elems.alloc(recents.cnt); defer{ elems.free(); };
+			for (size_t i = 0; i < recents.cnt; i++) elems[i] = &recents[i];
+
+			{//Free previous elements
+				ptr<void*> elements = listbox::get_all_elements(controls.list.listbox_recents);//HACK
+				for (auto e : elements) for (auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
+				if (elements.cnt)free(elements[0]);
+			}
+
+			listbox::set_elements(controls.list.listbox_recents, elems.mem, elems.cnt);
+
+		} break;
 		}
 	}
 
@@ -2711,6 +2786,21 @@ namespace べんきょう {
 				//TODO(fran): a way to make this more streamlined would be to implement:
 				//MessageBoxW(){oldfocus=getfocus(); messagebox(); setfocus(oldfocus);}
 			}
+		}
+	}
+
+	void listbox_recents_func_on_click(void* element, void* user_extra) {
+		ProcState* state = get_state((HWND)user_extra);
+		if (state) {
+			learnt_word16* txt = (decltype(txt))element;
+
+			get_word_res res = get_word(state->settings->db, learnt_word_elem::hiragana, txt->attributes.hiragana.str); defer{ free_get_word(res.word); };
+			if (res.found) {
+				preload_page(state, ProcState::page::show_word, &res.word);
+				store_previous_page(state, state->current_page);
+				set_current_page(state, ProcState::page::show_word);
+			}
+			//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
 		}
 	}
 

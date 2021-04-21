@@ -32,6 +32,8 @@ typedef double f64;
 
 typedef i32 b32;
 
+typedef i64 time64;//64bit unixtime
+
 typedef char utf8;
 typedef wchar_t utf16;
 typedef char32_t utf32;

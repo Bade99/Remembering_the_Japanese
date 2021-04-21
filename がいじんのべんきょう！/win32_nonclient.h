@@ -708,7 +708,7 @@ namespace nonclient {
 				SetMenuInfo(state->menu, &mi);
 			}
 
-			ask_for_repaint(state);
+			ask_for_repaint(state);//TODO(fran): BUG: for some reason there's a huge delay till the next WM_PAINT is issued if you hold on to the click, the moment you release the mouse the wnd is repainted
 			return TRUE; //NOTE: it says we can return FALSE to "prevent the change"
 		} break;
 		//NOTE: WM_NCPAINT: check https://chromium.googlesource.com/chromium/chromium/+/5db69ae220c803e9c1675219b5cc5766ea3bb698/chrome/views/window.cc they block drawing so windows doesnt draw on top of them, cause the non client area is also painted in other msgs like settext
