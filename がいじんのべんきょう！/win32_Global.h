@@ -12,6 +12,8 @@ namespace global {
 			//TODO(fran): add _disabled for at least txt,bk,border
 #define foreach_color(op) \
 		op(HBRUSH,ControlBk,CreateSolidBrush(RGB(40, 41, 35))) \
+		op(HBRUSH,ControlBk_Light,CreateSolidBrush(RGB(70, 71, 65))) \
+		op(HBRUSH,ControlBk_Dark,CreateSolidBrush(RGB(20, 21, 25))) \
 		op(HBRUSH,ControlBkPush,CreateSolidBrush(RGB(0, 110, 200))) \
 		op(HBRUSH,ControlBkMouseOver,CreateSolidBrush(RGB(0, 120, 215))) \
 		op(HBRUSH,ControlTxt,CreateSolidBrush(RGB(248, 248, 242))) \
@@ -35,9 +37,9 @@ namespace global {
 		op(HBRUSH,Graph_BkUnderLine,CreateSolidBrush(RGB(65, 103, 120))) \
 		op(HBRUSH,Graph_Bk,CreateSolidBrush(RGB(20, 21, 30))) \
 		op(HBRUSH,Graph_Border,CreateSolidBrush(RGB(40, 41, 35))) \
-		op(HBRUSH,hiragana,CreateSolidBrush(RGB(104, 75, 113))) \
+		op(HBRUSH,hiragana,CreateSolidBrush(RGB(144, 115, 153))) \
 		op(HBRUSH,kanji,CreateSolidBrush(RGB(204, 206, 205))) \
-		op(HBRUSH,translation,CreateSolidBrush(RGB(142, 79, 88))) \
+		op(HBRUSH,translation,CreateSolidBrush(RGB(192, 99, 108))) \
 		op(HBRUSH,Bk_right_answer,CreateSolidBrush(RGB(23, 206, 44))) \
 		op(HBRUSH,BkMouseover_right_answer,CreateSolidBrush(RGB(13, 186, 24))) \
 		op(HBRUSH,BkPush_right_answer,CreateSolidBrush(RGB(3, 166, 4))) \

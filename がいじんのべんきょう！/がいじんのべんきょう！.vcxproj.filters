@@ -128,6 +128,9 @@
     <ClInclude Include="win32_combobox.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="win32_べんきょう_embedded.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">

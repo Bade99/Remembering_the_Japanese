@@ -22,6 +22,7 @@
 #include "win32_Char.h"
 #include "win32_navbar.h"
 #include "win32_combobox.h"
+#include "win32_べんきょう_embedded.h"
 
 #include <string>
 
@@ -70,11 +71,6 @@
 //INFO: the hiragana aid on top of kanji is called furigana
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
-
-
-#define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
-
-#define MyMoveWindow_offset(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
 
 #define TIMER_next_practice_level 0x5
 
@@ -206,279 +202,12 @@ void languages_setup_combobox(HWND cb) {
 
 #define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
 
-namespace embedded {
-	namespace show_word_reduced {
-		//---------------Creation Example---------------:
-		// CreateWindowW(embedded::show_word_reduced::wndclass, 0, WS_CHILD | embedded::show_word_reduced::style::roundrect, 0, 0, 0, 0, parent, 0, 0, 0);
-		//---------------API---------------:
-		// set_theme()
-		// set_word()
 
-		constexpr cstr wndclass[] = L"がいじんの_wndclass_embedded_showwordreduced";
-		struct Theme {
-			struct {
-				brush_group txt, bk, border;
-			} brushes;
-			struct {
-				u32 border_thickness=U32MAX;
-			}dimensions;
-			HFONT font = 0;
-		};
-		enum style {
-			roundrect = (1<<0),
-
-		};
-		struct ProcState {
-			HWND wnd;
-			HWND parent;
-			Theme theme;
-			union {
-				using type = HWND;
-				struct { type hiragana, kanji, meaning, mnemonic, lexical_category; };
-				type all[5];
-			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come update the array to the correct count!"); }
-			} controls;
-		};
-		ProcState* get_state(HWND wnd) { ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0); return state; }
-		void set_state(HWND wnd, ProcState* state) { SetWindowLongPtr(wnd, 0, (LONG_PTR)state); }
-		void ask_for_repaint(ProcState* state){ InvalidateRect(state->wnd, NULL, TRUE); }
-		void update_controls_theme(ProcState* state) {
-			for (auto& c : state->controls.all) {
-				static_oneline::set_brushes(c, true, state->theme.brushes.txt.normal, state->theme.brushes.bk.normal, state->theme.brushes.border.normal, state->theme.brushes.txt.disabled, state->theme.brushes.bk.disabled, state->theme.brushes.border.disabled);
-				static_oneline::set_dimensions(c, state->theme.dimensions.border_thickness);
-				SendMessage(c, WM_SETFONT, (WPARAM)state->theme.font, TRUE);
-			}
-		}
-		//Set only what you need, what's not set wont be used
-		//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
-		void set_theme(HWND wnd, const Theme* t) {
-			ProcState* state = get_state(wnd);
-			if (state && t) {
-				bool repaint = false;
-				repaint |= copy_brush_group(&state->theme.brushes.txt, &t->brushes.txt);
-				repaint |= copy_brush_group(&state->theme.brushes.bk, &t->brushes.bk);
-				repaint |= copy_brush_group(&state->theme.brushes.border, &t->brushes.border);
-				
-				if (t->dimensions.border_thickness != U32MAX) {
-					state->theme.dimensions.border_thickness = t->dimensions.border_thickness; repaint = true;
-				}
-
-				if (t->font) { state->theme.font = t->font; repaint = true; }
-
-				if (repaint) { update_controls_theme(state); ask_for_repaint(state); }
-			}
-		}
-		void resize_controls(ProcState* state) {
-			RECT r; GetClientRect(state->wnd, &r);
-			int w = RECTWIDTH(r);
-			int h = RECTHEIGHT(r);
-			int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
-			int h_pad = (int)((float)h * .05f);
-			int max_w = w - w_pad * 2;
-			int start_y = 0;
-
-			auto& controls = state->controls;
-
-			//Hiragana, kanji and lexical category on the left, meaning, notes, mnemonic on the right
-			int cell_w = (max_w-w_pad/2)/2;
-			auto grid = create_grid_2x2(30, cell_w, start_y, w_pad / 2, h_pad / 2, max_w, w);
-			//TODO(fran): I think 4x1 config is better cause the wnd isnt expected to be very wide
-
-			rect_i32 hiragana = grid[0][0];
-			rect_i32 kanji = grid[0][1];
-			rect_i32 meaning = grid[1][0];
-			rect_i32 mnemonic = grid[1][1];
-
-			//TODO(fran): do I wanna put the lexical_category? it actually feels kinda pointless
-
-			rect_i32 bottom_most_control = mnemonic;
-
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.hiragana, hiragana, FALSE);
-			MyMoveWindow_offset(controls.kanji, kanji, FALSE);
-			MyMoveWindow_offset(controls.meaning, meaning, FALSE);
-			MyMoveWindow_offset(controls.mnemonic, mnemonic, FALSE);
-		}
-		void show_controls(ProcState* state, bool show) {
-			for (auto& c : state->controls.all) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
-		}
-		//NOTE: a copy of the word is kept internally
-		void set_word(HWND wnd, learnt_word16* word) {
-			ProcState* state = get_state(wnd);
-			if (state && word) {
-				//TODO(fran): we could resize_controls in case we resize by the lenght of the strings
-				SendMessage(state->controls.hiragana, WM_SETTEXT, 0, (LPARAM)word->attributes.hiragana.str);
-				SendMessage(state->controls.kanji, WM_SETTEXT, 0, (LPARAM)word->attributes.kanji.str);
-				SendMessage(state->controls.meaning, WM_SETTEXT, 0, (LPARAM)word->attributes.translation.str);
-				SendMessage(state->controls.lexical_category, WM_SETTEXT, 0, (LPARAM)word->attributes.lexical_category.str);
-				SendMessage(state->controls.mnemonic, WM_SETTEXT, 0, (LPARAM)word->attributes.mnemonic.str);
-				//TODO(fran): ask_for_repaint(state) ?
-			}
-		}
-		LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-			ProcState* state = get_state(hwnd);
-			switch (msg) {
-				//TODO?(fran): WM_MOUSEWHEEL, we might no be able to fit all the controls
-			case WM_NCCREATE: {
-				CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
-				ProcState* st = (ProcState*)calloc(1, sizeof(ProcState)); Assert(st);
-				set_state(hwnd, st);
-				st->wnd = hwnd;
-				st->parent = creation_nfo->hwndParent;
-				return TRUE; //continue creation
-			} break;
-			case WM_NCCALCSIZE: {
-				if (wparam) {
-					NCCALCSIZE_PARAMS* calcsz = (NCCALCSIZE_PARAMS*)lparam;
-					return 0;
-				} else {
-					RECT* client_rc = (RECT*)lparam;//TODO(fran): make client_rc cover the full window area
-					return 0;
-				}
-			} break;
-			case WM_CREATE: {
-				CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
-				for (auto& c : state->controls.all) {
-					c = CreateWindowW(static_oneline::wndclass, 0, WS_CHILD | SS_CENTERIMAGE | SS_LEFT | SO_AUTOFONTSIZE
-						, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-				}
-				show_controls(state, true);
-
-				return DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): remove once we know all the things this does
-			} break;
-			case WM_SETFONT: {
-				HFONT font = (HFONT)wparam;
-				Theme new_theme; 
-				new_theme.font = font;
-				set_theme(state->wnd, &new_theme);
-				return 0;
-			} break;
-			case WM_SHOWWINDOW: {
-				bool show = wparam;
-				//show_controls(state,show); //TODO(fran): if we ever need controls that start hidden
-				return DefWindowProc(hwnd, msg, wparam, lparam);
-			} break;
-			case WM_SIZE: {
-				resize_controls(state);
-				return DefWindowProc(hwnd, msg, wparam, lparam);
-			} break;
-			case WM_NCDESTROY: {
-				free(state);
-				return 0;
-			}break;
-			case WM_PAINT:
-			{
-				PAINTSTRUCT ps;
-				RECT rc; GetClientRect(state->wnd, &rc);
-				int w = RECTW(rc), h = RECTH(rc);
-				u16 radius = (u16)(min(w, h) * .05f);
-				//ps.rcPaint
-				HDC dc = BeginPaint(state->wnd, &ps);
-				bool window_enabled = IsWindowEnabled(state->wnd);
-				LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-				HBRUSH bkbr = window_enabled ? state->theme.brushes.bk.normal : state->theme.brushes.bk.disabled;
-				HBRUSH borderbr = window_enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
-				//TODO(fran): maybe fillrect alpha is needed to allow for transparency?
-				//Bk
-				if (bkbr) {
-
-					if (style & style::roundrect) {
-						urender::RoundRectangleFill(dc, bkbr, rc, radius);
-					}
-					else {
-						FillRect(dc, &rc, bkbr);
-					}
-				}
-				//Border
-				if (borderbr) {
-
-					if (style & style::roundrect) {
-						urender::RoundRectangleBorder(dc, borderbr, rc, radius, (f32)state->theme.dimensions.border_thickness);
-					}
-					else {
-						FillRectBorder(dc, rc, state->theme.dimensions.border_thickness, borderbr, BORDERALL);
-					}
-				}
-
-				EndPaint(hwnd, &ps);
-				return 0;
-			} break;
-			case WM_MOVE:
-			case WM_WINDOWPOSCHANGING:
-			case WM_WINDOWPOSCHANGED:
-			case WM_DESTROY:
-			case WM_SETCURSOR:
-			case WM_MOUSEMOVE:
-			{
-				return DefWindowProc(hwnd, msg, wparam, lparam);
-			} break;
-			case WM_NCPAINT:
-			case WM_ERASEBKGND:
-			case WM_LBUTTONDOWN://TODO(fran): we may want to SetFocus(0);
-			case WM_RBUTTONDOWN:
-			case WM_LBUTTONUP:
-			case WM_RBUTTONUP:
-			case WM_IME_SETCONTEXT:
-			case WM_GETTEXT:
-			case WM_GETTEXTLENGTH:
-			case WM_PARENTNOTIFY:
-			{
-				return 0;
-			} break;
-			case WM_SETTEXT:
-			{
-				return 1;
-			}
-			case WM_NCHITTEST: {
-				POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Screen coords, relative to upper-left corner
-				RECT rw; GetWindowRect(state->wnd, &rw);
-				LRESULT hittest = HTNOWHERE;
-				if (test_pt_rc(mouse, rw))hittest = HTCLIENT;
-				return hittest;
-			} break;
-			case WM_MOUSEACTIVATE: {
-				return MA_ACTIVATE;
-			} break;
-			default:
-#ifdef _DEBUG
-				Assert(0);
-#else 
-				return DefWindowProc(hwnd, msg, wparam, lparam);
-#endif
-			}
-			return 0;
-		}
-		void init_wndclass(HINSTANCE instance) {
-			WNDCLASSEXW cl;
-			cl.cbSize = sizeof(cl);
-			cl.style = CS_HREDRAW | CS_VREDRAW;
-			cl.lpfnWndProc = Proc;
-			cl.cbClsExtra = 0;
-			cl.cbWndExtra = sizeof(ProcState*);
-			cl.hInstance = instance;
-			cl.hIcon = NULL;
-			cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
-			cl.hbrBackground = NULL;
-			cl.lpszMenuName = NULL;
-			cl.lpszClassName = wndclass;
-			cl.hIconSm = NULL;
-			ATOM class_atom = RegisterClassExW(&cl);
-			runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
-		}
-
-		struct pre_post_main {
-			pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
-			~pre_post_main() { }
-		}static const PREMAIN_POSTMAIN;
-	}
-}
 
 struct べんきょうSettings {
 
 #define foreach_べんきょうSettings_member(op) \
-		op(RECT, rc,200,200,600,800 ) \
+		op(RECT, rc,200,200,700,900 ) \
 
 	foreach_べんきょうSettings_member(_generate_member);
 	sqlite3* db;
@@ -529,11 +258,20 @@ struct べんきょうProcState {
 		union landingpage_controls {
 			using type = HWND;
 			struct {
+				type button_recents;
 				type listbox_recents;
-				/*type button_new;
-				type button_practice;
-				type button_search;*/
-				//type combo_languages;
+				
+				type static_word_cnt_title;
+				type static_word_cnt;
+
+				type static_practice_cnt_title;
+				type static_practice_cnt;
+
+				type static_accuracy_title;
+				type score_accuracy;
+
+				type static_accuracy_timeline_title;
+				type graph_accuracy_timeline;
 			}list; //INFO: unfortunately in order to make 'all' auto-update we need to give a name to this struct
 			type all[sizeof(list)/sizeof(type)]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
 		} landingpage;
@@ -556,17 +294,6 @@ struct べんきょうProcState {
 		union practice_controls {
 			using type = HWND;
 			struct {
-				type static_word_cnt_title;
-				type static_word_cnt;
-
-				type static_practice_cnt_title;
-				type static_practice_cnt;
-
-				type static_accuracy_title;
-				type score_accuracy;
-
-				type static_accuracy_timeline_title;
-				type graph_accuracy_timeline;
 
 				type button_start;
 			}list;
@@ -1039,7 +766,7 @@ namespace べんきょう {
 		learnt_word16* txt = (decltype(txt))element;
 
 		//Draw bk
-		HBRUSH bk_br = global::colors.ControlBk;
+		HBRUSH bk_br = global::colors.ControlBk_Light;
 		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
 		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
 
@@ -1062,12 +789,104 @@ namespace べんきょう {
 		RECT meaning_rc = to_rect(tempr);
 
 		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, global::colors.hiragana, bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+		//if(*txt->attributes.kanji.str)
 		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, global::colors.kanji, bk_br, urender::txt_align::left, 3);
+		//else {
+		//	rect_i32 kanji_placeholder_rc;
+		//	kanji_placeholder_rc.x = kanji_rc.left;
+		//	auto rc_dim = avg_str_dim(font, 8);
+		//	kanji_placeholder_rc.w = minimum(rc_dim.cx,RECTW(kanji_rc));
+		//	kanji_placeholder_rc.h = minimum(rc_dim.cy, RECTH(kanji_rc));
+		//	kanji_placeholder_rc.y = kanji_rc.top + (RECTH(kanji_rc) - kanji_placeholder_rc.h) / 2;
+		//	HBRUSH kanji_br = global::colors.kanji;
+		//	HPEN pen = CreatePen(PS_SOLID, 0, ColorFromBrush(kanji_br)); defer{ DeletePen(pen); };
+		//	HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
+		//	HBRUSH oldbr = SelectBrush(dc, kanji_br); defer{ SelectBrush(dc,oldbr); };
+		//	i32 extent = min(kanji_placeholder_rc.w, kanji_placeholder_rc.h);
+		//	i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+		//	RoundRect(dc, kanji_placeholder_rc.x, kanji_placeholder_rc.y, kanji_placeholder_rc.right(), kanji_placeholder_rc.bottom(), roundedness, roundedness);
+		//}
 		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, global::colors.translation, bk_br, urender::txt_align::left, 3);
 	}
 
 	void listbox_recents_func_on_click(void* element, void* user_extra);
 	
+	void button_recents_func_render(HWND wnd, HDC dc, rect_i32 r, button::render_flags flags, void* element, void* user_extra) {
+		//TODO(fran): join with langbox_func_render_combobox to create a rendering function that generates combobox looking wnds
+		HFONT font = global::fonts.General;
+		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br, icon_br = global::colors.Img;//TODO(fran): use the button Theme
+		/*if (flags.isListboxOpen) {
+			bk_br = global::colors.ControlBk;
+		}
+		else*/
+		if (!flags.isEnabled) {
+			bk_br = global::colors.ControlBk_Disabled;
+			txt_br = global::colors.ControlTxt_Disabled;
+			icon_br = global::colors.Img_Disabled;
+		}
+		else if (flags.onClicked) {
+			bk_br = global::colors.ControlBkPush;
+		}
+		else if (flags.onMouseover) {
+			bk_br = global::colors.ControlBkMouseOver;
+		}
+		else {
+			bk_br = global::colors.ControlBk_Dark;//TODO(fran): still not completely sold on the color, maybe if I also tint the bk of the listbox a little blue it will fit better
+		}
+		border_br = bk_br;
+
+
+		int border_thickness_pen = 0;//means 1px when creating pens
+		int border_thickness = 1;
+		int x_pad = avg_str_dim(font, 1).cx;
+
+		//Border an Bk
+		{
+			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+			HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
+			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+			i32 extent = min(r.w, r.h);
+			i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+			RoundRect(dc, r.left, r.top, r.right(), r.bottom(), roundedness, roundedness);
+		}
+
+		//Dropbox icon
+		int icon_x = r.w;
+		{//TODO(fran): flicker free
+			HBITMAP bmp = global::bmps.dropdown;
+			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
+			if (bitmap.bmBitsPixel == 1) {
+
+				int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
+				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
+
+				int bmp_height = max_sz;
+				int bmp_width = bmp_height;
+				int bmp_align_width = r.w - bmp_width - x_pad;
+				int bmp_align_height = (r.h - bmp_height) / 2;
+				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, icon_br);
+
+				icon_x = bmp_align_width;
+			}
+		}
+		//TODO(fran): clamp txt rect to not go over the icon
+
+		//Text
+		utf16 txt[40];
+		int len = Button_GetText(wnd, txt, ARRAYSIZE(txt));
+		if (len) {
+			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc, oldfont); };
+
+			SetBkColor(dc, ColorFromBrush(bk_br));
+			SetTextColor(dc, ColorFromBrush(txt_br));
+
+			RECT txt_rc = toRECT(r);
+			txt_rc.left += x_pad;
+			txt_rc.right = icon_x;
+
+			DrawTextW(dc, txt, len, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+		}
+	}
 
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
@@ -1098,6 +917,8 @@ namespace べんきょう {
 		navbar_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
 		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
 
+		button::Theme dark_btn_theme = base_btn_theme;
+		dark_btn_theme.brushes.bk.normal = global::colors.CaptionBk;
 
 		embedded::show_word_reduced::Theme eswr_theme;
 		brush_group eswr_bk, eswr_txt, eswr_border;
@@ -1192,27 +1013,57 @@ namespace べんきょう {
 			listbox::set_user_extra(controls.list.listbox_recents, state->wnd);
 			listbox::set_function_on_click(controls.list.listbox_recents, listbox_recents_func_on_click);
 
-			//controls.list.button_new = CreateWindowW(button::wndclass, NULL, style_button_txt
-			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//AWT(controls.list.button_new, 100);
-			//button::set_theme(controls.list.button_new, &base_btn_theme);
-
-			//controls.list.button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt
-			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//AWT(controls.list.button_practice, 101);
-			//button::set_theme(controls.list.button_practice, &base_btn_theme);
-
-			//controls.list.button_search = CreateWindowW(button::wndclass, NULL, style_button_txt
-			//	, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//AWT(controls.list.button_search, 102);
-			//button::set_theme(controls.list.button_search, &base_btn_theme);
-
-			/*controls.list.combo_languages = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+			controls.list.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			languages_setup_combobox(controls.list.combo_languages);
-			SetWindowSubclass(controls.list.combo_languages, ComboProc, 0, 0);
-			SendMessage(controls.list.combo_languages, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);*/
-			//TODO(fran): more subdued colors for the lang combo, also no border, possibly also bold text, and right aligned
+			AWT(controls.list.button_recents, 103);
+			button::set_theme(controls.list.button_recents, &dark_btn_theme);
+			button::set_user_extra(controls.list.button_recents, state->wnd);
+			button::set_function_render(controls.list.button_recents, button_recents_func_render);
+			button::set_function_on_click(controls.list.button_recents, 
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {
+						HWND listbox = state->controls.landingpage.list.listbox_recents;
+						ShowWindow(listbox, IsWindowVisible(listbox) ? SW_HIDE : SW_SHOW);
+						//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
+					}
+				}
+			);
+
+			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_word_cnt_title, 351);
+
+			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+
+			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_practice_cnt_title, 352);
+
+			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+
+			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_title, 353);
+
+			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
+
+
+			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_timeline_title, 354);
+
+			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
+
+			//TODO(fran): we may want to add smth else like a total number of words practiced
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -1339,44 +1190,10 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.practice;
 
-			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_word_cnt_title, 351);
-
-			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
-			
-			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_practice_cnt_title, 352);
-
-			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
-			
-			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_accuracy_title, 353);
-
-			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD 
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
-
 			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
 			button::set_theme(controls.list.button_start, &base_btn_theme);
-			
-			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_accuracy_timeline_title, 354);
-
-			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
-
-			//TODO(fran): we may want to add smth else like a total number of words practiced
 
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -1541,29 +1358,104 @@ namespace べんきょう {
 		case ProcState::page::landing:
 		{
 			auto& controls = state->controls.landingpage;
-			//One button on top of the other vertically, all buttons must be squares
-			//TODO(fran): we could, at least to try how it looks, to check whether the wnd is longer on w or h and place the controls vertically or horizontally next to each other
-			//int wnd_cnt = ARRAYSIZE(controls.all);
-			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
 
 			int max_w = w - w_pad * 2;
 			int wnd_h = 30;
 
 			int start_y = 0;
 
+			rect_i32 button_recents;
+			button_recents.y = start_y;
+			button_recents.h = wnd_h;
+			button_recents.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.button_recents), 40).cx);
+			button_recents.x = (w - button_recents.w) / 2;
+
 			rect_i32 listbox_recents;
-			listbox_recents.y = start_y;
-			listbox_recents.h = wnd_h * 5;
-			listbox_recents.w = min(max_w, avg_str_dim(global::fonts.General, 40).cx);
+			listbox_recents.y = button_recents.bottom();
+			listbox_recents.h = wnd_h * (int)listbox::get_element_cnt(controls.list.listbox_recents);
+			listbox_recents.w = button_recents.w;
 			listbox_recents.x = (w - listbox_recents.w) / 2;
 
-			rect_i32 bottom_most_control = listbox_recents;
+			int grid_h = wnd_h * 4;
+			int grid_w = grid_h * 16 / 9;
+			auto grid = create_grid_2x2(grid_h, grid_w, listbox_recents.bottom()+h_pad, w_pad / 2, h_pad / 2, max_w, w);
+
+			rect_i32 cell;
+
+			//First cell
+			cell = grid[0][0];
+			rect_i32 static_word_cnt_title;
+			static_word_cnt_title.w = cell.w;
+			static_word_cnt_title.h = min(wnd_h, cell.h);
+			static_word_cnt_title.x = cell.center_x() - static_word_cnt_title.w / 2;
+			static_word_cnt_title.y = cell.top;
+
+			//NOTE: the values should use a much bigger font
+			rect_i32 static_word_cnt;
+			static_word_cnt.w = cell.w;
+			static_word_cnt.x = cell.center_x() - static_word_cnt.w / 2;
+			static_word_cnt.h = distance(cell.bottom(), static_word_cnt_title.bottom());
+			static_word_cnt.y = cell.bottom() - static_word_cnt.h;
+
+			//Second cell
+			cell = grid[0][1];
+			rect_i32 static_practice_cnt_title;
+			static_practice_cnt_title.w = cell.w;
+			static_practice_cnt_title.h = min(wnd_h, cell.h);
+			static_practice_cnt_title.x = cell.center_x() - static_practice_cnt_title.w / 2;
+			static_practice_cnt_title.y = cell.top;
+
+			rect_i32 static_practice_cnt;
+			static_practice_cnt.w = cell.w;
+			static_practice_cnt.x = cell.center_x() - static_practice_cnt.w / 2;
+			static_practice_cnt.h = distance(cell.bottom(), static_practice_cnt_title.bottom());
+			static_practice_cnt.y = cell.bottom() - static_practice_cnt.h;
+
+			//3rd cell
+			cell = grid[1][0];
+			rect_i32 static_accuracy_title;
+			static_accuracy_title.w = cell.w;
+			static_accuracy_title.h = min(wnd_h, cell.h);
+			static_accuracy_title.x = cell.center_x() - static_accuracy_title.w / 2;
+			static_accuracy_title.y = cell.top;
+
+			rect_i32 score_accuracy;
+			score_accuracy.h = min(cell.w, distance(cell.bottom(), static_accuracy_title.bottom()));
+			score_accuracy.w = score_accuracy.h;
+			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
+			score_accuracy.y = cell.bottom() - score_accuracy.h;
+
+			//4th cell
+			cell = grid[1][1];
+			rect_i32 static_accuracy_timeline_title;
+			static_accuracy_timeline_title.w = cell.w;
+			static_accuracy_timeline_title.h = min(wnd_h, cell.h);
+			static_accuracy_timeline_title.x = cell.center_x() - static_accuracy_timeline_title.w / 2;
+			static_accuracy_timeline_title.y = cell.top;
+
+			rect_i32 graph_accuracy_timeline;
+			graph_accuracy_timeline.h = min(cell.w, distance(cell.bottom(), static_accuracy_timeline_title.bottom()));
+			graph_accuracy_timeline.w = min(graph_accuracy_timeline.h * 16 / 9, cell.w);
+			graph_accuracy_timeline.x = cell.center_x() - graph_accuracy_timeline.w / 2;
+			graph_accuracy_timeline.y = cell.bottom() - graph_accuracy_timeline.h;
+
+			rect_i32 bottom_most_control = graph_accuracy_timeline;
 
 			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
+			MyMoveWindow_offset(controls.list.button_recents, button_recents, FALSE);
 			MyMoveWindow_offset(controls.list.listbox_recents, listbox_recents, FALSE);
 			listbox::set_dimensions(controls.list.listbox_recents, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
+			MyMoveWindow_offset(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_word_cnt, static_word_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
+			MyMoveWindow_offset(controls.list.score_accuracy, score_accuracy, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
+			MyMoveWindow_offset(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
 
 		} break;
 		case ProcState::page::new_word:
@@ -1649,74 +1541,8 @@ namespace べんきょう {
 			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
 #endif
 
-			int grid_h = wnd_h * 4;
-			int grid_w = grid_h * 16 / 9;
-			auto grid = create_grid_2x2(grid_h, grid_w, start_y, w_pad / 2, h_pad / 2, max_w, w);
-			
-			rect_i32 cell;
-
-			//First cell
-			cell = grid[0][0];
-			rect_i32 static_word_cnt_title;
-			static_word_cnt_title.w = cell.w;
-			static_word_cnt_title.h = min(wnd_h,cell.h);
-			static_word_cnt_title.x = cell.center_x() - static_word_cnt_title.w/2;
-			static_word_cnt_title.y = cell.top;
-
-			//NOTE: the values should use a much bigger font
-			rect_i32 static_word_cnt;
-			static_word_cnt.w = cell.w;
-			static_word_cnt.x = cell.center_x() - static_word_cnt.w/2;
-			static_word_cnt.h = distance(cell.bottom(), static_word_cnt_title.bottom());
-			static_word_cnt.y = cell.bottom() - static_word_cnt.h;
-
-			//Second cell
-			cell = grid[0][1];
-			rect_i32 static_practice_cnt_title;
-			static_practice_cnt_title.w = cell.w;
-			static_practice_cnt_title.h = min(wnd_h, cell.h);
-			static_practice_cnt_title.x = cell.center_x() - static_practice_cnt_title.w / 2;
-			static_practice_cnt_title.y = cell.top;
-
-			rect_i32 static_practice_cnt;
-			static_practice_cnt.w = cell.w;
-			static_practice_cnt.x = cell.center_x() - static_practice_cnt.w / 2;
-			static_practice_cnt.h = distance(cell.bottom(), static_practice_cnt_title.bottom());
-			static_practice_cnt.y = cell.bottom() - static_practice_cnt.h;
-
-			//3rd cell
-			cell = grid[1][0];
-			rect_i32 static_accuracy_title;
-			static_accuracy_title.w = cell.w;
-			static_accuracy_title.h = min(wnd_h, cell.h);
-			static_accuracy_title.x = cell.center_x() - static_accuracy_title.w / 2;
-			static_accuracy_title.y = cell.top;
-
-			rect_i32 score_accuracy;
-			score_accuracy.h = min(cell.w, distance(cell.bottom(), static_accuracy_title.bottom()));
-			score_accuracy.w = score_accuracy.h;
-			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
-			score_accuracy.y = cell.bottom() - score_accuracy.h;
-
-			//4th cell
-			cell = grid[1][1];
-			rect_i32 static_accuracy_timeline_title;
-			static_accuracy_timeline_title.w = cell.w;
-			static_accuracy_timeline_title.h = min(wnd_h, cell.h);
-			static_accuracy_timeline_title.x = cell.center_x() - static_accuracy_timeline_title.w / 2;
-			static_accuracy_timeline_title.y = cell.top;
-
-			rect_i32 graph_accuracy_timeline;
-			graph_accuracy_timeline.h = min(cell.w, distance(cell.bottom(), static_accuracy_timeline_title.bottom()));
-			graph_accuracy_timeline.w = min(graph_accuracy_timeline.h * 16 / 9,cell.w);
-			graph_accuracy_timeline.x = cell.center_x() - graph_accuracy_timeline.w / 2;
-			graph_accuracy_timeline.y = cell.bottom() - graph_accuracy_timeline.h;
-
-
-			rect_i32 last_stat = graph_accuracy_timeline;
-
 			rect_i32 button_start;
-			button_start.y = last_stat.bottom() + h_pad;
+			button_start.y = start_y + h_pad;
 			button_start.w = 70;
 			button_start.h = wnd_h;
 			button_start.x = (w - button_start.w)/2;
@@ -1726,14 +1552,7 @@ namespace べんきょう {
 			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 			
-			MyMoveWindow_offset(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
-			MyMoveWindow_offset(controls.list.static_word_cnt, static_word_cnt, FALSE);
-			MyMoveWindow_offset(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
-			MyMoveWindow_offset(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
-			MyMoveWindow_offset(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
-			MyMoveWindow_offset(controls.list.score_accuracy, score_accuracy, FALSE);
-			MyMoveWindow_offset(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
-			MyMoveWindow_offset(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
+			
 			MyMoveWindow_offset(controls.list.button_start, button_start, FALSE);
 
 		} break;
@@ -2135,110 +1954,6 @@ namespace べんきょう {
 		state->settings->rc = rc;
 	}
 
-	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
-		switch (p) {
-		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::practice_writing: 
-			for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd); 
-			ShowWindow(state->controls.practice_writing.embedded_show_word_reduced, SW_HIDE);
-			break;
-		case decltype(p)::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::review_practice_writing: show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); break;
-		case decltype(p)::practice_multiplechoice:
-			for (auto ctl : state->controls.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->controls.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
-			break;
-		case decltype(p)::review_practice_multiplechoice: show_page(state, ProcState::page::practice_multiplechoice, ShowWindow_cmd); break;
-		case decltype(p)::practice_drawing:
-			for (auto ctl : state->controls.practice_drawing.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->controls.practice_drawing.list.static_correct_answer, SW_HIDE);//HACK:we should have some sort of separation between hidden and shown controls
-			ShowWindow(state->controls.practice_drawing.list.button_wrong, SW_HIDE);
-			ShowWindow(state->controls.practice_drawing.list.button_right, SW_HIDE);
-			ShowWindow(state->controls.practice_drawing.embedded_show_word_reduced, SW_HIDE);
-			break;
-		case decltype(p)::review_practice_drawing: show_page(state, ProcState::page::practice_drawing, ShowWindow_cmd); break;
-		default:Assert(0);
-		}
-	}
-
-	void set_default_focus(ProcState* state, ProcState::page p) {
-		switch (p) {
-		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it //HACK?
-		case decltype(p)::search: SetFocus(state->controls.search.list.searchbox_search); break;
-		case decltype(p)::practice_writing: SetFocus(state->controls.practice_writing.list.edit_answer); break;
-
-		//default:Assert(0);
-		}
-	}
-
-	void set_current_page(ProcState* state, ProcState::page new_page) {
-		show_page(state, state->current_page,SW_HIDE);
-		state->current_page = new_page;
-		resize_controls(state);
-		show_page(state, state->current_page,SW_SHOW);
-		set_default_focus(state, state->current_page);
-
-		switch (new_page) {
-		case decltype(new_page)::practice_writing:
-		{
-			//TODO(fran): idk where to put this, I'd put it in preload but preload doesnt guarantee we're switching pages, even though it's mostly true currently
-			auto& controls = state->controls.practice_writing;
-			//SetFocus(controls.list.edit_answer);//TODO(fran): problem is now we cant see in which lang we have to write, we have two options, either give the edit control an extra flag of show placeholder even if cursor is visible; option 2 setfocus to us (main wnd) wait for the user to press something, redirect the msg to the edit box and setfocus. INFO: wanikani shows the placeholder and the caret at the same time, lets do that
-		} break;
-		case decltype(new_page)::landing:
-		{
-			//The 'Recently Added' listbox needs to have elements added to it, TODO(fran): this could be handled on smth like func_on_wm_show
-			//TODO(fran): this should only be done if there was a change on the db since the last time it was called
-
-			auto& controls = state->controls.landingpage;
-
-			auto [start,end] = day_range(get_latest_word_creation_date(state->settings->db));
-
-			ptr<learnt_word16> recents = get_learnt_word_by_date(state->settings->db, start, end);
-
-			//TODO(fran): this idea of returning an array and then having to add an extra array in order to be able to use it is pretty annoying, yeah it's faster and scales really well, but it's beyond confusing
-			ptr<void*> elems{ 0 }; elems.alloc(recents.cnt); defer{ elems.free(); };
-			for (size_t i = 0; i < recents.cnt; i++) elems[i] = &recents[i];
-
-			{//Free previous elements
-				ptr<void*> elements = listbox::get_all_elements(controls.list.listbox_recents);//HACK
-				for (auto e : elements) for (auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
-				if (elements.cnt)free(elements[0]);
-			}
-
-			listbox::set_elements(controls.list.listbox_recents, elems.mem, elems.cnt);
-
-		} break;
-		}
-	}
-
-	void goto_previous_page(ProcState* state) {
-		if (state->previous_pages.cnt>0) {
-			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
-			if(state->previous_pages.cnt==0)PostMessage(state->nc_parent, WM_SHOWBACKBTN, FALSE, 0);//hide the back button
-		}
-	}
-
-	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
-	void store_previous_page(ProcState* state, ProcState::page prev_page) {
-		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
-			//cnt stays the same
-			//we move all the entries one position down and place the new one on top
-			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
-			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
-			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
-		}
-		else {
-			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
-		}
-
-		PostMessage(state->nc_parent, WM_SHOWBACKBTN, TRUE, 0);//show the back button
-	}
-
 	bool check_new_word(ProcState* state) {
 		auto& page = state->controls.new_word;
 		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_translation };
@@ -2300,6 +2015,37 @@ namespace べんきょう {
 	void preload_page(ProcState* state, ProcState::page page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
 		switch (page) {
+		case decltype(page)::landing:
+		{
+			user_stats* stats = (decltype(stats))data;
+			auto controls = state->controls.landingpage;
+//#define PRACTICE_TEST_STATS
+#ifndef PRACTICE_TEST_STATS
+			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
+			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
+			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
+			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
+			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
+			graph::set_points(controls.list.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt);
+			graph::graph_dimensions grid_dims;
+			grid_dims.set_top_point(100);
+			grid_dims.set_bottom_point(0);
+			grid_dims.set_viewable_points_range(0, stats->accuracy_timeline.cnt);
+			graph::set_dimensions(controls.list.graph_accuracy_timeline, grid_dims);
+			//graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
+			//graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
+			//graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, stats->accuracy_timeline.cnt);
+#else
+			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
+			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
+			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(559).c_str());
+			i32 accu[]{ 77,56,32,12,48,95,65,32,54,67,79,88,100 };
+			graph::set_points(controls.list.graph_accuracy_timeline, accu, ARRAYSIZE(accu));
+			graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
+			graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
+			graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, ARRAYSIZE(accu));
+#endif
+		} break;
 		case decltype(page)::new_word:
 		{
 			learnt_word16* new_word = (decltype(new_word))data;//NOTE: since we are in UI we expect utf16 strings
@@ -2363,39 +2109,6 @@ namespace べんきょう {
 			accent_btn_theme.brushes.border.normal = global::colors.Accent;
 			button::set_theme(controls.list.button_remember, &accent_btn_theme);
 
-		} break;
-		case decltype(page)::practice:
-		{
-			user_stats* stats = (decltype(stats))data;
-			auto controls = state->controls.practice;
-//#define PRACTICE_TEST_STATS
-#ifndef PRACTICE_TEST_STATS
-			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
-			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
-			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
-			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
-			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
-			graph::set_points(controls.list.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt);
-			graph::graph_dimensions grid_dims;
-			grid_dims.set_top_point(100);
-			grid_dims.set_bottom_point(0);
-			grid_dims.set_viewable_points_range(0, stats->accuracy_timeline.cnt);
-			graph::set_dimensions(controls.list.graph_accuracy_timeline, grid_dims);
-			//graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
-			//graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
-			//graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, stats->accuracy_timeline.cnt);
-#else
-			SendMessage(controls.list.score_accuracy, SC_SETSCORE, f32_to_WPARAM(.6f), 0);
-			SendMessage(controls.list.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(1452).c_str());
-			SendMessage(controls.list.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(559).c_str());
-			i32 accu[]{ 77,56,32,12,48,95,65,32,54,67,79,88,100 };
-			graph::set_points(controls.list.graph_accuracy_timeline, accu, ARRAYSIZE(accu));
-			graph::set_top_point(controls.list.graph_accuracy_timeline, 100);
-			graph::set_bottom_point(controls.list.graph_accuracy_timeline, 0);
-			graph::set_viewable_points_range(controls.list.graph_accuracy_timeline, 0, ARRAYSIZE(accu));
-#endif
-			//BOOL can_practice = stats->word_cnt > 0;
-			//EnableWindow(controls.list.button_start, can_practice);
 		} break;
 		case decltype(page)::practice_writing:
 		{
@@ -2499,7 +2212,7 @@ namespace べんきょう {
 		{
 			ProcState::practice_writing* pagedata = (decltype(pagedata))data;
 			auto& controls = state->controls.practice_writing;
-			utf16* question = pagedata->correct_answer->str;
+			utf16* question = pagedata->question->str;
 			HBRUSH question_br{ 0 };
 			brush_group answer_bk;
 			if (pagedata->answered_correctly) {
@@ -2717,6 +2430,118 @@ namespace べんきょう {
 
 		default: Assert(0);
 		}
+	}
+
+	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
+		switch (p) {
+		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::practice_writing:
+			for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->controls.practice_writing.embedded_show_word_reduced, SW_HIDE);
+			break;
+		case decltype(p)::search: for (auto ctl : state->controls.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::show_word: for (auto ctl : state->controls.show_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::review_practice: for (auto ctl : state->controls.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::review_practice_writing: show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); break;
+		case decltype(p)::practice_multiplechoice:
+			for (auto ctl : state->controls.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->controls.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
+			break;
+		case decltype(p)::review_practice_multiplechoice: show_page(state, ProcState::page::practice_multiplechoice, ShowWindow_cmd); break;
+		case decltype(p)::practice_drawing:
+			for (auto ctl : state->controls.practice_drawing.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->controls.practice_drawing.list.static_correct_answer, SW_HIDE);//HACK:we should have some sort of separation between hidden and shown controls
+			ShowWindow(state->controls.practice_drawing.list.button_wrong, SW_HIDE);
+			ShowWindow(state->controls.practice_drawing.list.button_right, SW_HIDE);
+			ShowWindow(state->controls.practice_drawing.embedded_show_word_reduced, SW_HIDE);
+			break;
+		case decltype(p)::review_practice_drawing: show_page(state, ProcState::page::practice_drawing, ShowWindow_cmd); break;
+		default:Assert(0);
+		}
+	}
+
+	void set_default_focus(ProcState* state, ProcState::page p) {
+		switch (p) {
+		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it //HACK?
+		case decltype(p)::search: SetFocus(state->controls.search.list.searchbox_search); break;
+		case decltype(p)::practice_writing: SetFocus(state->controls.practice_writing.list.edit_answer); break;
+
+			//default:Assert(0);
+		}
+	}
+
+	void set_current_page(ProcState* state, ProcState::page new_page) {
+		show_page(state, state->current_page, SW_HIDE);
+		state->current_page = new_page;
+
+		switch (new_page) {
+		case decltype(new_page)::practice_writing:
+		{
+			//TODO(fran): idk where to put this, I'd put it in preload but preload doesnt guarantee we're switching pages, even though it's mostly true currently
+			auto& controls = state->controls.practice_writing;
+			//SetFocus(controls.list.edit_answer);//TODO(fran): problem is now we cant see in which lang we have to write, we have two options, either give the edit control an extra flag of show placeholder even if cursor is visible; option 2 setfocus to us (main wnd) wait for the user to press something, redirect the msg to the edit box and setfocus. INFO: wanikani shows the placeholder and the caret at the same time, lets do that
+		} break;
+		case decltype(new_page)::landing:
+		{
+			//The 'Recently Added' listbox needs to have elements added to it, TODO(fran): this could be handled on smth like func_on_wm_show
+			//TODO(fran): this should only be done if there was a change on the db since the last time it was called
+
+			auto& controls = state->controls.landingpage;
+
+			auto [start, end] = day_range(get_latest_word_creation_date(state->settings->db));
+
+			ptr<learnt_word16> recents = get_learnt_word_by_date(state->settings->db, start, end);
+
+			//TODO(fran): this idea of returning an array and then having to add an extra array in order to be able to use it is pretty annoying, yeah it's faster and scales really well, but it's beyond confusing
+			ptr<void*> elems{ 0 }; elems.alloc(recents.cnt); defer{ elems.free(); };
+			for (size_t i = 0; i < recents.cnt; i++) elems[i] = &recents[i];
+
+			{//Free previous elements
+				ptr<void*> elements = listbox::get_all_elements(controls.list.listbox_recents);//HACK
+				for (auto e : elements) for (auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
+				if (elements.cnt)free(elements[0]);
+			}
+
+			listbox::set_elements(controls.list.listbox_recents, elems.mem, elems.cnt);
+
+			EnableWindow(controls.list.button_recents, (BOOL)recents.cnt);
+
+
+			user_stats stats = get_user_stats(state->settings->db);
+			get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
+			preload_page(state, ProcState::page::landing, &stats);
+
+		} break;
+		}
+
+		resize_controls(state);
+		show_page(state, state->current_page, SW_SHOW);
+		set_default_focus(state, state->current_page);
+	}
+
+	void goto_previous_page(ProcState* state) {
+		if (state->previous_pages.cnt > 0) {
+			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
+			if (state->previous_pages.cnt == 0)PostMessage(state->nc_parent, WM_SHOWBACKBTN, FALSE, 0);//hide the back button
+		}
+	}
+
+	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
+	void store_previous_page(ProcState* state, ProcState::page prev_page) {
+		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
+			//cnt stays the same
+			//we move all the entries one position down and place the new one on top
+			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
+			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
+			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
+		}
+		else {
+			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
+		}
+
+		PostMessage(state->nc_parent, WM_SHOWBACKBTN, TRUE, 0);//show the back button
 	}
 
 	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
@@ -3127,9 +2952,9 @@ namespace べんきょう {
 		ProcState* state = get_state((HWND)user_extra);
 		if (state) {
 			store_previous_page(state, state->current_page);
-			user_stats stats = get_user_stats(state->settings->db);
-			get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
-			preload_page(state, ProcState::page::practice, &stats);
+			//user_stats stats = get_user_stats(state->settings->db);
+			//get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
+			//preload_page(state, ProcState::page::practice, &stats);
 			set_current_page(state, ProcState::page::practice);
 		}
 	}

@@ -57,6 +57,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(100,"New")
 	lang_entry(101,"Practice")
 	lang_entry(102,"Search")
+	lang_entry(103,"Recently Added")
 
 	lang_entry(120,"Hiragana/Katakana")
 	lang_entry(121,"Kanji")
@@ -93,7 +94,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(300,"Word not found, would you like to add it?")
 
 	lang_entry(350,"Start")
-	lang_entry(351,"Word Count") //or "Total Word count", or smth else, Im not sure this is clear whether it's for words added or practiced
+	lang_entry(351,"Words") //or "Total Word count", or smth else, Im not sure this is clear whether it's for words added or practiced
 	lang_entry(352,"Practice Runs")
 	lang_entry(353,"Accuracy")//TODO(fran): or "Score" / "Lifetime score"
 	lang_entry(354,"Progress")//TODO(fran): something clearer (progress of what)

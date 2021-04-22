@@ -9,7 +9,7 @@
 #define score_base_msg_addr (WM_USER + 4000)
 #define SC_SETSCORE (score_base_msg_addr+1) /*wparam = float ; lparam = unused*/ /*score should be normalized between 0.0 and 1.0*/ /*IMPORTANT: use f32_to_WPARAM() from the "Helpers" file, casting (eg. (WPARAM).7f) wont work*/
 
-//TODO(fran): we are drawing the full score on the first frame since we ask for repaint on SC_SETSCORE, we should probably ask to start the anim there
+//TODO(fran): BUG: we are drawing the full score on the first frame since we ask for repaint on SC_SETSCORE, we should probably ask to start the anim there
 
 namespace score {
 

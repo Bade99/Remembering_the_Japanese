@@ -549,6 +549,10 @@ static BOOL SetMenuItemString(HMENU hmenu, UINT item, BOOL fByPositon, const cst
 
 //----------------------HWND-----------------------:
 
+#define MyMoveWindow(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y, xywh.w, xywh.h, repaint)
+
+#define MyMoveWindow_offset(wnd,xywh,repaint) MoveWindow(wnd, xywh.x, xywh.y + y_offset, xywh.w, xywh.h, repaint)
+
 static void update_wnd_style(HWND wnd, LONG_PTR new_styles ) {
 	SetWindowLongPtr(wnd, GWL_STYLE, GetWindowLongPtr(wnd, GWL_STYLE) | new_styles);
 }
