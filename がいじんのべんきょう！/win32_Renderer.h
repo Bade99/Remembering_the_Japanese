@@ -529,7 +529,7 @@ namespace urender {
 		Assert(maskres);
 #else
 
-		BITMAP masknfo; GetObject(mask, sizeof(masknfo), &masknfo); Assert(masknfo.bmBitsPixel == 1);
+		BITMAP masknfo; GetObject(scaled_mask, sizeof(masknfo), &masknfo); Assert(masknfo.bmBitsPixel == 1);
 		img mask_img;
 		mask_img.width = masknfo.bmWidth;
 		mask_img.height = masknfo.bmHeight;
@@ -537,7 +537,7 @@ namespace urender {
 		mask_img.pitch = masknfo.bmWidthBytes;
 		int mask_sz = mask_img.height * mask_img.pitch;
 		mask_img.mem = malloc(mask_sz); defer{ free(mask_img.mem); };
-		int getbits = GetBitmapBits(mask, mask_sz, mask_img.mem); Assert(getbits == mask_sz);
+		int getbits = GetBitmapBits(scaled_mask, mask_sz, mask_img.mem); Assert(getbits == mask_sz);
 
 		for (int y = yDest; y < yDest + hDest; y++) {
 			for (int x = xDest; x < xDest + wDest; x++)

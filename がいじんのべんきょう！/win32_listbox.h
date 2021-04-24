@@ -554,7 +554,7 @@ namespace listbox {
 			HWND parent = (HWND)wparam;
 			WORD hittest = LOWORD(lparam);
 			WORD mouse_msg = HIWORD(lparam);
-			return MA_ACTIVATE; //Activate our window and post the mouse msg
+			return MA_NOACTIVATE; //Activate our window and post the mouse msg
 		} break;
 		case WM_LBUTTONDOWN:
 		{

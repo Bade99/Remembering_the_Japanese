@@ -23,6 +23,7 @@
 #include "win32_navbar.h"
 #include "win32_combobox.h"
 #include "win32_べんきょう_embedded.h"
+#include "win32_sizer.h"
 
 #include <string>
 
@@ -40,24 +41,22 @@
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
-//TODO(fran): all pages: I dont know who should be in charge of converting from utf16 to utf8, the backend or front, Im now starting to lean towards the first one, that way we dont have conversion code all over the place, it's centralized in the functions themselves
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
-//TODO(fran): all pages: color templates for set_brushes so I dont have to rewrite it each time I add a control
-//TODO(fran): page landing: renovation: all the buttons it had now go onto the navbar and we can use the landing page to provide useful information to the user, namely the words added the previous day or couple of days, some stats, ...
-//TODO(fran): page landing: make it a 2x2 grid and add a stats button that redirect to a new stats page to put stuff that's in practice page, like "word count" and extra things like a list of last words added
+//TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
+//TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
+	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: extra button 'Add More' that adds the current word and restarts the page so the user can write a new one with no time loss
-//TODO(fran): page practice: everything animated (including things like word_cnt going from 0 to N)
+//TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
-//TODO(fran): page search: add a list of all the learnt words below the searchbox, feed the list via a separate thread
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
-//TODO(fran): page practice_drawing: practice page for kanji via OCR, give the user translation or hiragana and ask them to draw kanji, for now limit it to anki style, the user draws, then presses on 'test' or 'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
+//TODO(fran): page practice_drawing: kanji detection via OCR
+//TODO(fran): page practice_drawing: change button's text to be more similar to anki's style, the user draws, then presses on 'test'/'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar
-//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 
 
 //Leftover IDEAs:
@@ -561,7 +560,7 @@ namespace べんきょう {
 	}
 
 	//Page Search: Searchbox functions
-	void searchbox_free_elements_func(ptr<void*> elements, void* user_extra){
+	void searchbox_func_free_elements(ptr<void*> elements, void* user_extra){
 		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing
 		//for(auto& e : elements) free_any_str(e);
 
@@ -572,7 +571,7 @@ namespace べんきょう {
 		//elements.free(); //NOTE: again, all the elements are allocated continually in memory as an array, so we only need to deallocate the first one and the whole mem section is freed
 	}
 
-	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra);
+	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra);
 
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra);
 
@@ -591,7 +590,7 @@ namespace べんきょう {
 		}
 	}
 
-	void listbox_search_renderfunc(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+	void searchbox_func_listbox_render(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
 		int w = r.w, h = r.h;
 		learnt_word16* txt = (decltype(txt))element;
 
@@ -616,10 +615,10 @@ namespace べんきょう {
 		tempr.left += tempr.w;
 
 		RECT meaning_rc = to_rect(tempr);
-
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, global::colors.ControlTxt, bk_br, urender::txt_align::left, 3);
+		
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 
 	}
 
@@ -788,9 +787,9 @@ namespace べんきょう {
 
 		RECT meaning_rc = to_rect(tempr);
 
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, global::colors.hiragana, bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, brush_for_learnt_word_elem(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
 		//if(*txt->attributes.kanji.str)
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, global::colors.kanji, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, brush_for_learnt_word_elem(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
 		//else {
 		//	rect_i32 kanji_placeholder_rc;
 		//	kanji_placeholder_rc.x = kanji_rc.left;
@@ -806,7 +805,7 @@ namespace べんきょう {
 		//	i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
 		//	RoundRect(dc, kanji_placeholder_rc.x, kanji_placeholder_rc.y, kanji_placeholder_rc.right(), kanji_placeholder_rc.bottom(), roundedness, roundedness);
 		//}
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, global::colors.translation, bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, brush_for_learnt_word_elem(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 	}
 
 	void listbox_recents_func_on_click(void* element, void* user_extra);
@@ -976,11 +975,11 @@ namespace べんきょう {
 			ACC(search, 251);
 			searchbox::set_editbox_theme(search, &search_editoneline_theme);
 			searchbox::set_user_extra(search, state->wnd);
-			searchbox::set_function_free_elements(search, searchbox_free_elements_func);
-			searchbox::set_function_retrieve_search_options(search, searchbox_retrieve_search_options_func);
+			searchbox::set_function_free_elements(search, searchbox_func_free_elements);
+			searchbox::set_function_retrieve_search_options(search, searchbox_func_retrieve_search_options);
 			searchbox::set_function_perform_search(search, searchbox_func_perform_search);
 			searchbox::set_function_show_element_on_editbox(search, searchbox_func_show_on_editbox);
-			searchbox::set_function_render_listbox_element(search, listbox_search_renderfunc);
+			searchbox::set_function_render_listbox_element(search, searchbox_func_listbox_render);
 			searchbox::maintain_placerholder_when_focussed(search, true);
 			edit_oneline::set_IME_wnd(searchbox::get_controls(search).editbox, true);
 			navbar::attach(navbar, search, navbar::attach_point::center, -1);
@@ -1024,7 +1023,7 @@ namespace べんきょう {
 					ProcState* state = get_state((HWND)user_extra);
 					if (state) {
 						HWND listbox = state->controls.landingpage.list.listbox_recents;
-						ShowWindow(listbox, IsWindowVisible(listbox) ? SW_HIDE : SW_SHOW);
+						flip_visibility(listbox);
 						//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
 					}
 				}
@@ -1074,7 +1073,13 @@ namespace べんきょう {
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.list.edit_hiragana, &base_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_hiragana, true);
 			AWDT(controls.list.edit_hiragana, 120);
+
+			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
+			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1082,11 +1087,6 @@ namespace べんきょう {
 			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
-
-			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
-			AWDT(controls.list.edit_kanji, 121);
 
 			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -1109,18 +1109,18 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.search;
 
-			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
+/*			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			ACC(controls.list.searchbox_search, 251);
 			searchbox::set_editbox_theme(controls.list.searchbox_search, &base_editoneline_theme);
 			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
-			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_free_elements_func);
-			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_retrieve_search_options_func);
+			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_func_free_elements);
+			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_func_retrieve_search_options);
 			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
 			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
 			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
 			searchbox::maintain_placerholder_when_focussed(controls.list.searchbox_search, true);
-			edit_oneline::set_IME_wnd(searchbox::get_state(controls.list.searchbox_search)->controls.editbox, true); //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
+			edit_oneline::set_IME_wnd(searchbox::get_state(controls.list.searchbox_search)->controls.editbox, true);*/ //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -1339,28 +1339,29 @@ namespace べんきょう {
 
 	void resize_controls(ProcState* state, ProcState::page page) {
 		RECT r; GetClientRect(state->wnd, &r);
-		int w = RECTWIDTH(r);
-		int h = RECTHEIGHT(r);
-		int half_w = w / 2;
-		int w_pad = (int)((float)w * .05f);//TODO(fran): hard limit for max padding
-		int h_pad = (int)((float)h * .05f);
+		const int w = RECTWIDTH(r);
+		const int h = RECTHEIGHT(r);
+		const int half_w = w / 2;
+		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
+		const int h_pad = (int)((f32)h * .05f);
 		
+		const int wnd_h = (int)((f32)avg_str_dim(global::fonts.General, 1).cy * 1.5f);
+		const int half_wnd_h = wnd_h / 2;
+		const int max_w = w - w_pad * 2;
+
 		{//navbar test
 			rect_i32 navbar;
 			navbar.left = r.left;
 			navbar.top = r.top;
 			navbar.w = w;
-			navbar.h = 35;
-			MoveWindow(state->controls.navbar, navbar.left, navbar.top, navbar.w, navbar.h, FALSE);
+			navbar.h = wnd_h + 5;
+			MyMoveWindow(state->controls.navbar, navbar, FALSE);
 		}
 
 		switch (page) {
 		case ProcState::page::landing:
 		{
 			auto& controls = state->controls.landingpage;
-
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
 
 			int start_y = 0;
 
@@ -1463,16 +1464,99 @@ namespace べんきょう {
 			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
 			auto& controls = state->controls.new_word;
 
-			//int wnd_cnt = ARRAYSIZE(controls.all);
-			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
-#if 0
-			int start_y = (h - (pad_cnt-1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
-#else
-			int start_y = 0;
-#endif
+#if 1
+			HFONT font = (HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
+			//NOTE: fran: language feature request, scope unnamed variables in some way (maybe giving names to a scope so you can tell it in which one to live) so we can do the following:
+			//	jp_sizer{ {&ssizer(edit_hiragana),wnd_h}, {&ssizer(edit_kanji),wnd_h} };
+			//The only way I know to be able to do this is to allocate the variables:
+			//	jp_sizer{ {new ssizer(edit_hiragana),wnd_h}, { new ssizer(edit_kanji),wnd_h} };
+			//why do we have to pay for memory allocation when it's completely unnecesary and simply a sintax limitation, you can simply declare everything beforehand:
+			//	ssizer edit_hiragana{ controls.list.edit_hiragana };
+			//	ssizer edit_kanji{ controls.list.edit_kanji };
+			//	vsizer jp_sizer{ {&edit_hiragana,wnd_h}, {&edit_kanji,wnd_h} };
+			//but now you need to give everything a name and your code becomes more bloated and confusing
+			//it'd much rather do:
+			//	jp_sizer{ {&(scope new_word)ssizer(edit_hiragana),wnd_h}, {&(scope new_word)ssizer(edit_kanji),wnd_h} };
+
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer edit_hiragana{ controls.list.edit_hiragana };
+			ssizer edit_kanji{ controls.list.edit_kanji };
+			vsizer jp_sizer{ 
+				{&edit_hiragana,wnd_h},
+				{&lvpad,half_wnd_h}, 
+				{&edit_kanji,wnd_h} };
+
+			ssizer combo_lexical_category{controls.list.combo_lexical_category};
+			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			ssizer edit_translation{ controls.list.edit_translation };
+			ssizer edit_mnemonic{ controls.list.edit_mnemonic };
+			ssizer btn_save{ controls.list.button_save };
+			hrsizer save{ {&btn_save,avg_str_dim(font, 10).cx} };
+			vsizer meaning_sizer{ 
+				{&lexical_category,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_translation,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_mnemonic,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&save,wnd_h} };
+
+
+			hsizer layout{ 
+				{(sizer*)&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{(sizer*)&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)} };
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			auto val = layout.get_bottom(layout_rc);
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y)/2;
+			layout.resize(layout_rc);
+
+#elif 0
+			HFONT font = (HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0);
+
+			SIZE layout = avg_str_dim(font, 100);
+			layout.cx = minimum((int)layout.cx, max_w);
+
+			vsizer jp_sizer{ {controls.list.edit_hiragana,wnd_h}, {0,h_pad / 2}, {controls.list.edit_kanji,wnd_h} };
+
+			rect_i32 jp;
+			jp.w = (int)(.4f * (f32)layout.cx);
+			jp.h = 0;
+			jp.y = h_pad;
+			jp.x = (w - layout.cx) / 2;
+			jp_sizer.set_dimensions(jp);
+
+			vsizer meaning_sizer{ {controls.list.combo_lexical_category,wnd_h},{0,h_pad/2}/*Quick HACK*/, {controls.list.edit_translation,wnd_h}, {0,h_pad / 2}, {controls.list.edit_mnemonic,wnd_h} };
+
+			rect_i32 meaning;
+			meaning.w = (int)(.6f * (f32)layout.cx);
+			meaning.h = 0;
+			meaning.y = jp.y;
+			meaning.x = jp.right();
+			meaning_sizer.set_dimensions(meaning);
+
+			jp_sizer.resize();
+			POINT meaning_bottomright = meaning_sizer.resize();
+
+			rect_i32 btn_save;
+			btn_save.w = avg_str_dim(font, 10).cx;
+			btn_save.h = wnd_h;
+			btn_save.y = meaning_bottomright.y + h_pad;
+			btn_save.x = meaning_bottomright.x - btn_save.w;
+			MyMoveWindow(controls.list.button_save, btn_save, FALSE);
+
+#elif 0
+			int start_y = 0;
 			rect_i32 edit_hiragana;
 			edit_hiragana.y = start_y;
 			edit_hiragana.h = wnd_h;
@@ -1520,26 +1604,13 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.list.edit_translation, edit_translation, FALSE);
 			MyMoveWindow_offset(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
 			MyMoveWindow_offset(controls.list.button_save, btn_save, FALSE);
-
+#endif
 		} break;
 		case ProcState::page::practice: 
 		{
 			auto& controls = state->controls.practice;
 
-			//Stats first, then start button
-			//For stats I imagine a 2x2 "grid":	first row has "word count" and "times practiced"
-			//									second row has "score" and a chart of accuracy for last 30 days for example
-
-
-			//int wnd_cnt = ARRAYSIZE(controls.all);
-			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
-#if 0
-			int start_y = (h - (pad_cnt) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): not good, what we want is the total height of all windows combined, an use that to center correctly, eg start_y = (h-total_h)/2; and we offset everything by start_y at the end
-#else
 			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
-#endif
 
 			rect_i32 button_start;
 			button_start.y = start_y + h_pad;
@@ -1560,8 +1631,6 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.practice_writing;
 
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
 			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
 
@@ -1610,8 +1679,6 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.practice_multiplechoice;
 
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
 			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
 
@@ -1666,8 +1733,6 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.practice_drawing;
 
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
 			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
 
@@ -1739,9 +1804,7 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.review_practice;
 
-			int wnd_h = 30;
 			int bigwnd_h = wnd_h * 3;
-			int max_w = w - w_pad * 2;
 			int start_y = 0;
 
 			rect_i32 static_review;
@@ -1798,15 +1861,14 @@ namespace べんきょう {
 		} break;
 		case ProcState::page::search: 
 		{
+#if 0
 			auto& controls = state->controls.search;
-			int wnd_h = 30;
-			int max_w = w - w_pad * 2;
 
-			//rect_i32 cb_search;
-			//cb_search.x = w_pad;
-			//cb_search.y = h_pad;
-			//cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
-			//cb_search.w = max_w;
+			rect_i32 cb_search;
+			cb_search.x = w_pad;
+			cb_search.y = h_pad;
+			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
+			cb_search.w = max_w;
 
 			rect_i32 searchbox_search;
 			searchbox_search.w = max_w;
@@ -1817,7 +1879,7 @@ namespace べんきょう {
 			//MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
 			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
 			searchbox::set_listbox_dimensions(controls.list.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
-
+#endif
 		} break;
 		case ProcState::page::show_word: 
 		{
@@ -1827,8 +1889,6 @@ namespace べんきょう {
 
 			//int wnd_cnt = ARRAYSIZE(controls.all) - 2;//subtract the controls that go next to one another
 			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
-			int max_w = w - w_pad * 2;
-			int wnd_h = 30;
 			int bigwnd_h = wnd_h * 4;
 #if 0
 			int start_y = (h - (pad_cnt - 1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
@@ -2464,7 +2524,8 @@ namespace べんきょう {
 
 	void set_default_focus(ProcState* state, ProcState::page p) {
 		switch (p) {
-		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it //HACK?
+		case decltype(p)::new_word:SetFocus(state->controls.new_word.list.edit_hiragana); break;
+		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it
 		case decltype(p)::search: SetFocus(state->controls.search.list.searchbox_search); break;
 		case decltype(p)::practice_writing: SetFocus(state->controls.practice_writing.list.edit_answer); break;
 
@@ -2544,7 +2605,7 @@ namespace べんきょう {
 		PostMessage(state->nc_parent, WM_SHOWBACKBTN, TRUE, 0);//show the back button
 	}
 
-	ptr<void*> searchbox_retrieve_search_options_func(utf16_str user_input, void* user_extra) {
+	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra) {
 		ptr<void*> res{ 0 };
 		ProcState* state = get_state((HWND)user_extra);
 		if (state && user_input.sz) {

@@ -40,6 +40,16 @@
 //#define _DELETE_DB
 #endif
 
+#ifdef NDEBUG //No printf on Release version 
+//TODO(fran): we need three versions: debug, optimized, release. and only enable this condition on release (optimized should be exactly the same as release but have some extra debugging)
+#include <stdio.h>
+#define printf(...) 
+//#define dprintf(...) printf(__VA_ARGS__)
+//#else
+//#define dprintf(...) 
+#endif
+
+
 //---------------------Includes----------------------:
 #include "windows_sdk.h"
 #include <Shlwapi.h> //StrCpyNW
