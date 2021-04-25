@@ -47,6 +47,7 @@
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
+//TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page new_word: extra button 'Add More' that adds the current word and restarts the page so the user can write a new one with no time loss
@@ -85,6 +86,7 @@ enum lexical_category { //this value is stored on the db
 	conjunction, //and, or, but, ...
 	pronoun,
 	counter,
+	particle
 };
 str lexical_category_to_str(lexical_category cat) {
 	return RS(200 + cat); //NOTE: dont_care should never be shown
@@ -103,6 +105,7 @@ void lexical_category_setup_combobox(HWND cb) {
 	ACT(cb, lexical_category::conjunction, lexical_category_str_lang_id(lexical_category::conjunction));
 	ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
 	ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
+	ACT(cb, lexical_category::particle, lexical_category_str_lang_id(lexical_category::particle));
 }
 
 //Structures for different practice levels
@@ -985,8 +988,6 @@ namespace べんきょう {
 			navbar::attach(navbar, search, navbar::attach_point::center, -1);
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
-
-
 			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			languages_setup_combobox(combo_lang);
@@ -1462,14 +1463,13 @@ namespace べんきょう {
 		case ProcState::page::new_word:
 		{
 			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
-			auto& controls = state->controls.new_word;
+			auto& controls = state->controls.new_word.list;
 
-#if 1
-			HFONT font = (HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0);
+			HFONT font = GetWindowFont(controls.edit_hiragana);
 			SIZE layout_bounds = avg_str_dim(font, 100);
 			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			//NOTE: fran: language feature request, scope unnamed variables in some way (maybe giving names to a scope so you can tell it in which one to live) so we can do the following:
+			//IMPORTANT: fran: language feature request, scope unnamed variables in some way (maybe giving names to a scope so you can tell it in which one to live) so we can do the following:
 			//	jp_sizer{ {&ssizer(edit_hiragana),wnd_h}, {&ssizer(edit_kanji),wnd_h} };
 			//The only way I know to be able to do this is to allocate the variables:
 			//	jp_sizer{ {new ssizer(edit_hiragana),wnd_h}, { new ssizer(edit_kanji),wnd_h} };
@@ -1484,18 +1484,18 @@ namespace べんきょう {
 			hpsizer lhpad{};
 			vpsizer lvpad{};
 
-			ssizer edit_hiragana{ controls.list.edit_hiragana };
-			ssizer edit_kanji{ controls.list.edit_kanji };
+			ssizer edit_hiragana{ controls.edit_hiragana };
+			ssizer edit_kanji{ controls.edit_kanji };
 			vsizer jp_sizer{ 
 				{&edit_hiragana,wnd_h},
 				{&lvpad,half_wnd_h}, 
 				{&edit_kanji,wnd_h} };
 
-			ssizer combo_lexical_category{controls.list.combo_lexical_category};
+			ssizer combo_lexical_category{controls.combo_lexical_category};
 			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
-			ssizer edit_translation{ controls.list.edit_translation };
-			ssizer edit_mnemonic{ controls.list.edit_mnemonic };
-			ssizer btn_save{ controls.list.button_save };
+			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			ssizer btn_save{ controls.button_save };
 			hrsizer save{ {&btn_save,avg_str_dim(font, 10).cx} };
 			vsizer meaning_sizer{ 
 				{&lexical_category,wnd_h},
@@ -1508,103 +1508,18 @@ namespace べんきょう {
 
 
 			hsizer layout{ 
-				{(sizer*)&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
+				{&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
 				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
-				{(sizer*)&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)} };
+				{&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)} };
 
 			rect_i32 layout_rc;
 			layout_rc.w = layout_bounds.cx;
 			layout_rc.y = 0;
 			layout_rc.h = h;
 			layout_rc.x = (w - layout_rc.w) / 2;
-			auto val = layout.get_bottom(layout_rc);
 			layout_rc.y = (h - layout.get_bottom(layout_rc).y)/2;
 			layout.resize(layout_rc);
 
-#elif 0
-			HFONT font = (HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0);
-
-			SIZE layout = avg_str_dim(font, 100);
-			layout.cx = minimum((int)layout.cx, max_w);
-
-			vsizer jp_sizer{ {controls.list.edit_hiragana,wnd_h}, {0,h_pad / 2}, {controls.list.edit_kanji,wnd_h} };
-
-			rect_i32 jp;
-			jp.w = (int)(.4f * (f32)layout.cx);
-			jp.h = 0;
-			jp.y = h_pad;
-			jp.x = (w - layout.cx) / 2;
-			jp_sizer.set_dimensions(jp);
-
-			vsizer meaning_sizer{ {controls.list.combo_lexical_category,wnd_h},{0,h_pad/2}/*Quick HACK*/, {controls.list.edit_translation,wnd_h}, {0,h_pad / 2}, {controls.list.edit_mnemonic,wnd_h} };
-
-			rect_i32 meaning;
-			meaning.w = (int)(.6f * (f32)layout.cx);
-			meaning.h = 0;
-			meaning.y = jp.y;
-			meaning.x = jp.right();
-			meaning_sizer.set_dimensions(meaning);
-
-			jp_sizer.resize();
-			POINT meaning_bottomright = meaning_sizer.resize();
-
-			rect_i32 btn_save;
-			btn_save.w = avg_str_dim(font, 10).cx;
-			btn_save.h = wnd_h;
-			btn_save.y = meaning_bottomright.y + h_pad;
-			btn_save.x = meaning_bottomright.x - btn_save.w;
-			MyMoveWindow(controls.list.button_save, btn_save, FALSE);
-
-#elif 0
-			int start_y = 0;
-			rect_i32 edit_hiragana;
-			edit_hiragana.y = start_y;
-			edit_hiragana.h = wnd_h;
-			edit_hiragana.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_hiragana, WM_GETFONT, 0, 0), 30).cx);
-			edit_hiragana.x = (w- edit_hiragana.w)/2;
-
-			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = (i32)((f32)edit_hiragana.w * .7f);
-			cb_lex_categ.x = (w- cb_lex_categ.w)/2;//TODO(fran): placement doesnt look too natural nor good; maybe if I centered the text of the cb?
-			cb_lex_categ.y = edit_hiragana.bottom() + h_pad/2;
-			cb_lex_categ.h = edit_hiragana.h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
-			
-			rect_i32 edit_kanji;
-			edit_kanji.y = cb_lex_categ.bottom() + h_pad/2;
-			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
-			edit_kanji.h = wnd_h;
-			edit_kanji.x = (w- edit_kanji.w)/2;
-
-			rect_i32 edit_translation;
-			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_translation, WM_GETFONT, 0, 0), 30).cx);
-			edit_translation.h = wnd_h;
-			edit_translation.x = (w- edit_translation.w)/2;
-
-			rect_i32 edit_mnemonic;
-			edit_mnemonic.y = edit_translation.bottom() + h_pad;
-			edit_mnemonic.w = max_w;
-			edit_mnemonic.h = wnd_h;
-			edit_mnemonic.x = (w- edit_mnemonic.w)/2;
-
-			rect_i32 btn_save;
-			btn_save.w = 70;
-			btn_save.h = wnd_h;
-			btn_save.y = edit_mnemonic.bottom() + h_pad;
-			btn_save.x = (w - btn_save.w) / 2;
-
-			rect_i32 bottom_most_control = btn_save;
-
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.list.edit_hiragana, edit_hiragana, FALSE);
-			MyMoveWindow_offset(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
-			MyMoveWindow_offset(controls.list.edit_kanji, edit_kanji, FALSE);
-			MyMoveWindow_offset(controls.list.edit_translation, edit_translation, FALSE);
-			MyMoveWindow_offset(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
-			MyMoveWindow_offset(controls.list.button_save, btn_save, FALSE);
-#endif
 		} break;
 		case ProcState::page::practice: 
 		{
@@ -1639,11 +1554,11 @@ namespace べんきょう {
 			static_test_word.h = bigwnd_h;
 			static_test_word.w = w;
 			static_test_word.x = (w - static_test_word.w)/2;
-
+			
 			rect_i32 edit_answer;
 			edit_answer.y = static_test_word.bottom() + h_pad;
 			edit_answer.h = wnd_h;
-			edit_answer.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_answer, WM_GETFONT, 0, 0), 20).cx);
+			edit_answer.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.edit_answer), 20).cx);
 			edit_answer.x = (w - edit_answer.w) / 2;
 
 			rect_i32 button_next;//child inside edit_answer
@@ -1883,18 +1798,91 @@ namespace べんきょう {
 		} break;
 		case ProcState::page::show_word: 
 		{
-			auto& controls = state->controls.show_word;
+			auto& controls = state->controls.show_word.list;
 
-			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned, non user editable controls go below the rest
+#if 1
+			HFONT font = GetWindowFont(controls.edit_translation);
+			int bigwnd_h = wnd_h * 2;
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			//int wnd_cnt = ARRAYSIZE(controls.all) - 2;//subtract the controls that go next to one another
-			//int pad_cnt = wnd_cnt - 1 + 2; //+2 for bottom and top, wnd_cnt-1 to put a pad in between each control
-			int bigwnd_h = wnd_h * 4;
-#if 0
-			int start_y = (h - (pad_cnt - 1 /*we only have 1 real pad for lex_categ*/) * h_pad - wnd_cnt * wnd_h) / 2;//TODO(fran): centering aint quite right
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer static_hiragana{ controls.static_hiragana };
+			ssizer edit_kanji{ controls.edit_kanji };
+			vsizer jp_sizer{
+				{&static_hiragana,bigwnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_kanji,bigwnd_h}, //TODO(fran): text editor needs to adapt to font size changing
+			};
+
+			ssizer combo_lexical_category{ controls.combo_lexical_category };
+			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			vsizer meaning_sizer{
+				{&lexical_category,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_translation,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_mnemonic,wnd_h},
+			};
+
+			hsizer word_info{
+				{(sizer*)&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{(sizer*)&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)}
+			};
+
+			ssizer static_creation_date{ controls.static_creation_date };
+			ssizer static_last_shown_date{ controls.static_last_shown_date };
+			vsizer left_stats{ 
+				{&static_creation_date,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&static_last_shown_date,wnd_h},
+			};//TODO(fran): vcsizer
+
+			ssizer static_score{ controls.static_score };
+			vsizer right_stats{ {&static_score,wnd_h} };
+
+			hsizer word_stats{ 
+				{&left_stats,(int)(.45f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{&right_stats,(int)(.45f * (f32)layout_bounds.cx)},
+			};
+
+			ssizer button_delete{ controls.button_delete };
+			ssizer button_remember{ controls.button_remember };
+			ssizer button_modify{ controls.button_modify };
+
+			hrsizer buttons{
+				{&button_modify,GetWindowDesiredSize(button_modify.wnd,{200,200},{200,200}).max.cx},
+				{&lhpad,half_wnd_h},
+				{&button_remember,GetWindowDesiredSize(button_remember.wnd,{200,200},{200,200}).max.cx},
+				{&lhpad,half_wnd_h},
+				{&button_delete,GetWindowDesiredSize(button_delete.wnd,{200,200},{200,200}).max.cx},
+			};//TODO(fran): idk whether I want to reverse the order for hrsizer, so that the first wnd added is leftmost
+
+			vsizer layout{
+				{&word_info,word_info.get_bottom({0,0,layout_bounds.cx,h}).y},
+				{&lhpad,wnd_h},
+				{&word_stats,wnd_h*3},
+				{&lhpad,wnd_h},
+				{&buttons,wnd_h},
+			};
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+			layout.resize(layout_rc);
+
 #else
+			int bigwnd_h = wnd_h * 4;
 			int start_y = 0;
-#endif
 
 			rect_i32 static_hiragana;
 			static_hiragana.x = w_pad;
@@ -1903,7 +1891,7 @@ namespace べんきょう {
 			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
 
 			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
+			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
 #if 0
 			cb_lex_categ.x = min( w - w_pad - cb_lex_categ.w, w/2 + cb_lex_categ.w);//TODO(fran): doesnt look good, maybe just center it
 #else
@@ -1914,13 +1902,13 @@ namespace べんきょう {
 
 			rect_i32 edit_kanji;
 			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
-			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
+			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
 			edit_kanji.x = (w- edit_kanji.w)/2;
 			edit_kanji.h = wnd_h;
 
 			rect_i32 edit_translation;
 			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.list.edit_translation, WM_GETFONT, 0, 0), 30).cx);
+			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_translation, WM_GETFONT, 0, 0), 30).cx);
 			edit_translation.x = (w - edit_translation.w) / 2;
 			edit_translation.h = wnd_h;
 
@@ -1933,7 +1921,7 @@ namespace べんきょう {
 			rect_i32 last_user = edit_mnemonic;
 
 			auto stats_grid = create_grid_2x2(
-				wnd_h, avg_str_dim((HFONT)SendMessage(controls.list.static_creation_date, WM_GETFONT, 0, 0), 25).cx
+				wnd_h, avg_str_dim((HFONT)SendMessage(controls.static_creation_date, WM_GETFONT, 0, 0), 25).cx
 				, last_user.bottom() + h_pad, w_pad/2, h_pad/2, max_w, w);
 
 			rect_i32 static_creation_date = stats_grid[0][0];
@@ -1972,20 +1960,20 @@ namespace べんきょう {
 			int used_h = bottom_most_control.bottom();
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
-			MyMoveWindow_offset(controls.list.static_hiragana, static_hiragana, FALSE);
-			MyMoveWindow_offset(controls.list.combo_lexical_category, cb_lex_categ, FALSE);
-			MyMoveWindow_offset(controls.list.edit_kanji, edit_kanji, FALSE);
-			MyMoveWindow_offset(controls.list.edit_translation, edit_translation, FALSE);
-			MyMoveWindow_offset(controls.list.edit_mnemonic, edit_mnemonic, FALSE);
+			MyMoveWindow_offset(controls.static_hiragana, static_hiragana, FALSE);
+			MyMoveWindow_offset(controls.combo_lexical_category, cb_lex_categ, FALSE);
+			MyMoveWindow_offset(controls.edit_kanji, edit_kanji, FALSE);
+			MyMoveWindow_offset(controls.edit_translation, edit_translation, FALSE);
+			MyMoveWindow_offset(controls.edit_mnemonic, edit_mnemonic, FALSE);
 
 			//Dates one next to the other, the same for times_... related objs
-			MyMoveWindow_offset(controls.list.static_creation_date, static_creation_date, FALSE);
-			MyMoveWindow_offset(controls.list.static_last_shown_date, static_last_shown_date, FALSE);
-			MyMoveWindow_offset(controls.list.static_score, static_score, FALSE);
-			MyMoveWindow_offset(controls.list.button_modify, btn_modify, FALSE);
-			MyMoveWindow_offset(controls.list.button_remember, btn_remember, FALSE);
-			MyMoveWindow_offset(controls.list.button_delete, btn_delete, FALSE);
-
+			MyMoveWindow_offset(controls.static_creation_date, static_creation_date, FALSE);
+			MyMoveWindow_offset(controls.static_last_shown_date, static_last_shown_date, FALSE);
+			MyMoveWindow_offset(controls.static_score, static_score, FALSE);
+			MyMoveWindow_offset(controls.button_modify, btn_modify, FALSE);
+			MyMoveWindow_offset(controls.button_remember, btn_remember, FALSE);
+			MyMoveWindow_offset(controls.button_delete, btn_delete, FALSE);
+#endif
 		} break;
 		case ProcState::page::review_practice_writing:
 		{
@@ -2185,38 +2173,44 @@ namespace べんきょう {
 
 			str answer_hiragana{ L"こたえ" };
 
+			bool show_ime_suggestions = true;
+
 			switch (practice->practice_type) {
 			case decltype(practice->practice_type)::hiragana_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.hiragana.str;
-				test_word_br = global::colors.hiragana;
+				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
 				//TODO(fran): idk if I should put "translation" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
 				answer_placeholder = RS(380);
-				answer_br = global::colors.translation;
+				answer_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
 			} break;
 			case decltype(practice->practice_type)::kanji_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = global::colors.kanji;
+				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::kanji);
 
 				answer_placeholder = answer_hiragana;
-				answer_br = global::colors.hiragana;
+				answer_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
+
+				show_ime_suggestions = false;
 			} break;
 			case decltype(practice->practice_type)::kanji_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = global::colors.kanji;
+				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::kanji);
 
 				answer_placeholder = RS(380);
-				answer_br = global::colors.translation;
+				answer_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
 			} break;
 			case decltype(practice->practice_type)::translation_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.translation.str;
-				test_word_br = global::colors.translation;
+				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
 
 				answer_placeholder = answer_hiragana;
-				answer_br = global::colors.hiragana;
+				answer_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
+
+				show_ime_suggestions = false;
 			} break;
 			default:Assert(0);
 			}
@@ -2239,6 +2233,7 @@ namespace べんきょう {
 
 			SendMessageW(controls.list.edit_answer, WM_SETDEFAULTTEXT, 0, (LPARAM)answer_placeholder.c_str());
 			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_answer,true);
+			edit_oneline::set_IME_wnd(controls.list.edit_answer, !show_ime_suggestions);
 
 			button::Theme btn_theme;
 			btn_theme.brushes.bk.normal = global::colors.ControlBk;

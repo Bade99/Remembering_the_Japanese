@@ -267,6 +267,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 	return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
+#if 0
 //INFO: only use for CBS_DROPDOWN comboboxes
 LRESULT CALLBACK TESTComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
 	//{ static int msg_count; printf("TEST Combo: %d : ", msg_count++); printf(msgToString(msg)); printf("\n"); }
@@ -331,3 +332,4 @@ void COMBOBOX_clear_list_items(HWND cb) {
 		SendMessageW(cb, CB_DELETESTRING, 0, 0);
 	}
 }
+#endif

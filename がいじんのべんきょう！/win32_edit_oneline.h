@@ -434,6 +434,7 @@ namespace edit_oneline{
 		}
 	}
 
+	//TODO(fran): the fact that true is hidden and false is shown is very unintuitive and prone to error, reverse it
 	void set_IME_wnd(HWND wnd, bool hidden) {
 		ProcState* state = get_state(wnd);
 		if (state) {

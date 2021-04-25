@@ -172,41 +172,47 @@ struct hrsizer : sizer {
 	}
 };
 
-//TODO(fran): we need two extra msgs to be sendeable to any HWND, WM_H_FOR_W (we provide a height you tell us how wide you need to be) and WM_W_FOR_H (we provide a width you tell us how high you need to be)
+//horizontal center aligned sizer, wnds will be placed centered relative to the requested rc
+struct hcsizer : sizer {
+	//rect_i32 rc;
+	//NOTE: int value represents new width of the wnd
+	std::vector<std::pair<sizer*, i32>> wnds;
 
-//TODO(fran): I need sizers to be able to contain sizers inside, for this we need to move to them actually also being HWNDs, or we could go the other way, put single HWNDs into sizers
+	hcsizer(std::initializer_list<std::pair<sizer*, i32>> l) : wnds(l){}
 
-
-
-/*
-struct vsizer {
-	rect_i32 rc;
-	//NOTE: int value represents new height of the wnd
-	std::vector<std::pair<HWND, int>> wnds;
-
-	vsizer(std::initializer_list<std::pair<HWND, int>> l) : wnds(l), rc{0} { if (l.size()) resize(); }
-
-	vsizer& set_dimensions(rect_i32 _rc) { rc = _rc; return *this; }
 	//void add_wnd(HWND wnd) { wnds.push_back(wnd); resize(); }//TODO(fran): adding at index, and adding _after_ some already present HWND
 	//void remove_wnd(HWND wnd) { wnds.erase(std::remove(wnds.begin(), wnds.end(), wnd), wnds.end()); resize(); }
 
-#define _vsizer_resize(do_resize) \
-	POINT xy = {rc.x,rc.y}; \
+//TODO(fran): we can optimize the !do_resize path by returning right after the first for loop
+#define _hcsizer_resize(do_resize) \
+	i32 total_w=0; \
 	for (auto wnd : wnds) { \
-		int w = rc.w, h = wnd.second; \
-		if constexpr(do_resize) MoveWindow(wnd.first, xy.x, xy.y, w, h, FALSE); \
-		xy.y += h; \
+		int w = wnd.second, h = rc.h; \
+		rect_i32 newr{0,0,w,h}; \
+		total_w += wnd.first->get_bottom(newr).x; \
 	} \
-	xy.x = rc.right(); \
+	POINT xy = {rc.x + (rc.w-total_w)/2,rc.y}; \
+	for (auto wnd : wnds) { \
+		int w = wnd.second, h = rc.h; \
+		rect_i32 newr{ xy.x,xy.y,w,h }; \
+		if constexpr (do_resize) wnd.first->resize(newr); \
+		xy.x += w; \
+	} \
+	xy.y = rc.bottom(); \
 	return xy; \
 
 	//calculates bottom-right point of the bottommost wnd if a resize was made
-	POINT get_bottom() {
-		_vsizer_resize(false);
+	POINT get_bottom(rect_i32 rc) override {
+		_hcsizer_resize(false);
 	}
 	//returns bottom-right point of the bottommost wnd resized
-	POINT resize() {
-		_vsizer_resize(true);
+	POINT resize(rect_i32 rc) override {
+		_hcsizer_resize(true);
 	}
 };
-*/
+
+//TODO(fran): hcsizer and vcsizer (center aligned resizers, all its controls will be placed centered relative to the requested rc dimensions)
+
+//TODO(fran): we need two extra msgs to be sendeable to any HWND, WM_H_FOR_W (we provide a height you tell us how wide you need to be) and WM_W_FOR_H (we provide a width you tell us how high you need to be)
+
+//TODO(fran): I need sizers to be able to contain sizers inside, for this we need to move to them actually also being HWNDs, or we could go the other way, put single HWNDs into sizers

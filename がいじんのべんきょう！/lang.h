@@ -76,6 +76,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(205,"Conjunction")
 	lang_entry(206,"Pronoun")
 	lang_entry(207,"Counter")
+	lang_entry(208,"Particle")
 
 	lang_entry(250,"Search Hiragana")
 	lang_entry(251,"Search . . .")
@@ -86,8 +87,8 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(272,"Score:")
 	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
 	lang_entry(274,"Never")
-	lang_entry(275,"Prioritize") //TODO(fran): better name
-	lang_entry(276,"Word will be shown more often on practices") //TODO(fran): better explanation
+	lang_entry(275,"Remember Me") //TODO(fran): better name
+	lang_entry(276,"This word will be shown more often on practices") //TODO(fran): better explanation
 	lang_entry(280,"Confirm deletion?")
 
 	//TODO(fran): get fmt and change Word to %1 (would probably generate a security vulnerability?)

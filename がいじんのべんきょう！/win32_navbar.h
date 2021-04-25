@@ -139,7 +139,7 @@ namespace navbar {
 	void resize_controls(ProcState* state) {
 		//TODO(fran): take into account spacing, or simply have the user insert HWND spacers. also should we add spacing on the leftmost and rightmost part of the wnd?
 		struct minmaxsz { SIZE min, max; };
-		enum desired_size : u32{dontcare=0,flexible,fixed};
+		
 		struct mmds { SIZE min, max; desired_size flexibility; };
 
 		constexpr int region_cnt = ARRAYSIZE(state->controls.all);

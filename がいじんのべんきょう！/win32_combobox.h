@@ -27,6 +27,8 @@
 
 
 //TODO(fran): I could provide default functionality for some things via always having all the functions set to my defaults, when the user changes them we use theirs, if they removed it we use ours, this also removes the branching inefficiency of having to check for valid function pointers before every call
+//TODO(fran): provide element index in rendering functions
+//TODO(fran): provide a way to store the default text, maybe a user definable function that receives the str provided by wm_setdefaulttext and decides how to store and free it. we could use index ((size_t)-1) to let the user know when it's the default text
 
 namespace combobox {
 

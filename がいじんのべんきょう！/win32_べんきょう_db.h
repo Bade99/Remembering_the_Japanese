@@ -778,6 +778,14 @@ namespace べんきょう {
 
 			//TODO(fran): idk if checking for "if not exists" is still necessary
 
+			//PRAGMA //TODO(fran): add separate apply_pragmas() function?
+			{
+				utf8 pragma_encoding[] = SQL(PRAGMA encoding = 'UTF-8';);//default encoding for db must be utf8
+				sqlite3_exec(db, pragma_encoding, 0, 0, &errmsg);
+				sqlite_exec_runtime_check(errmsg);
+			}
+
+
 			//CREATE
 			{
 				utf8 create_version_table[] = SQL(
