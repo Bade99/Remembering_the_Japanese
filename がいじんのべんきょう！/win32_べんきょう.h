@@ -24,6 +24,7 @@
 #include "win32_combobox.h"
 #include "win32_べんきょう_embedded.h"
 #include "win32_sizer.h"
+#include "win32_notify.h"
 
 #include <string>
 
@@ -39,14 +40,12 @@
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
-//TODO(fran): all pages: hiragana text must always be rendered in the violet color I use in my notes, and the translation in my red, for kanji I dont yet know
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
 //TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
-//TODO(fran): page show_word: restructure to have a look more similar to jisho.org's with kanji & hiragana on the left and a list of meanings & lexical categories on the right
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
@@ -56,8 +55,7 @@
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): page practice_drawing: change button's text to be more similar to anki's style, the user draws, then presses on 'test'/'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
-//TODO(fran): practice_drawing: explain in some subtle way that we want the user to draw kanji? I'd say it's pretty obvious that if we ask you to draw it's not gonna be your language nor hiragana
-//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar
+//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 
 
 //Leftover IDEAs:
@@ -120,7 +118,7 @@ struct practice_writing_word {
 	}practice_type;
 };
 
-HBRUSH brush_for_learnt_word_elem(learnt_word_elem type) {
+HBRUSH brush_for(learnt_word_elem type) {
 	HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
 	switch (type) {
 	case decltype(type)::hiragana: {
@@ -289,6 +287,7 @@ struct べんきょうProcState {
 				//TODO(fran): here you should be able to add more than one translation
 				//TODO(fran): type edit_notes
 				type button_save;
+				type static_notify;
 			}list;
 			type all[sizeof(list) / sizeof(type)];
 		} new_word;
@@ -619,9 +618,9 @@ namespace べんきょう {
 
 		RECT meaning_rc = to_rect(tempr);
 		
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, brush_for_learnt_word_elem(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 
 	}
 
@@ -757,8 +756,6 @@ namespace べんきょう {
 		return 2;
 	}
 
-	void button_new_func_on_click(void* element, void* user_extra);
-	
 	void button_practice_func_on_click(void* element, void* user_extra);
 
 
@@ -790,9 +787,9 @@ namespace べんきょう {
 
 		RECT meaning_rc = to_rect(tempr);
 
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, brush_for_learnt_word_elem(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
 		//if(*txt->attributes.kanji.str)
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, brush_for_learnt_word_elem(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
 		//else {
 		//	rect_i32 kanji_placeholder_rc;
 		//	kanji_placeholder_rc.x = kanji_rc.left;
@@ -808,7 +805,7 @@ namespace べんきょう {
 		//	i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
 		//	RoundRect(dc, kanji_placeholder_rc.x, kanji_placeholder_rc.y, kanji_placeholder_rc.right(), kanji_placeholder_rc.bottom(), roundedness, roundedness);
 		//}
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, brush_for_learnt_word_elem(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 	}
 
 	void listbox_recents_func_on_click(void* element, void* user_extra);
@@ -888,1113 +885,6 @@ namespace べんきょう {
 
 			DrawTextW(dc, txt, len, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 		}
-	}
-
-	void add_controls(ProcState* state) {
-		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
-		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
-		button::Theme base_btn_theme;
-		base_btn_theme.dimensions.border_thickness = 1;
-		base_btn_theme.brushes.bk.normal    = global::colors.ControlBk;
-		base_btn_theme.brushes.bk.disabled  = global::colors.ControlBk_Disabled;
-		base_btn_theme.brushes.bk.clicked   = global::colors.ControlBkPush;
-		base_btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
-		base_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
-		base_btn_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
-		base_btn_theme.brushes.border.normal = global::colors.Img;//TODO(fran): global::colors.ControlBorder
-		//TODO(fran): use the extra brushes, fore_push,... , border_mouseover,...
-
-		button::Theme img_btn_theme = base_btn_theme;
-		img_btn_theme.brushes.foreground.normal = global::colors.Img;
-
-		button::Theme accent_btn_theme = base_btn_theme;
-		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
-		accent_btn_theme.brushes.border.normal = global::colors.Accent;
-		
-		navbar::Theme nav_theme;
-		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
-		nav_theme.dimensions.spacing = 3;
-
-		button::Theme navbar_btn_theme = base_btn_theme;
-		navbar_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
-		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
-
-		button::Theme dark_btn_theme = base_btn_theme;
-		dark_btn_theme.brushes.bk.normal = global::colors.CaptionBk;
-
-		embedded::show_word_reduced::Theme eswr_theme;
-		brush_group eswr_bk, eswr_txt, eswr_border;
-		eswr_bk.normal = global::colors.ControlBk;
-		eswr_txt.normal = global::colors.ControlTxt;
-		eswr_border.normal = global::colors.ControlTxt;
-		eswr_theme.font = global::fonts.General;
-		eswr_theme.dimensions.border_thickness = 1;
-		eswr_theme.brushes.bk = eswr_bk;
-		eswr_theme.brushes.txt = eswr_txt;
-		eswr_theme.brushes.border = eswr_border;
-
-		edit_oneline::Theme base_editoneline_theme;
-		base_editoneline_theme.dimensions.border_thickness = 1;
-		base_editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
-		base_editoneline_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
-		base_editoneline_theme.brushes.bk.normal = global::colors.ControlBk;
-		base_editoneline_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
-		base_editoneline_theme.brushes.border.normal = global::colors.Img;
-		base_editoneline_theme.brushes.border.disabled = global::colors.Img_Disabled;
-		base_editoneline_theme.brushes.selection.normal = global::colors.Selection;
-		base_editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
-
-		//---------------------Header & Footer----------------------:
-		auto& navbar = state->controls.navbar;
-		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
-			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		navbar::set_theme(navbar, &nav_theme);
-
-		{//navbar test
-			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
-				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			AWT(button_new, 100);
-			button::set_theme(button_new, &navbar_btn_theme);
-			button::set_user_extra(button_new, state->wnd);
-			button::set_function_on_click(button_new, button_new_func_on_click);
-			navbar::attach(navbar, button_new, navbar::attach_point::left, -1);
-			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-
-			HWND button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
-				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			AWT(button_practice, 101);
-			button::set_theme(button_practice, &navbar_btn_theme);
-			button::set_user_extra(button_practice, state->wnd);
-			button::set_function_on_click(button_practice, button_practice_func_on_click);
-			navbar::attach(navbar, button_practice, navbar::attach_point::left, -1);
-			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-
-			edit_oneline::Theme search_editoneline_theme = base_editoneline_theme;
-			search_editoneline_theme.brushes.bk.normal = CreateSolidBrush(RGB(30, 31, 25));
-			search_editoneline_theme.brushes.border = search_editoneline_theme.brushes.bk;
-
-			HWND search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT | WS_VISIBLE
-				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			ACC(search, 251);
-			searchbox::set_editbox_theme(search, &search_editoneline_theme);
-			searchbox::set_user_extra(search, state->wnd);
-			searchbox::set_function_free_elements(search, searchbox_func_free_elements);
-			searchbox::set_function_retrieve_search_options(search, searchbox_func_retrieve_search_options);
-			searchbox::set_function_perform_search(search, searchbox_func_perform_search);
-			searchbox::set_function_show_element_on_editbox(search, searchbox_func_show_on_editbox);
-			searchbox::set_function_render_listbox_element(search, searchbox_func_listbox_render);
-			searchbox::maintain_placerholder_when_focussed(search, true);
-			edit_oneline::set_IME_wnd(searchbox::get_controls(search).editbox, true);
-			navbar::attach(navbar, search, navbar::attach_point::center, -1);
-			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-
-			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
-				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			languages_setup_combobox(combo_lang);
-			combobox::set_user_extra(combo_lang, state->wnd);
-			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
-			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
-			combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
-			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
-			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
-			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
-			navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
-			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-
-		//---------------------Landing page----------------------:
-		{
-			auto& controls = state->controls.landingpage;
-
-			controls.list.listbox_recents = CreateWindowW(listbox::wndclass, 0, WS_CHILD
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			listbox::set_function_render(controls.list.listbox_recents, listbox_recents_func_render);
-			listbox::set_user_extra(controls.list.listbox_recents, state->wnd);
-			listbox::set_function_on_click(controls.list.listbox_recents, listbox_recents_func_on_click);
-
-			controls.list.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_recents, 103);
-			button::set_theme(controls.list.button_recents, &dark_btn_theme);
-			button::set_user_extra(controls.list.button_recents, state->wnd);
-			button::set_function_render(controls.list.button_recents, button_recents_func_render);
-			button::set_function_on_click(controls.list.button_recents, 
-				[](void* element, void* user_extra) {
-					ProcState* state = get_state((HWND)user_extra);
-					if (state) {
-						HWND listbox = state->controls.landingpage.list.listbox_recents;
-						flip_visibility(listbox);
-						//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
-					}
-				}
-			);
-
-			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_word_cnt_title, 351);
-
-			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
-
-			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_practice_cnt_title, 352);
-
-			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
-
-			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_accuracy_title, 353);
-
-			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
-
-
-			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.static_accuracy_timeline_title, 354);
-
-			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
-
-			//TODO(fran): we may want to add smth else like a total number of words practiced
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-		//---------------------New word----------------------:
-		{
-			auto& controls = state->controls.new_word;
-
-			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_hiragana, &base_editoneline_theme);
-			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_hiragana, true);
-			AWDT(controls.list.edit_hiragana, 120);
-
-			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
-			AWDT(controls.list.edit_kanji, 121);
-
-			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			lexical_category_setup_combobox(controls.list.combo_lexical_category);
-			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
-			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
-			ACC(controls.list.combo_lexical_category, 123);
-
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_translation, &base_editoneline_theme);
-			AWDT(controls.list.edit_translation, 122);
-
-			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
-			AWDT(controls.list.edit_mnemonic, 125);
-
-			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_save, 124);
-			button::set_theme(controls.list.button_save, &base_btn_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-		//---------------------Search----------------------:
-		{
-			auto& controls = state->controls.search;
-
-/*			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			ACC(controls.list.searchbox_search, 251);
-			searchbox::set_editbox_theme(controls.list.searchbox_search, &base_editoneline_theme);
-			searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
-			searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_func_free_elements);
-			searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_func_retrieve_search_options);
-			searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
-			searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
-			searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
-			searchbox::maintain_placerholder_when_focussed(controls.list.searchbox_search, true);
-			edit_oneline::set_IME_wnd(searchbox::get_state(controls.list.searchbox_search)->controls.editbox, true);*/ //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-		//---------------------Show word----------------------:
-		{
-			auto& controls = state->controls.show_word;
-
-			controls.list.static_hiragana = CreateWindowW( static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
-
-			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_kanji, &base_editoneline_theme);
-			AWDT(controls.list.edit_kanji, 121);
-
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_translation, &base_editoneline_theme);
-			AWDT(controls.list.edit_translation, 122);
-
-			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			lexical_category_setup_combobox(controls.list.combo_lexical_category);
-			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
-			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
-			ACC(controls.list.combo_lexical_category, 123);
-
-			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
-			AWDT(controls.list.edit_mnemonic, 125);
-
-			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_creation_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
-
-			controls.list.static_last_shown_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_last_shown_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
-
-			controls.list.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_score, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
-
-			controls.list.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_modify, 273);
-			button::set_theme(controls.list.button_modify, &base_btn_theme);
-
-			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//AWT(controls.list.button_modify, 273);
-			button::set_theme(controls.list.button_delete, &img_btn_theme);
-			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
-
-			controls.list.button_remember = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_remember, 275);
-			AWTT(controls.list.button_remember, 276);
-			button::set_theme(controls.list.button_remember, &accent_btn_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-		//---------------------Practice----------------------:
-		{
-			auto& controls = state->controls.practice;
-
-			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_start, 350);
-			button::set_theme(controls.list.button_start, &base_btn_theme);
-
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-		//---------------------Practice Writing----------------------:
-		{
-			auto& controls = state->controls.practice_writing;
-
-			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
-			//NOTE: text color will be set according to the type of word being shown
-
-			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			//NOTE: text color and default text will be set according to the type of word that has to be written
-
-			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
-			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
-
-			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-			button::set_theme(controls.list.button_show_word, &base_btn_theme);
-			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
-
-			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL,WS_CHILD |  embedded::show_word_reduced::style::roundrect,
-				0,0,0,0,state->wnd,0,0,0);
-			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-		//---------------------Practice Multiplechoice----------------------:
-		{
-			auto& controls = state->controls.practice_multiplechoice;
-
-			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
-			//NOTE: text color will be set according to the type of word being shown
-			
-			//TODO(fran): should I simply use a gridview instead?
-			controls.list.multibutton_choices = CreateWindowW(multibutton::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN | multibutton::style::roundrect
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			multibutton::Theme multibutton_choices_theme;
-			multibutton_choices_theme.dimensions.border_thickness = 1;
-			multibutton_choices_theme.brushes.bk.normal = global::colors.ControlBk;//TODO(fran): try with a different color to make it destacar
-			multibutton_choices_theme.brushes.border.normal = global::colors.Img;
-			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
-			//NOTE: buttons' colors will be set according to the type of word that has to be written
-
-			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
-
-			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-			button::set_theme(controls.list.button_show_word, &base_btn_theme);
-			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
-
-			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
-				0, 0, 0, 0, state->wnd, 0, 0, 0);
-			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-		//---------------------Practice Drawing----------------------:
-		{
-			auto& controls = state->controls.practice_drawing;
-			
-			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
-			//NOTE: text color will be set according to the type of word being shown
-
-			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			button::set_theme(controls.list.button_next, &base_btn_theme);
-			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
-
-			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-			button::set_theme(controls.list.button_show_word, &base_btn_theme);
-			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
-
-
-			controls.list.button_right = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_right, 500);
-			button::set_theme(controls.list.button_right, &base_btn_theme);//TODO(fran): maybe green bk
-
-			controls.list.button_wrong = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_wrong, 501);
-			button::set_theme(controls.list.button_wrong, &base_btn_theme);//TODO(fran): maybe red bk
-
-			controls.list.paint_answer = CreateWindow(paint::wndclass, 0, WS_CHILD | WS_VISIBLE //TODO(fran): rounded?
-				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
-			paint::set_brushes(controls.list.paint_answer, true, brush_for_learnt_word_elem(learnt_word_elem::kanji), global::colors.ControlBk, global::colors.Img, global::colors.Img_Disabled);
-			paint::set_dimensions(controls.list.paint_answer, 7);//TODO(fran): find good brush size
-
-			controls.list.static_correct_answer = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_correct_answer, TRUE, brush_for_learnt_word_elem(learnt_word_elem::kanji), global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
-
-			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
-				0, 0, 0, 0, state->wnd, 0, 0, 0);//TODO(fran): must be shown on top of all the other wnds
-			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-
-		//---------------------Review practice----------------------:
-		{
-			auto& controls = state->controls.review_practice;
-
-			controls.list.static_review= CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.list.static_review, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
-			AWT(controls.list.static_review, 450);
-
-			controls.list.gridview_practices = CreateWindowW(gridview::wndclass, NULL, WS_CHILD
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-//#define TEST_GRIDVIEW
-#ifndef TEST_GRIDVIEW
-			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);//TODO(fran): add border brushes
-#else
-			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.CaptionBk, 0, global::colors.CaptionBk_Inactive, 0);
-#endif
-			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
-
-			controls.list.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			AWT(controls.list.button_continue, 451);
-			button::set_theme(controls.list.button_continue, &base_btn_theme);
-
-			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		}
-	}
-
-	void resize_controls(ProcState* state, ProcState::page page) {
-		RECT r; GetClientRect(state->wnd, &r);
-		const int w = RECTWIDTH(r);
-		const int h = RECTHEIGHT(r);
-		const int half_w = w / 2;
-		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
-		const int h_pad = (int)((f32)h * .05f);
-		
-		const int wnd_h = (int)((f32)avg_str_dim(global::fonts.General, 1).cy * 1.5f);
-		const int half_wnd_h = wnd_h / 2;
-		const int max_w = w - w_pad * 2;
-
-		{//navbar test
-			rect_i32 navbar;
-			navbar.left = r.left;
-			navbar.top = r.top;
-			navbar.w = w;
-			navbar.h = wnd_h + 5;
-			MyMoveWindow(state->controls.navbar, navbar, FALSE);
-		}
-
-		switch (page) {
-		case ProcState::page::landing:
-		{
-			auto& controls = state->controls.landingpage;
-
-			int start_y = 0;
-
-			rect_i32 button_recents;
-			button_recents.y = start_y;
-			button_recents.h = wnd_h;
-			button_recents.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.button_recents), 40).cx);
-			button_recents.x = (w - button_recents.w) / 2;
-
-			rect_i32 listbox_recents;
-			listbox_recents.y = button_recents.bottom();
-			listbox_recents.h = wnd_h * (int)listbox::get_element_cnt(controls.list.listbox_recents);
-			listbox_recents.w = button_recents.w;
-			listbox_recents.x = (w - listbox_recents.w) / 2;
-
-			int grid_h = wnd_h * 4;
-			int grid_w = grid_h * 16 / 9;
-			auto grid = create_grid_2x2(grid_h, grid_w, listbox_recents.bottom()+h_pad, w_pad / 2, h_pad / 2, max_w, w);
-
-			rect_i32 cell;
-
-			//First cell
-			cell = grid[0][0];
-			rect_i32 static_word_cnt_title;
-			static_word_cnt_title.w = cell.w;
-			static_word_cnt_title.h = min(wnd_h, cell.h);
-			static_word_cnt_title.x = cell.center_x() - static_word_cnt_title.w / 2;
-			static_word_cnt_title.y = cell.top;
-
-			//NOTE: the values should use a much bigger font
-			rect_i32 static_word_cnt;
-			static_word_cnt.w = cell.w;
-			static_word_cnt.x = cell.center_x() - static_word_cnt.w / 2;
-			static_word_cnt.h = distance(cell.bottom(), static_word_cnt_title.bottom());
-			static_word_cnt.y = cell.bottom() - static_word_cnt.h;
-
-			//Second cell
-			cell = grid[0][1];
-			rect_i32 static_practice_cnt_title;
-			static_practice_cnt_title.w = cell.w;
-			static_practice_cnt_title.h = min(wnd_h, cell.h);
-			static_practice_cnt_title.x = cell.center_x() - static_practice_cnt_title.w / 2;
-			static_practice_cnt_title.y = cell.top;
-
-			rect_i32 static_practice_cnt;
-			static_practice_cnt.w = cell.w;
-			static_practice_cnt.x = cell.center_x() - static_practice_cnt.w / 2;
-			static_practice_cnt.h = distance(cell.bottom(), static_practice_cnt_title.bottom());
-			static_practice_cnt.y = cell.bottom() - static_practice_cnt.h;
-
-			//3rd cell
-			cell = grid[1][0];
-			rect_i32 static_accuracy_title;
-			static_accuracy_title.w = cell.w;
-			static_accuracy_title.h = min(wnd_h, cell.h);
-			static_accuracy_title.x = cell.center_x() - static_accuracy_title.w / 2;
-			static_accuracy_title.y = cell.top;
-
-			rect_i32 score_accuracy;
-			score_accuracy.h = min(cell.w, distance(cell.bottom(), static_accuracy_title.bottom()));
-			score_accuracy.w = score_accuracy.h;
-			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
-			score_accuracy.y = cell.bottom() - score_accuracy.h;
-
-			//4th cell
-			cell = grid[1][1];
-			rect_i32 static_accuracy_timeline_title;
-			static_accuracy_timeline_title.w = cell.w;
-			static_accuracy_timeline_title.h = min(wnd_h, cell.h);
-			static_accuracy_timeline_title.x = cell.center_x() - static_accuracy_timeline_title.w / 2;
-			static_accuracy_timeline_title.y = cell.top;
-
-			rect_i32 graph_accuracy_timeline;
-			graph_accuracy_timeline.h = min(cell.w, distance(cell.bottom(), static_accuracy_timeline_title.bottom()));
-			graph_accuracy_timeline.w = min(graph_accuracy_timeline.h * 16 / 9, cell.w);
-			graph_accuracy_timeline.x = cell.center_x() - graph_accuracy_timeline.w / 2;
-			graph_accuracy_timeline.y = cell.bottom() - graph_accuracy_timeline.h;
-
-			rect_i32 bottom_most_control = graph_accuracy_timeline;
-
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.list.button_recents, button_recents, FALSE);
-			MyMoveWindow_offset(controls.list.listbox_recents, listbox_recents, FALSE);
-			listbox::set_dimensions(controls.list.listbox_recents, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
-
-			MyMoveWindow_offset(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
-			MyMoveWindow_offset(controls.list.static_word_cnt, static_word_cnt, FALSE);
-			MyMoveWindow_offset(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
-			MyMoveWindow_offset(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
-			MyMoveWindow_offset(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
-			MyMoveWindow_offset(controls.list.score_accuracy, score_accuracy, FALSE);
-			MyMoveWindow_offset(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
-			MyMoveWindow_offset(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
-
-		} break;
-		case ProcState::page::new_word:
-		{
-			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
-			auto& controls = state->controls.new_word.list;
-
-			HFONT font = GetWindowFont(controls.edit_hiragana);
-			SIZE layout_bounds = avg_str_dim(font, 100);
-			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
-
-			//IMPORTANT: fran: language feature request, scope unnamed variables in some way (maybe giving names to a scope so you can tell it in which one to live) so we can do the following:
-			//	jp_sizer{ {&ssizer(edit_hiragana),wnd_h}, {&ssizer(edit_kanji),wnd_h} };
-			//The only way I know to be able to do this is to allocate the variables:
-			//	jp_sizer{ {new ssizer(edit_hiragana),wnd_h}, { new ssizer(edit_kanji),wnd_h} };
-			//why do we have to pay for memory allocation when it's completely unnecesary and simply a sintax limitation, you can simply declare everything beforehand:
-			//	ssizer edit_hiragana{ controls.list.edit_hiragana };
-			//	ssizer edit_kanji{ controls.list.edit_kanji };
-			//	vsizer jp_sizer{ {&edit_hiragana,wnd_h}, {&edit_kanji,wnd_h} };
-			//but now you need to give everything a name and your code becomes more bloated and confusing
-			//it'd much rather do:
-			//	jp_sizer{ {&(scope new_word)ssizer(edit_hiragana),wnd_h}, {&(scope new_word)ssizer(edit_kanji),wnd_h} };
-
-			hpsizer lhpad{};
-			vpsizer lvpad{};
-
-			ssizer edit_hiragana{ controls.edit_hiragana };
-			ssizer edit_kanji{ controls.edit_kanji };
-			vsizer jp_sizer{ 
-				{&edit_hiragana,wnd_h},
-				{&lvpad,half_wnd_h}, 
-				{&edit_kanji,wnd_h} };
-
-			ssizer combo_lexical_category{controls.combo_lexical_category};
-			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
-			ssizer edit_translation{ controls.edit_translation };
-			ssizer edit_mnemonic{ controls.edit_mnemonic };
-			ssizer btn_save{ controls.button_save };
-			hrsizer save{ {&btn_save,avg_str_dim(font, 10).cx} };
-			vsizer meaning_sizer{ 
-				{&lexical_category,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&edit_translation,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&edit_mnemonic,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&save,wnd_h} };
-
-
-			hsizer layout{ 
-				{&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
-				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
-				{&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)} };
-
-			rect_i32 layout_rc;
-			layout_rc.w = layout_bounds.cx;
-			layout_rc.y = 0;
-			layout_rc.h = h;
-			layout_rc.x = (w - layout_rc.w) / 2;
-			layout_rc.y = (h - layout.get_bottom(layout_rc).y)/2;
-			layout.resize(layout_rc);
-
-		} break;
-		case ProcState::page::practice: 
-		{
-			auto& controls = state->controls.practice;
-
-			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
-
-			rect_i32 button_start;
-			button_start.y = start_y + h_pad;
-			button_start.w = 70;
-			button_start.h = wnd_h;
-			button_start.x = (w - button_start.w)/2;
-
-			rect_i32 bottom_most_control = button_start;
-
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-			
-			
-			MyMoveWindow_offset(controls.list.button_start, button_start, FALSE);
-
-		} break;
-		case ProcState::page::practice_writing:
-		{
-			auto& controls = state->controls.practice_writing;
-
-			int start_y = 0;
-			int bigwnd_h = wnd_h * 4;
-
-			rect_i32 static_test_word;
-			static_test_word.y = start_y;
-			static_test_word.h = bigwnd_h;
-			static_test_word.w = w;
-			static_test_word.x = (w - static_test_word.w)/2;
-			
-			rect_i32 edit_answer;
-			edit_answer.y = static_test_word.bottom() + h_pad;
-			edit_answer.h = wnd_h;
-			edit_answer.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.edit_answer), 20).cx);
-			edit_answer.x = (w - edit_answer.w) / 2;
-
-			rect_i32 button_next;//child inside edit_answer
-			button_next.y = 1; //the button is inside the edit box (and past the border) //TODO(fran): we should ask the parent for its border size
-			button_next.h = edit_answer.h - 2;
-			button_next.w = min(button_next.h, max(0, edit_answer.w-4/*avoid covering rounded borders*/));
-			button_next.x = edit_answer.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
-
-			rect_i32 button_show_word;
-			button_show_word.h = (i32)(wnd_h * .8f);
-			button_show_word.y = edit_answer.bottom() + 3;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = edit_answer.center_x() - button_show_word.w / 2;
-
-			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
-			embedded_show_word_reduced.h = wnd_h * 3;
-			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
-
-			rect_i32 bottom_most_control = button_show_word;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-			MyMoveWindow_offset(controls.list.static_test_word, static_test_word, FALSE);
-			MyMoveWindow_offset(controls.list.edit_answer, edit_answer, FALSE);
-			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-			MyMoveWindow(controls.list.button_next, button_next, FALSE);
-
-		} break;
-		case ProcState::page::practice_multiplechoice:
-		{
-			auto& controls = state->controls.practice_multiplechoice;
-
-			int start_y = 0;
-			int bigwnd_h = wnd_h * 4;
-
-			rect_i32 static_question;
-			static_question.y = start_y;
-			static_question.h = bigwnd_h;
-			static_question.w = w;
-			static_question.x = (w - static_question.w) / 2;
-
-			rect_i32 multibutton_choices;
-			multibutton_choices.y = static_question.bottom() + h_pad;
-			multibutton_choices.h = bigwnd_h;
-			multibutton_choices.w = max_w;
-			multibutton_choices.x = (w - multibutton_choices.w) / 2;
-
-			multibutton::Theme multibutton_choices_theme;
-			multibutton_choices_theme.dimensions.btn = { avg_str_dim((HFONT)SendMessage(controls.list.multibutton_choices, WM_GETFONT, 0, 0), 15).cx,wnd_h };
-			multibutton_choices_theme.dimensions.inbetween_pad = { 3,3 };
-			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
-
-			rect_i32 button_next;
-			button_next.y = multibutton_choices.bottom() + h_pad;
-			button_next.h = wnd_h;
-			button_next.w = button_next.h;
-
-			rect_i32 button_show_word;
-			button_show_word.h = button_next.h;
-			button_show_word.y = button_next.y;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
-
-			button_next.x = button_show_word.right() + 1;
-
-			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
-			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
-			embedded_show_word_reduced.h = wnd_h * 3;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
-
-			rect_i32 bottom_most_control = button_show_word;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
-			MyMoveWindow_offset(controls.list.multibutton_choices, multibutton_choices, FALSE);
-			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
-			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-
-		} break;
-		case ProcState::page::practice_drawing:
-		{
-			auto& controls = state->controls.practice_drawing;
-
-			int start_y = 0;
-			int bigwnd_h = wnd_h * 4;
-
-			rect_i32 static_question;
-			static_question.y = start_y;
-			static_question.h = bigwnd_h;
-			static_question.w = w;
-			static_question.x = (w - static_question.w) / 2;
-
-			rect_i32 paint_answer;
-			paint_answer.y = static_question.bottom() + h_pad;
-			paint_answer.h = bigwnd_h*2;
-			paint_answer.w = max_w;
-			paint_answer.x = (w - paint_answer.w) / 2;
-
-			rect_i32 button_next;
-			button_next.y = paint_answer.bottom() + h_pad;
-			button_next.h = wnd_h;
-			button_next.w = button_next.h;
-
-			rect_i32 button_show_word;
-			button_show_word.h = button_next.h;
-			button_show_word.y = button_next.y;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
-
-			button_next.x = button_show_word.right() + 1;
-
-			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
-			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
-			embedded_show_word_reduced.h = wnd_h * 3;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
-
-			rect_i32 static_correct_answer;
-			static_correct_answer.y = button_next.bottom() + h_pad;
-			static_correct_answer.h = bigwnd_h-wnd_h;
-			static_correct_answer.w = w;
-			static_correct_answer.x = (w - static_correct_answer.w) / 2;
-
-			rect_i32 button_wrong;
-			button_wrong.y = static_correct_answer.bottom() + h_pad;
-			button_wrong.h = wnd_h;
-			button_wrong.w = min(max_w/2, avg_str_dim((HFONT)SendMessage(controls.list.button_wrong, WM_GETFONT, 0, 0), 20).cx);
-			button_wrong.x = half_w - w_pad / 2 - button_wrong.w;
-
-			rect_i32 button_right;
-			button_right.y = static_correct_answer.bottom() + h_pad;
-			button_right.h = wnd_h;
-			button_right.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.list.button_right, WM_GETFONT, 0, 0), 20).cx);
-			button_right.x = half_w + w_pad / 2;
-
-			rect_i32 bottom_most_control = button_right;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
-			MyMoveWindow_offset(controls.list.paint_answer, paint_answer, FALSE);
-			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
-			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-			MyMoveWindow_offset(controls.list.static_correct_answer, static_correct_answer, FALSE);
-			MyMoveWindow_offset(controls.list.button_wrong, button_wrong, FALSE);
-			MyMoveWindow_offset(controls.list.button_right, button_right, FALSE);
-
-
-		} break;
-		case ProcState::page::review_practice:
-		{
-			auto& controls = state->controls.review_practice;
-
-			int bigwnd_h = wnd_h * 3;
-			int start_y = 0;
-
-			rect_i32 static_review;
-			static_review.y = start_y;
-			static_review.h = wnd_h*2;
-			static_review.w = max_w;
-			static_review.x = (w - static_review.w) / 2;
-
-			rect_i32 gridview_practices;
-			gridview_practices.y = static_review.bottom() + h_pad;
-
-			gridview::element_dimensions gridview_practices_dims;
-			gridview_practices_dims.border_pad_y = 3;
-			gridview_practices_dims.inbetween_pad = { 5,5 };
-			gridview_practices_dims.element_dim = { bigwnd_h,bigwnd_h };
-			gridview::set_dimensions(controls.list.gridview_practices, gridview_practices_dims);
-
-			SIZE gridview_practices_wh;
-			{
-				//TODO(fran): this is the worst code I've written in quite a while, this and the gridview code that was needed need a revision
-				const size_t elems_per_row = 5;
-				size_t curr_elem_cnt = gridview::get_elem_cnt(controls.list.gridview_practices);
-				i32 full_w = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, curr_elem_cnt, elems_per_row).cx;
-
-				i32 real_w = min(w - w_pad * 2, full_w);
-
-				i32 max_h = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, elems_per_row*4, elems_per_row).cy;//4 rows
-
-				i32 full_h = gridview::get_dim_for_elemcnt_w(controls.list.gridview_practices,curr_elem_cnt, real_w).cy;
-
-				//SIZE full_dim = gridview::get_dim_for(controls.list.gridview_practices, row_cnt, elems_per_row);
-				gridview_practices_wh = { real_w,min(full_h,max_h)};
-			}
-
-			gridview_practices.h = gridview_practices_wh.cy;//TODO(fran): should get smaller if the controls below it cant fit, as small as to only allow 1 row to be visible
-			gridview_practices.w = gridview_practices_wh.cx;
-			gridview_practices.x = (w - gridview_practices.w) / 2;
-
-			rect_i32 button_continue;
-			button_continue.h = wnd_h;
-			button_continue.w = 70;
-			button_continue.x = (w - button_continue.w) / 2;
-			button_continue.y = gridview_practices.bottom() + h_pad;
-
-			rect_i32 bottom_most_control = button_continue;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.list.static_review, static_review, FALSE);
-			MyMoveWindow_offset(controls.list.gridview_practices, gridview_practices, FALSE);
-			MyMoveWindow_offset(controls.list.button_continue, button_continue, FALSE);
-
-		} break;
-		case ProcState::page::search: 
-		{
-#if 0
-			auto& controls = state->controls.search;
-
-			rect_i32 cb_search;
-			cb_search.x = w_pad;
-			cb_search.y = h_pad;
-			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
-			cb_search.w = max_w;
-
-			rect_i32 searchbox_search;
-			searchbox_search.w = max_w;
-			searchbox_search.x = (w- searchbox_search.w) /2;
-			searchbox_search.h = wnd_h;
-			searchbox_search.y = h_pad;
-
-			//MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
-			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
-			searchbox::set_listbox_dimensions(controls.list.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
-#endif
-		} break;
-		case ProcState::page::show_word: 
-		{
-			auto& controls = state->controls.show_word.list;
-
-#if 1
-			HFONT font = GetWindowFont(controls.edit_translation);
-			int bigwnd_h = wnd_h * 2;
-			SIZE layout_bounds = avg_str_dim(font, 100);
-			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
-
-			hpsizer lhpad{};
-			vpsizer lvpad{};
-
-			ssizer static_hiragana{ controls.static_hiragana };
-			ssizer edit_kanji{ controls.edit_kanji };
-			vsizer jp_sizer{
-				{&static_hiragana,bigwnd_h},
-				{&lvpad,half_wnd_h},
-				{&edit_kanji,bigwnd_h}, //TODO(fran): text editor needs to adapt to font size changing
-			};
-
-			ssizer combo_lexical_category{ controls.combo_lexical_category };
-			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
-			ssizer edit_translation{ controls.edit_translation };
-			ssizer edit_mnemonic{ controls.edit_mnemonic };
-			vsizer meaning_sizer{
-				{&lexical_category,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&edit_translation,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&edit_mnemonic,wnd_h},
-			};
-
-			hsizer word_info{
-				{(sizer*)&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
-				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
-				{(sizer*)&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)}
-			};
-
-			ssizer static_creation_date{ controls.static_creation_date };
-			ssizer static_last_shown_date{ controls.static_last_shown_date };
-			vsizer left_stats{ 
-				{&static_creation_date,wnd_h},
-				{&lvpad,half_wnd_h},
-				{&static_last_shown_date,wnd_h},
-			};//TODO(fran): vcsizer
-
-			ssizer static_score{ controls.static_score };
-			vsizer right_stats{ {&static_score,wnd_h} };
-
-			hsizer word_stats{ 
-				{&left_stats,(int)(.45f * (f32)layout_bounds.cx)},
-				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
-				{&right_stats,(int)(.45f * (f32)layout_bounds.cx)},
-			};
-
-			ssizer button_delete{ controls.button_delete };
-			ssizer button_remember{ controls.button_remember };
-			ssizer button_modify{ controls.button_modify };
-
-			hrsizer buttons{
-				{&button_modify,GetWindowDesiredSize(button_modify.wnd,{200,200},{200,200}).max.cx},
-				{&lhpad,half_wnd_h},
-				{&button_remember,GetWindowDesiredSize(button_remember.wnd,{200,200},{200,200}).max.cx},
-				{&lhpad,half_wnd_h},
-				{&button_delete,GetWindowDesiredSize(button_delete.wnd,{200,200},{200,200}).max.cx},
-			};//TODO(fran): idk whether I want to reverse the order for hrsizer, so that the first wnd added is leftmost
-
-			vsizer layout{
-				{&word_info,word_info.get_bottom({0,0,layout_bounds.cx,h}).y},
-				{&lhpad,wnd_h},
-				{&word_stats,wnd_h*3},
-				{&lhpad,wnd_h},
-				{&buttons,wnd_h},
-			};
-
-			rect_i32 layout_rc;
-			layout_rc.w = layout_bounds.cx;
-			layout_rc.y = 0;
-			layout_rc.h = h;
-			layout_rc.x = (w - layout_rc.w) / 2;
-			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
-			layout.resize(layout_rc);
-
-#else
-			int bigwnd_h = wnd_h * 4;
-			int start_y = 0;
-
-			rect_i32 static_hiragana;
-			static_hiragana.x = w_pad;
-			static_hiragana.y = start_y;
-			static_hiragana.h = bigwnd_h;
-			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
-
-			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
-#if 0
-			cb_lex_categ.x = min( w - w_pad - cb_lex_categ.w, w/2 + cb_lex_categ.w);//TODO(fran): doesnt look good, maybe just center it
-#else
-			cb_lex_categ.x = (w - cb_lex_categ.w) / 2;
-#endif
-			cb_lex_categ.y = static_hiragana.bottom() + h_pad / 2;
-			cb_lex_categ.h = wnd_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
-
-			rect_i32 edit_kanji;
-			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
-			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
-			edit_kanji.x = (w- edit_kanji.w)/2;
-			edit_kanji.h = wnd_h;
-
-			rect_i32 edit_translation;
-			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_translation, WM_GETFONT, 0, 0), 30).cx);
-			edit_translation.x = (w - edit_translation.w) / 2;
-			edit_translation.h = wnd_h;
-
-			rect_i32 edit_mnemonic;
-			edit_mnemonic.w = max_w;
-			edit_mnemonic.x = (w- edit_mnemonic.w)/2;
-			edit_mnemonic.y = edit_translation.bottom() + h_pad;
-			edit_mnemonic.h = wnd_h;
-
-			rect_i32 last_user = edit_mnemonic;
-
-			auto stats_grid = create_grid_2x2(
-				wnd_h, avg_str_dim((HFONT)SendMessage(controls.static_creation_date, WM_GETFONT, 0, 0), 25).cx
-				, last_user.bottom() + h_pad, w_pad/2, h_pad/2, max_w, w);
-
-			rect_i32 static_creation_date = stats_grid[0][0];
-
-			rect_i32 static_last_shown_date = stats_grid[0][1];
-
-			rect_i32 static_score = stats_grid[1][0];
-
-			rect_i32 last_cell = static_score;//TODO(fran): we still got one more space at [1][1]
-
-			rect_i32 btn_modify;
-			btn_modify.w = 70;
-			btn_modify.h = wnd_h;
-			btn_modify.y = last_cell.bottom() + h_pad;
-			btn_modify.x = (w - btn_modify.w) / 2;
-
-			rect_i32 btn_remember;
-			btn_remember.w = 90;
-			btn_remember.h = wnd_h;
-			btn_remember.y = btn_modify.y;
-			btn_remember.x = btn_modify.right() + w_pad;
-
-			rect_i32 btn_delete;
-			btn_delete.h = wnd_h;
-			btn_delete.w = btn_delete.h;
-#if 0 //TODO(fran): which one to go with?
-			btn_delete.x = btn_modify.right() + w_pad*;/*TODO(fran): clamp to not go beyond w*/
-			btn_delete.y = btn_modify_y;
-#else
-			btn_delete.x = (w - btn_delete.w)/2;
-			btn_delete.y = btn_modify.bottom() + h_pad;
-#endif
-
-			rect_i32 bottom_most_control = btn_delete;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.static_hiragana, static_hiragana, FALSE);
-			MyMoveWindow_offset(controls.combo_lexical_category, cb_lex_categ, FALSE);
-			MyMoveWindow_offset(controls.edit_kanji, edit_kanji, FALSE);
-			MyMoveWindow_offset(controls.edit_translation, edit_translation, FALSE);
-			MyMoveWindow_offset(controls.edit_mnemonic, edit_mnemonic, FALSE);
-
-			//Dates one next to the other, the same for times_... related objs
-			MyMoveWindow_offset(controls.static_creation_date, static_creation_date, FALSE);
-			MyMoveWindow_offset(controls.static_last_shown_date, static_last_shown_date, FALSE);
-			MyMoveWindow_offset(controls.static_score, static_score, FALSE);
-			MyMoveWindow_offset(controls.button_modify, btn_modify, FALSE);
-			MyMoveWindow_offset(controls.button_remember, btn_remember, FALSE);
-			MyMoveWindow_offset(controls.button_delete, btn_delete, FALSE);
-#endif
-		} break;
-		case ProcState::page::review_practice_writing:
-		{
-			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_writing);
-		} break;
-		case ProcState::page::review_practice_multiplechoice:
-		{
-			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_multiplechoice);
-		} break;
-		case ProcState::page::review_practice_drawing:
-		{
-			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_drawing);
-		} break;
-		default:Assert(0);
-		}
-	}
-	void resize_controls(ProcState* state) {
-		resize_controls(state, state->current_page);
 	}
 
 	void save_settings(ProcState* state) {
@@ -2179,36 +1069,36 @@ namespace べんきょう {
 			case decltype(practice->practice_type)::hiragana_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.hiragana.str;
-				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
+				test_word_br = brush_for(learnt_word_elem::hiragana);
 				//TODO(fran): idk if I should put "translation" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
 				answer_placeholder = RS(380);
-				answer_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
+				answer_br = brush_for(learnt_word_elem::meaning);
 			} break;
 			case decltype(practice->practice_type)::kanji_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::kanji);
+				test_word_br = brush_for(learnt_word_elem::kanji);
 
 				answer_placeholder = answer_hiragana;
-				answer_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
+				answer_br = brush_for(learnt_word_elem::hiragana);
 
 				show_ime_suggestions = false;
 			} break;
 			case decltype(practice->practice_type)::kanji_to_translation:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
-				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::kanji);
+				test_word_br = brush_for(learnt_word_elem::kanji);
 
 				answer_placeholder = RS(380);
-				answer_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
+				answer_br = brush_for(learnt_word_elem::meaning);
 			} break;
 			case decltype(practice->practice_type)::translation_to_hiragana:
 			{
 				test_word = (utf16*)practice->word.attributes.translation.str;
-				test_word_br = brush_for_learnt_word_elem(learnt_word_elem::meaning);
+				test_word_br = brush_for(learnt_word_elem::meaning);
 
 				answer_placeholder = answer_hiragana;
-				answer_br = brush_for_learnt_word_elem(learnt_word_elem::hiragana);
+				answer_br = brush_for(learnt_word_elem::hiragana);
 
 				show_ime_suggestions = false;
 			} break;
@@ -2333,8 +1223,8 @@ namespace べんきょう {
 			auto controls = state->controls.practice_multiplechoice;
 			state->pagestate.practice_multiplechoice.practice = practice;
 			
-			HBRUSH question_txt_br = brush_for_learnt_word_elem(practice->question_type);
-			HBRUSH choice_txt_br = brush_for_learnt_word_elem(practice->choices_type);
+			HBRUSH question_txt_br = brush_for(practice->question_type);
+			HBRUSH choice_txt_br = brush_for(practice->choices_type);
 
 
 			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
@@ -2371,8 +1261,8 @@ namespace べんきょう {
 			ProcState::practice_multiplechoice* pagedata = (decltype(pagedata))data;
 			auto& controls = state->controls.practice_multiplechoice;
 
-			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
-			HBRUSH choice_txt_br = brush_for_learnt_word_elem(pagedata->practice->choices_type);
+			HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
+			HBRUSH choice_txt_br = brush_for(pagedata->practice->choices_type);
 			HBRUSH user_choice_txt_br = global::colors.ControlTxt;
 			//TODO(fran): use brush_group
 			brush_group user_choice_bk;
@@ -2420,7 +1310,7 @@ namespace べんきょう {
 			auto controls = state->controls.practice_drawing;
 			state->pagestate.practice_drawing.practice = practice;
 
-			HBRUSH question_txt_br = brush_for_learnt_word_elem(practice->question_type);
+			HBRUSH question_txt_br = brush_for(practice->question_type);
 
 			SendMessageW(controls.list.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
 			static_oneline::set_brushes(controls.list.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
@@ -2442,13 +1332,30 @@ namespace べんきょう {
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
 
+			{
+				HDC _dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,_dc); };
+				HDC dc = CreateCompatibleDC(_dc); defer{ DeleteDC(dc); };//TODO(fran): use already existing dc
+				int w = 100, h = 50;//TODO(fran): this size is pretty good, though idk how it'll look on different dpi
+				HBITMAP paint_placeholder = CreateCompatibleBitmap(_dc, w, h); defer{ DeleteBitmap(paint_placeholder); };
+				{
+					auto oldbmp = SelectBitmap(dc, paint_placeholder); defer{ SelectBitmap(dc,oldbmp); };
+					RECT r{0,0,w,h};
+					FillRect(dc, &r, paint::get_state(controls.list.paint_answer)->brushes.bk/*HACK*/);
+					utf16 _s[] = L"答え";
+					utf16_str s{ _s, sizeof(_s) };
+					urender::draw_text_max_coverage(dc, r, s, global::fonts.General, global::colors.ControlTxt_Disabled, urender::txt_align::center);
+				}
+				paint::set_placeholder(controls.list.paint_answer, paint_placeholder);
+			}
+
+
 		} break;
 		case decltype(page)::review_practice_drawing:
 		{
 			ProcState::practice_drawing* pagedata = (decltype(pagedata))data;
 			auto& controls = state->controls.practice_drawing;
 
-			HBRUSH question_txt_br = brush_for_learnt_word_elem(pagedata->practice->question_type);
+			HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
 			brush_group user_choice_bk;
 			if (pagedata->answered_correctly) {
 				user_choice_bk.normal = global::colors.Bk_right_answer;
@@ -2490,7 +1397,10 @@ namespace べんきょう {
 	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
 		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::new_word: for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::new_word: 
+			for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); 
+			ShowWindow(state->controls.new_word.list.static_notify, SW_HIDE);
+			break;
 		case decltype(p)::practice: for (auto ctl : state->controls.practice.all) ShowWindow(ctl, ShowWindow_cmd); break;
 		case decltype(p)::practice_writing:
 			for (auto ctl : state->controls.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd);
@@ -2527,6 +1437,8 @@ namespace べんきょう {
 			//default:Assert(0);
 		}
 	}
+
+	void resize_controls(ProcState* state);//HACK
 
 	void set_current_page(ProcState* state, ProcState::page new_page) {
 		show_page(state, state->current_page, SW_HIDE);
@@ -2787,6 +1699,7 @@ namespace べんきょう {
 					unCapNcLpParam べんきょう_nclpparam;
 					べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
 					べんきょう_nclpparam.client_lp_param = べんきょう_cl;
+					//TODO(fran): tell the window which pages we want it to create, otherwise window creation takes a couple of seconds, hanging the whole application with it
 
 					HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
 						べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, GetModuleHandleW(NULL), &べんきょう_nclpparam);
@@ -2995,26 +1908,1194 @@ namespace べんきょう {
 		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
 	}
 
-	void button_new_func_on_click(void* element, void* user_extra) {
-		ProcState* state = get_state((HWND)user_extra);
-		if (state) {
-			store_previous_page(state, state->current_page);
-			reset_page(state, ProcState::page::new_word);
-			set_current_page(state, ProcState::page::new_word);
-		}
-	}
-
 	void button_practice_func_on_click(void* element, void* user_extra) {
 		ProcState* state = get_state((HWND)user_extra);
 		if (state) {
 			store_previous_page(state, state->current_page);
-			//user_stats stats = get_user_stats(state->settings->db);
-			//get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
-			//preload_page(state, ProcState::page::practice, &stats);
 			set_current_page(state, ProcState::page::practice);
 		}
 	}
 
+	enum notification_relevance { success, error };
+	void notify(ProcState* state, ProcState::page page, notification_relevance category, const utf16* notif) {
+		HBRUSH notif_br;
+		switch (category) {
+		case decltype(category)::success: notif_br = global::colors.Bk_right_answer; break;
+		case decltype(category)::error: notif_br = global::colors.Bk_wrong_answer; break;
+		default:notif_br = 0; Assert(0);
+		}
+
+		switch (page) {
+		case decltype(page)::new_word:
+		{
+			HWND notifier = state->controls.new_word.list.static_notify;
+			static_oneline::set_brushes(notifier, 0, notif_br, 0, 0, 0, 0, 0);
+			SendMessageW(notifier, WM_SETTEXT, 0, (LPARAM)notif);
+		} break;
+		default: Assert(0);
+		}
+	}
+	void notify(ProcState* state, notification_relevance category, const utf16* notif) {
+		notify(state, state->current_page, category, notif);
+	}
+
+	void add_controls(ProcState* state) {
+		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
+		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
+		button::Theme base_btn_theme;
+		base_btn_theme.dimensions.border_thickness = 1;
+		base_btn_theme.brushes.bk.normal = global::colors.ControlBk;
+		base_btn_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
+		base_btn_theme.brushes.bk.clicked = global::colors.ControlBkPush;
+		base_btn_theme.brushes.bk.mouseover = global::colors.ControlBkMouseOver;
+		base_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
+		base_btn_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+		base_btn_theme.brushes.border.normal = global::colors.Img;//TODO(fran): global::colors.ControlBorder
+		//TODO(fran): use the extra brushes, fore_push,... , border_mouseover,...
+
+		button::Theme img_btn_theme = base_btn_theme;
+		img_btn_theme.brushes.foreground.normal = global::colors.Img;
+
+		button::Theme accent_btn_theme = base_btn_theme;
+		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
+		accent_btn_theme.brushes.border.normal = global::colors.Accent;
+
+		navbar::Theme nav_theme;
+		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
+		nav_theme.dimensions.spacing = 3;
+
+		button::Theme navbar_btn_theme = base_btn_theme;
+		navbar_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
+		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
+
+		button::Theme dark_btn_theme = base_btn_theme;
+		dark_btn_theme.brushes.bk.normal = global::colors.CaptionBk;
+
+		embedded::show_word_reduced::Theme eswr_theme;
+		brush_group eswr_bk, eswr_txt, eswr_border;
+		eswr_bk.normal = global::colors.ControlBk;
+		eswr_txt.normal = global::colors.ControlTxt;
+		eswr_border.normal = global::colors.ControlTxt;
+		eswr_theme.font = global::fonts.General;
+		eswr_theme.dimensions.border_thickness = 1;
+		eswr_theme.brushes.bk = eswr_bk;
+		eswr_theme.brushes.txt = eswr_txt;
+		eswr_theme.brushes.border = eswr_border;
+
+		edit_oneline::Theme base_editoneline_theme;
+		base_editoneline_theme.dimensions.border_thickness = 1;
+		base_editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
+		base_editoneline_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+		base_editoneline_theme.brushes.bk.normal = global::colors.ControlBk;
+		base_editoneline_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
+		base_editoneline_theme.brushes.border.normal = global::colors.Img;
+		base_editoneline_theme.brushes.border.disabled = global::colors.Img_Disabled;
+		base_editoneline_theme.brushes.selection.normal = global::colors.Selection;
+		base_editoneline_theme.brushes.selection.disabled = global::colors.Selection_Disabled;
+
+		edit_oneline::Theme hiragana_editoneline_theme = base_editoneline_theme;
+		hiragana_editoneline_theme.brushes.foreground.normal = brush_for(learnt_word_elem::hiragana);
+
+		edit_oneline::Theme kanji_editoneline_theme = base_editoneline_theme;
+		kanji_editoneline_theme.brushes.foreground.normal = brush_for(learnt_word_elem::kanji);
+
+		edit_oneline::Theme meaning_editoneline_theme = base_editoneline_theme;
+		meaning_editoneline_theme.brushes.foreground.normal = brush_for(learnt_word_elem::meaning);
+
+		//---------------------Header & Footer----------------------:
+		auto& navbar = state->controls.navbar;
+		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		navbar::set_theme(navbar, &nav_theme);
+
+		{//navbar test
+			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			AWT(button_new, 100);
+			button::set_theme(button_new, &navbar_btn_theme);
+			button::set_user_extra(button_new, state->wnd);
+			button::set_function_on_click(button_new, 
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {
+						store_previous_page(state, state->current_page);
+						reset_page(state, ProcState::page::new_word);
+						set_current_page(state, ProcState::page::new_word);
+					}
+				}
+			);
+			navbar::attach(navbar, button_new, navbar::attach_point::left, -1);
+			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			HWND button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			AWT(button_practice, 101);
+			button::set_theme(button_practice, &navbar_btn_theme);
+			button::set_user_extra(button_practice, state->wnd);
+			button::set_function_on_click(button_practice, 
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {
+						store_previous_page(state, state->current_page);
+						set_current_page(state, ProcState::page::practice);
+					}
+				}
+			);
+			navbar::attach(navbar, button_practice, navbar::attach_point::left, -1);
+			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			edit_oneline::Theme search_editoneline_theme = base_editoneline_theme;
+			search_editoneline_theme.brushes.bk.normal = CreateSolidBrush(RGB(30, 31, 25));
+			search_editoneline_theme.brushes.border = search_editoneline_theme.brushes.bk;
+
+			HWND search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			ACC(search, 251);
+			searchbox::set_editbox_theme(search, &search_editoneline_theme);
+			searchbox::set_user_extra(search, state->wnd);
+			searchbox::set_function_free_elements(search, searchbox_func_free_elements);
+			searchbox::set_function_retrieve_search_options(search, searchbox_func_retrieve_search_options);
+			searchbox::set_function_perform_search(search, searchbox_func_perform_search);
+			searchbox::set_function_show_element_on_editbox(search, searchbox_func_show_on_editbox);
+			searchbox::set_function_render_listbox_element(search, searchbox_func_listbox_render);
+			searchbox::maintain_placerholder_when_focussed(search, true);
+			edit_oneline::set_IME_wnd(searchbox::get_controls(search).editbox, true);
+			navbar::attach(navbar, search, navbar::attach_point::center, -1);
+			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+			//TODO(fran): searchbox: changing color of editbox text based on whether it has meaning,hiragana,kanji?
+			//TODO(fran): searchbox: restore what the user wrote when they press the escape key
+
+			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			languages_setup_combobox(combo_lang);
+			combobox::set_user_extra(combo_lang, state->wnd);
+			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
+			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
+			combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
+			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
+			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
+			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
+			navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
+			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+
+		//---------------------Landing page----------------------:
+		{
+			auto& controls = state->controls.landingpage;
+
+			controls.list.listbox_recents = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			listbox::set_function_render(controls.list.listbox_recents, listbox_recents_func_render);
+			listbox::set_user_extra(controls.list.listbox_recents, state->wnd);
+			listbox::set_function_on_click(controls.list.listbox_recents, listbox_recents_func_on_click);
+
+			controls.list.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_recents, 103);
+			button::set_theme(controls.list.button_recents, &dark_btn_theme);
+			button::set_user_extra(controls.list.button_recents, state->wnd);
+			button::set_function_render(controls.list.button_recents, button_recents_func_render);
+			button::set_function_on_click(controls.list.button_recents,
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {
+						HWND listbox = state->controls.landingpage.list.listbox_recents;
+						flip_visibility(listbox);
+						//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
+					}
+				}
+			);
+
+			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_word_cnt_title, 351);
+
+			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+
+			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_practice_cnt_title, 352);
+
+			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+
+			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_title, 353);
+
+			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
+
+
+			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.static_accuracy_timeline_title, 354);
+
+			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
+
+			//TODO(fran): we may want to add smth else like a total number of words practiced
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+		//---------------------New word----------------------:
+		{
+			auto& controls = state->controls.new_word;
+
+			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_hiragana, &hiragana_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.list.edit_hiragana, true);
+			AWDT(controls.list.edit_hiragana, 120);
+
+			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_kanji, &kanji_editoneline_theme);
+			AWDT(controls.list.edit_kanji, 121);
+
+			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			lexical_category_setup_combobox(controls.list.combo_lexical_category);
+			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
+			ACC(controls.list.combo_lexical_category, 123);
+
+			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_translation, &meaning_editoneline_theme);
+			AWDT(controls.list.edit_translation, 122);
+
+			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
+			AWDT(controls.list.edit_mnemonic, 125);
+
+			controls.list.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_save, 124);
+			button::set_theme(controls.list.button_save, &base_btn_theme);
+			button::set_user_extra(controls.list.button_save, state->wnd);
+			button::set_function_on_click(controls.list.button_save,
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {//TODO(fran): probably unnecessary 'if' only for debugging
+						if (save_new_word(state)) {
+							learnt_word16 empty{ 0 };
+							preload_page(state, state->current_page, &empty);//TODO(fran): function restart_page()
+
+							notify(state, notification_relevance::success, RS(600).c_str());
+						}
+						else notify(state, notification_relevance::error, RS(601).c_str());
+					}
+				}
+			);
+
+			controls.list.static_notify = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_RIGHT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_notify, TRUE, 0, global::colors.ControlBk, 0, 0, 0, 0);
+			SetWindowSubclass(controls.list.static_notify, NotifyProc, 0, 0);
+			Notify_SetTextDuration(controls.list.static_notify, 2000);
+
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+		//---------------------Search----------------------:
+		{
+			auto& controls = state->controls.search;
+
+			/*			controls.list.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
+							, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+						ACC(controls.list.searchbox_search, 251);
+						searchbox::set_editbox_theme(controls.list.searchbox_search, &base_editoneline_theme);
+						searchbox::set_user_extra(controls.list.searchbox_search, state->wnd);
+						searchbox::set_function_free_elements(controls.list.searchbox_search, searchbox_func_free_elements);
+						searchbox::set_function_retrieve_search_options(controls.list.searchbox_search, searchbox_func_retrieve_search_options);
+						searchbox::set_function_perform_search(controls.list.searchbox_search, searchbox_func_perform_search);
+						searchbox::set_function_show_element_on_editbox(controls.list.searchbox_search,searchbox_func_show_on_editbox);
+						searchbox::set_function_render_listbox_element(controls.list.searchbox_search, listbox_search_renderfunc);
+						searchbox::maintain_placerholder_when_focussed(controls.list.searchbox_search, true);
+						edit_oneline::set_IME_wnd(searchbox::get_state(controls.list.searchbox_search)->controls.editbox, true);*/ //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+		//---------------------Show word----------------------:
+		{
+			auto& controls = state->controls.show_word;
+
+			controls.list.static_hiragana = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_hiragana, TRUE, brush_for(learnt_word_elem::hiragana), global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+
+			controls.list.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_kanji, &kanji_editoneline_theme);
+			AWDT(controls.list.edit_kanji, 121);
+
+			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_translation, &meaning_editoneline_theme);
+			AWDT(controls.list.edit_translation, 122);
+
+			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			lexical_category_setup_combobox(controls.list.combo_lexical_category);
+			SetWindowSubclass(controls.list.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
+			ACC(controls.list.combo_lexical_category, 123);
+
+			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.list.edit_mnemonic, &base_editoneline_theme);
+			AWDT(controls.list.edit_mnemonic, 125);
+
+			controls.list.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_creation_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+
+			controls.list.static_last_shown_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_last_shown_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+
+			controls.list.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_score, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+
+			controls.list.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_modify, 273);
+			button::set_theme(controls.list.button_modify, &base_btn_theme);
+
+			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//AWT(controls.list.button_modify, 273);
+			button::set_theme(controls.list.button_delete, &img_btn_theme);
+			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
+
+			controls.list.button_remember = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_remember, 275);
+			AWTT(controls.list.button_remember, 276);
+			button::set_theme(controls.list.button_remember, &accent_btn_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice----------------------:
+		{
+			auto& controls = state->controls.practice;
+
+			controls.list.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_start, 350);
+			button::set_theme(controls.list.button_start, &base_btn_theme);
+
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice Writing----------------------:
+		{
+			auto& controls = state->controls.practice_writing;
+
+			controls.list.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_test_word, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+
+			controls.list.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//NOTE: text color and default text will be set according to the type of word that has to be written
+
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, controls.list.edit_answer, 0, NULL, NULL);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
+				0, 0, 0, 0, state->wnd, 0, 0, 0);
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice Multiplechoice----------------------:
+		{
+			auto& controls = state->controls.practice_multiplechoice;
+
+			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+
+			//TODO(fran): should I simply use a gridview instead?
+			controls.list.multibutton_choices = CreateWindowW(multibutton::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN | multibutton::style::roundrect
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			multibutton::Theme multibutton_choices_theme;
+			multibutton_choices_theme.dimensions.border_thickness = 1;
+			multibutton_choices_theme.brushes.bk.normal = global::colors.ControlBk;//TODO(fran): try with a different color to make it destacar
+			multibutton_choices_theme.brushes.border.normal = global::colors.Img;
+			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
+			//NOTE: buttons' colors will be set according to the type of word that has to be written
+
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
+				0, 0, 0, 0, state->wnd, 0, 0, 0);
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Practice Drawing----------------------:
+		{
+			auto& controls = state->controls.practice_drawing;
+
+			controls.list.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			//NOTE: text color will be set according to the type of word being shown
+
+			controls.list.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			button::set_theme(controls.list.button_next, &base_btn_theme);
+			SendMessage(controls.list.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
+
+			controls.list.button_show_word = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			button::set_theme(controls.list.button_show_word, &base_btn_theme);
+			SendMessage(controls.list.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+
+
+			controls.list.button_right = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_right, 500);
+			button::set_theme(controls.list.button_right, &base_btn_theme);//TODO(fran): maybe green bk
+
+			controls.list.button_wrong = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_wrong, 501);
+			button::set_theme(controls.list.button_wrong, &base_btn_theme);//TODO(fran): maybe red bk
+
+			controls.list.paint_answer = CreateWindow(paint::wndclass, 0, WS_CHILD | WS_VISIBLE //TODO(fran): rounded?
+				, 0, 0, 0, 0, state->wnd, 0, 0, 0);
+			paint::set_brushes(controls.list.paint_answer, true, brush_for(learnt_word_elem::kanji), global::colors.ControlBk, brush_for(learnt_word_elem::kanji), global::colors.Img_Disabled);
+			paint::set_dimensions(controls.list.paint_answer, 7);//TODO(fran): find good brush size
+
+			controls.list.static_correct_answer = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_correct_answer, TRUE, brush_for(learnt_word_elem::kanji), global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+
+			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
+				0, 0, 0, 0, state->wnd, 0, 0, 0);//TODO(fran): must be shown on top of all the other wnds
+			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Review practice----------------------:
+		{
+			auto& controls = state->controls.review_practice;
+
+			controls.list.static_review = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			static_oneline::set_brushes(controls.list.static_review, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			AWT(controls.list.static_review, 450);
+
+			controls.list.gridview_practices = CreateWindowW(gridview::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			//#define TEST_GRIDVIEW
+#ifndef TEST_GRIDVIEW
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);//TODO(fran): add border brushes
+#else
+			gridview::set_brushes(controls.list.gridview_practices, TRUE, global::colors.CaptionBk, 0, global::colors.CaptionBk_Inactive, 0);
+#endif
+			gridview::set_render_function(controls.list.gridview_practices, gridview_practices_renderfunc);
+
+			controls.list.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			AWT(controls.list.button_continue, 451);
+			button::set_theme(controls.list.button_continue, &base_btn_theme);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+	}
+
+	void resize_controls(ProcState* state, ProcState::page page) {
+		RECT r; GetClientRect(state->wnd, &r);
+		const int w = RECTWIDTH(r);
+		const int h = RECTHEIGHT(r);
+		const int half_w = w / 2;
+		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
+		const int h_pad = (int)((f32)h * .05f);
+
+		const int wnd_h = (int)((f32)avg_str_dim(global::fonts.General, 1).cy * 1.5f);
+		const int half_wnd_h = wnd_h / 2;
+		const int max_w = w - w_pad * 2;
+
+		{//navbar test
+			rect_i32 navbar;
+			navbar.left = r.left;
+			navbar.top = r.top;
+			navbar.w = w;
+			navbar.h = wnd_h + 5;
+			MyMoveWindow(state->controls.navbar, navbar, FALSE);
+		}
+
+		switch (page) {
+		case ProcState::page::landing:
+		{
+			auto& controls = state->controls.landingpage;
+
+			int start_y = 0;
+
+			rect_i32 button_recents;
+			button_recents.y = start_y;
+			button_recents.h = wnd_h;
+			button_recents.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.button_recents), 40).cx);
+			button_recents.x = (w - button_recents.w) / 2;
+
+			rect_i32 listbox_recents;
+			listbox_recents.y = button_recents.bottom();
+			listbox_recents.h = wnd_h * (int)listbox::get_element_cnt(controls.list.listbox_recents);
+			listbox_recents.w = button_recents.w;
+			listbox_recents.x = (w - listbox_recents.w) / 2;
+
+			int grid_h = wnd_h * 4;
+			int grid_w = grid_h * 16 / 9;
+			auto grid = create_grid_2x2(grid_h, grid_w, listbox_recents.bottom() + h_pad, w_pad / 2, h_pad / 2, max_w, w);
+
+			rect_i32 cell;
+
+			//First cell
+			cell = grid[0][0];
+			rect_i32 static_word_cnt_title;
+			static_word_cnt_title.w = cell.w;
+			static_word_cnt_title.h = min(wnd_h, cell.h);
+			static_word_cnt_title.x = cell.center_x() - static_word_cnt_title.w / 2;
+			static_word_cnt_title.y = cell.top;
+
+			//NOTE: the values should use a much bigger font
+			rect_i32 static_word_cnt;
+			static_word_cnt.w = cell.w;
+			static_word_cnt.x = cell.center_x() - static_word_cnt.w / 2;
+			static_word_cnt.h = distance(cell.bottom(), static_word_cnt_title.bottom());
+			static_word_cnt.y = cell.bottom() - static_word_cnt.h;
+
+			//Second cell
+			cell = grid[0][1];
+			rect_i32 static_practice_cnt_title;
+			static_practice_cnt_title.w = cell.w;
+			static_practice_cnt_title.h = min(wnd_h, cell.h);
+			static_practice_cnt_title.x = cell.center_x() - static_practice_cnt_title.w / 2;
+			static_practice_cnt_title.y = cell.top;
+
+			rect_i32 static_practice_cnt;
+			static_practice_cnt.w = cell.w;
+			static_practice_cnt.x = cell.center_x() - static_practice_cnt.w / 2;
+			static_practice_cnt.h = distance(cell.bottom(), static_practice_cnt_title.bottom());
+			static_practice_cnt.y = cell.bottom() - static_practice_cnt.h;
+
+			//3rd cell
+			cell = grid[1][0];
+			rect_i32 static_accuracy_title;
+			static_accuracy_title.w = cell.w;
+			static_accuracy_title.h = min(wnd_h, cell.h);
+			static_accuracy_title.x = cell.center_x() - static_accuracy_title.w / 2;
+			static_accuracy_title.y = cell.top;
+
+			rect_i32 score_accuracy;
+			score_accuracy.h = min(cell.w, distance(cell.bottom(), static_accuracy_title.bottom()));
+			score_accuracy.w = score_accuracy.h;
+			score_accuracy.x = cell.center_x() - score_accuracy.w / 2;
+			score_accuracy.y = cell.bottom() - score_accuracy.h;
+
+			//4th cell
+			cell = grid[1][1];
+			rect_i32 static_accuracy_timeline_title;
+			static_accuracy_timeline_title.w = cell.w;
+			static_accuracy_timeline_title.h = min(wnd_h, cell.h);
+			static_accuracy_timeline_title.x = cell.center_x() - static_accuracy_timeline_title.w / 2;
+			static_accuracy_timeline_title.y = cell.top;
+
+			rect_i32 graph_accuracy_timeline;
+			graph_accuracy_timeline.h = min(cell.w, distance(cell.bottom(), static_accuracy_timeline_title.bottom()));
+			graph_accuracy_timeline.w = min(graph_accuracy_timeline.h * 16 / 9, cell.w);
+			graph_accuracy_timeline.x = cell.center_x() - graph_accuracy_timeline.w / 2;
+			graph_accuracy_timeline.y = cell.bottom() - graph_accuracy_timeline.h;
+
+			rect_i32 bottom_most_control = graph_accuracy_timeline;
+
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.list.button_recents, button_recents, FALSE);
+			MyMoveWindow_offset(controls.list.listbox_recents, listbox_recents, FALSE);
+			listbox::set_dimensions(controls.list.listbox_recents, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
+			MyMoveWindow_offset(controls.list.static_word_cnt_title, static_word_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_word_cnt, static_word_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt_title, static_practice_cnt_title, FALSE);
+			MyMoveWindow_offset(controls.list.static_practice_cnt, static_practice_cnt, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_title, static_accuracy_title, FALSE);
+			MyMoveWindow_offset(controls.list.score_accuracy, score_accuracy, FALSE);
+			MyMoveWindow_offset(controls.list.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
+			MyMoveWindow_offset(controls.list.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
+
+		} break;
+		case ProcState::page::new_word:
+		{
+			//One edit control on top of the other, centered in the middle of the wnd, the lex_category covering less than half of the w of the other controls, and right aligned
+			auto& controls = state->controls.new_word.list;
+
+			HFONT font = GetWindowFont(controls.edit_hiragana);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
+
+			//IMPORTANT: fran: language feature request, scope unnamed variables in some way (maybe giving names to a scope so you can tell it in which one to live) so we can do the following:
+			//	jp_sizer{ {&ssizer(edit_hiragana),wnd_h}, {&ssizer(edit_kanji),wnd_h} };
+			//The only way I know to be able to do this is to allocate the variables:
+			//	jp_sizer{ {new ssizer(edit_hiragana),wnd_h}, { new ssizer(edit_kanji),wnd_h} };
+			//why do we have to pay for memory allocation when it's completely unnecesary and simply a sintax limitation, you can simply declare everything beforehand:
+			//	ssizer edit_hiragana{ controls.list.edit_hiragana };
+			//	ssizer edit_kanji{ controls.list.edit_kanji };
+			//	vsizer jp_sizer{ {&edit_hiragana,wnd_h}, {&edit_kanji,wnd_h} };
+			//but now you need to give everything a name and your code becomes more bloated and confusing
+			//it'd much rather do:
+			//	jp_sizer{ {&(scope new_word)ssizer(edit_hiragana),wnd_h}, {&(scope new_word)ssizer(edit_kanji),wnd_h} };
+
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer edit_hiragana{ controls.edit_hiragana };
+			ssizer edit_kanji{ controls.edit_kanji };
+			vsizer jp_sizer{
+				{&edit_hiragana,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_kanji,wnd_h} };
+
+			ssizer combo_lexical_category{ controls.combo_lexical_category };
+			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			ssizer btn_save{ controls.button_save };
+			ssizer static_notify{ controls.static_notify };
+			hrsizer save{ {&btn_save,avg_str_dim(font, 10).cx}, {&static_notify,layout_bounds.cx / 2} };
+			vsizer meaning_sizer{
+				{&lexical_category,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_translation,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_mnemonic,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&save,wnd_h} };
+
+
+			hsizer layout{
+				{&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)} };
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+			layout.resize(layout_rc);
+
+		} break;
+		case ProcState::page::practice:
+		{
+			auto& controls = state->controls.practice;
+
+			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
+
+			rect_i32 button_start;
+			button_start.y = start_y + h_pad;
+			button_start.w = 70;
+			button_start.h = wnd_h;
+			button_start.x = (w - button_start.w) / 2;
+
+			rect_i32 bottom_most_control = button_start;
+
+			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+
+			MyMoveWindow_offset(controls.list.button_start, button_start, FALSE);
+
+		} break;
+		case ProcState::page::practice_writing:
+		{
+			auto& controls = state->controls.practice_writing;
+
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_test_word;
+			static_test_word.y = start_y;
+			static_test_word.h = bigwnd_h;
+			static_test_word.w = w;
+			static_test_word.x = (w - static_test_word.w) / 2;
+
+			rect_i32 edit_answer;
+			edit_answer.y = static_test_word.bottom() + h_pad;
+			edit_answer.h = wnd_h;
+			edit_answer.w = min(max_w, avg_str_dim(GetWindowFont(controls.list.edit_answer), 20).cx);
+			edit_answer.x = (w - edit_answer.w) / 2;
+
+			rect_i32 button_next;//child inside edit_answer
+			button_next.y = 1; //the button is inside the edit box (and past the border) //TODO(fran): we should ask the parent for its border size
+			button_next.h = edit_answer.h - 2;
+			button_next.w = min(button_next.h, max(0, edit_answer.w - 4/*avoid covering rounded borders*/));
+			button_next.x = edit_answer.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
+
+			rect_i32 button_show_word;
+			button_show_word.h = (i32)(wnd_h * .8f);
+			button_show_word.y = edit_answer.bottom() + 3;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = edit_answer.center_x() - button_show_word.w / 2;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 bottom_most_control = button_show_word;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			MyMoveWindow_offset(controls.list.static_test_word, static_test_word, FALSE);
+			MyMoveWindow_offset(controls.list.edit_answer, edit_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
+			MyMoveWindow(controls.list.button_next, button_next, FALSE);
+
+		} break;
+		case ProcState::page::practice_multiplechoice:
+		{
+			auto& controls = state->controls.practice_multiplechoice;
+
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_question;
+			static_question.y = start_y;
+			static_question.h = bigwnd_h;
+			static_question.w = w;
+			static_question.x = (w - static_question.w) / 2;
+
+			rect_i32 multibutton_choices;
+			multibutton_choices.y = static_question.bottom() + h_pad;
+			multibutton_choices.h = bigwnd_h;
+			multibutton_choices.w = max_w;
+			multibutton_choices.x = (w - multibutton_choices.w) / 2;
+
+			multibutton::Theme multibutton_choices_theme;
+			multibutton_choices_theme.dimensions.btn = { avg_str_dim((HFONT)SendMessage(controls.list.multibutton_choices, WM_GETFONT, 0, 0), 15).cx,wnd_h };
+			multibutton_choices_theme.dimensions.inbetween_pad = { 3,3 };
+			multibutton::set_theme(controls.list.multibutton_choices, &multibutton_choices_theme);
+
+			rect_i32 button_next;
+			button_next.y = multibutton_choices.bottom() + h_pad;
+			button_next.h = wnd_h;
+			button_next.w = button_next.h;
+
+			rect_i32 button_show_word;
+			button_show_word.h = button_next.h;
+			button_show_word.y = button_next.y;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
+
+			button_next.x = button_show_word.right() + 1;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 bottom_most_control = button_show_word;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
+			MyMoveWindow_offset(controls.list.multibutton_choices, multibutton_choices, FALSE);
+			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
+
+		} break;
+		case ProcState::page::practice_drawing:
+		{
+			auto& controls = state->controls.practice_drawing;
+
+			int start_y = 0;
+			int bigwnd_h = wnd_h * 4;
+
+			rect_i32 static_question;
+			static_question.y = start_y;
+			static_question.h = bigwnd_h;
+			static_question.w = w;
+			static_question.x = (w - static_question.w) / 2;
+
+			rect_i32 paint_answer;
+			paint_answer.y = static_question.bottom() + h_pad;
+			paint_answer.h = bigwnd_h * 2;
+			paint_answer.w = max_w;
+			paint_answer.x = (w - paint_answer.w) / 2;
+
+			rect_i32 button_next;
+			button_next.y = paint_answer.bottom() + h_pad;
+			button_next.h = wnd_h;
+			button_next.w = button_next.h;
+
+			rect_i32 button_show_word;
+			button_show_word.h = button_next.h;
+			button_show_word.y = button_next.y;
+			button_show_word.w = button_show_word.h * 16 / 9;
+			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
+
+			button_next.x = button_show_word.right() + 1;
+
+			rect_i32 embedded_show_word_reduced;
+			embedded_show_word_reduced.w = max_w;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+
+			rect_i32 static_correct_answer;
+			static_correct_answer.y = button_next.bottom() + h_pad;
+			static_correct_answer.h = bigwnd_h - wnd_h;
+			static_correct_answer.w = w;
+			static_correct_answer.x = (w - static_correct_answer.w) / 2;
+
+			rect_i32 button_wrong;
+			button_wrong.y = static_correct_answer.bottom() + h_pad;
+			button_wrong.h = wnd_h;
+			button_wrong.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.list.button_wrong, WM_GETFONT, 0, 0), 20).cx);
+			button_wrong.x = half_w - w_pad / 2 - button_wrong.w;
+
+			rect_i32 button_right;
+			button_right.y = static_correct_answer.bottom() + h_pad;
+			button_right.h = wnd_h;
+			button_right.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.list.button_right, WM_GETFONT, 0, 0), 20).cx);
+			button_right.x = half_w + w_pad / 2;
+
+			rect_i32 bottom_most_control = button_right;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			MyMoveWindow_offset(controls.list.static_question, static_question, FALSE);
+			MyMoveWindow_offset(controls.list.paint_answer, paint_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_next, button_next, FALSE);
+			MyMoveWindow_offset(controls.list.button_show_word, button_show_word, FALSE);
+			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
+			MyMoveWindow_offset(controls.list.static_correct_answer, static_correct_answer, FALSE);
+			MyMoveWindow_offset(controls.list.button_wrong, button_wrong, FALSE);
+			MyMoveWindow_offset(controls.list.button_right, button_right, FALSE);
+
+
+		} break;
+		case ProcState::page::review_practice:
+		{
+			auto& controls = state->controls.review_practice;
+
+			int bigwnd_h = wnd_h * 3;
+			int start_y = 0;
+
+			rect_i32 static_review;
+			static_review.y = start_y;
+			static_review.h = wnd_h * 2;
+			static_review.w = max_w;
+			static_review.x = (w - static_review.w) / 2;
+
+			rect_i32 gridview_practices;
+			gridview_practices.y = static_review.bottom() + h_pad;
+
+			gridview::element_dimensions gridview_practices_dims;
+			gridview_practices_dims.border_pad_y = 3;
+			gridview_practices_dims.inbetween_pad = { 5,5 };
+			gridview_practices_dims.element_dim = { bigwnd_h,bigwnd_h };
+			gridview::set_dimensions(controls.list.gridview_practices, gridview_practices_dims);
+
+			SIZE gridview_practices_wh;
+			{
+				//TODO(fran): this is the worst code I've written in quite a while, this and the gridview code that was needed need a revision
+				const size_t elems_per_row = 5;
+				size_t curr_elem_cnt = gridview::get_elem_cnt(controls.list.gridview_practices);
+				i32 full_w = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, curr_elem_cnt, elems_per_row).cx;
+
+				i32 real_w = min(w - w_pad * 2, full_w);
+
+				i32 max_h = gridview::get_dim_for_elemcnt_elemperrow(controls.list.gridview_practices, elems_per_row * 4, elems_per_row).cy;//4 rows
+
+				i32 full_h = gridview::get_dim_for_elemcnt_w(controls.list.gridview_practices, curr_elem_cnt, real_w).cy;
+
+				//SIZE full_dim = gridview::get_dim_for(controls.list.gridview_practices, row_cnt, elems_per_row);
+				gridview_practices_wh = { real_w,min(full_h,max_h) };
+			}
+
+			gridview_practices.h = gridview_practices_wh.cy;//TODO(fran): should get smaller if the controls below it cant fit, as small as to only allow 1 row to be visible
+			gridview_practices.w = gridview_practices_wh.cx;
+			gridview_practices.x = (w - gridview_practices.w) / 2;
+
+			rect_i32 button_continue;
+			button_continue.h = wnd_h;
+			button_continue.w = 70;
+			button_continue.x = (w - button_continue.w) / 2;
+			button_continue.y = gridview_practices.bottom() + h_pad;
+
+			rect_i32 bottom_most_control = button_continue;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.list.static_review, static_review, FALSE);
+			MyMoveWindow_offset(controls.list.gridview_practices, gridview_practices, FALSE);
+			MyMoveWindow_offset(controls.list.button_continue, button_continue, FALSE);
+
+		} break;
+		case ProcState::page::search:
+		{
+#if 0
+			auto& controls = state->controls.search;
+
+			rect_i32 cb_search;
+			cb_search.x = w_pad;
+			cb_search.y = h_pad;
+			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
+			cb_search.w = max_w;
+
+			rect_i32 searchbox_search;
+			searchbox_search.w = max_w;
+			searchbox_search.x = (w - searchbox_search.w) / 2;
+			searchbox_search.h = wnd_h;
+			searchbox_search.y = h_pad;
+
+			//MyMoveWindow(controls.list.combo_search, cb_search, FALSE);
+			MyMoveWindow(controls.list.searchbox_search, searchbox_search, FALSE);
+			searchbox::set_listbox_dimensions(controls.list.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
+#endif
+		} break;
+		case ProcState::page::show_word:
+		{
+			auto& controls = state->controls.show_word.list;
+
+#if 1
+			HFONT font = GetWindowFont(controls.edit_translation);
+			int bigwnd_h = wnd_h * 2;
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
+
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer static_hiragana{ controls.static_hiragana };
+			ssizer edit_kanji{ controls.edit_kanji };
+			vsizer jp_sizer{
+				{&static_hiragana,bigwnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_kanji,bigwnd_h}, //TODO(fran): text editor needs to adapt to font size changing
+			};
+
+			ssizer combo_lexical_category{ controls.combo_lexical_category };
+			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			vsizer meaning_sizer{
+				{&lexical_category,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_translation,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_mnemonic,wnd_h},
+			};
+
+			hsizer word_info{
+				{(sizer*)&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{(sizer*)&meaning_sizer,(int)(.55f * (f32)layout_bounds.cx)}
+			};
+
+			ssizer static_creation_date{ controls.static_creation_date };
+			ssizer static_last_shown_date{ controls.static_last_shown_date };
+			vsizer left_stats{
+				{&static_creation_date,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&static_last_shown_date,wnd_h},
+			};//TODO(fran): vcsizer
+
+			ssizer static_score{ controls.static_score };
+			vsizer right_stats{ {&static_score,wnd_h} };
+
+			hsizer word_stats{ //TODO(fran): switch from 2x2 to 1x4 grid depending on width
+				{&left_stats,(int)(.45f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{&right_stats,(int)(.45f * (f32)layout_bounds.cx)},
+			};
+
+			ssizer button_delete{ controls.button_delete };
+			ssizer button_remember{ controls.button_remember };
+			ssizer button_modify{ controls.button_modify };
+
+			hrsizer buttons{
+				{&button_modify,GetWindowDesiredSize(button_modify.wnd,{200,200},{200,200}).max.cx},
+				{&lhpad,half_wnd_h},
+				{&button_remember,GetWindowDesiredSize(button_remember.wnd,{200,200},{200,200}).max.cx},
+				{&lhpad,half_wnd_h},
+				{&button_delete,GetWindowDesiredSize(button_delete.wnd,{200,200},{200,200}).max.cx},
+			};//TODO(fran): idk whether I want to reverse the order for hrsizer, so that the first wnd added is leftmost
+
+			vsizer layout{
+				{&word_info,word_info.get_bottom({0,0,layout_bounds.cx,h}).y},
+				{&lhpad,wnd_h},
+				{&word_stats,wnd_h * 3},
+				{&lhpad,wnd_h},
+				{&buttons,wnd_h},
+			};
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+			layout.resize(layout_rc);
+
+#else
+			int bigwnd_h = wnd_h * 4;
+			int start_y = 0;
+
+			rect_i32 static_hiragana;
+			static_hiragana.x = w_pad;
+			static_hiragana.y = start_y;
+			static_hiragana.h = bigwnd_h;
+			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
+
+			rect_i32 cb_lex_categ;
+			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
+#if 0
+			cb_lex_categ.x = min(w - w_pad - cb_lex_categ.w, w / 2 + cb_lex_categ.w);//TODO(fran): doesnt look good, maybe just center it
+#else
+			cb_lex_categ.x = (w - cb_lex_categ.w) / 2;
+#endif
+			cb_lex_categ.y = static_hiragana.bottom() + h_pad / 2;
+			cb_lex_categ.h = wnd_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
+
+			rect_i32 edit_kanji;
+			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
+			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
+			edit_kanji.x = (w - edit_kanji.w) / 2;
+			edit_kanji.h = wnd_h;
+
+			rect_i32 edit_translation;
+			edit_translation.y = edit_kanji.bottom() + h_pad;
+			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_translation, WM_GETFONT, 0, 0), 30).cx);
+			edit_translation.x = (w - edit_translation.w) / 2;
+			edit_translation.h = wnd_h;
+
+			rect_i32 edit_mnemonic;
+			edit_mnemonic.w = max_w;
+			edit_mnemonic.x = (w - edit_mnemonic.w) / 2;
+			edit_mnemonic.y = edit_translation.bottom() + h_pad;
+			edit_mnemonic.h = wnd_h;
+
+			rect_i32 last_user = edit_mnemonic;
+
+			auto stats_grid = create_grid_2x2(
+				wnd_h, avg_str_dim((HFONT)SendMessage(controls.static_creation_date, WM_GETFONT, 0, 0), 25).cx
+				, last_user.bottom() + h_pad, w_pad / 2, h_pad / 2, max_w, w);
+
+			rect_i32 static_creation_date = stats_grid[0][0];
+
+			rect_i32 static_last_shown_date = stats_grid[0][1];
+
+			rect_i32 static_score = stats_grid[1][0];
+
+			rect_i32 last_cell = static_score;//TODO(fran): we still got one more space at [1][1]
+
+			rect_i32 btn_modify;
+			btn_modify.w = 70;
+			btn_modify.h = wnd_h;
+			btn_modify.y = last_cell.bottom() + h_pad;
+			btn_modify.x = (w - btn_modify.w) / 2;
+
+			rect_i32 btn_remember;
+			btn_remember.w = 90;
+			btn_remember.h = wnd_h;
+			btn_remember.y = btn_modify.y;
+			btn_remember.x = btn_modify.right() + w_pad;
+
+			rect_i32 btn_delete;
+			btn_delete.h = wnd_h;
+			btn_delete.w = btn_delete.h;
+#if 0 //TODO(fran): which one to go with?
+			btn_delete.x = btn_modify.right() + w_pad*;/*TODO(fran): clamp to not go beyond w*/
+			btn_delete.y = btn_modify_y;
+#else
+			btn_delete.x = (w - btn_delete.w) / 2;
+			btn_delete.y = btn_modify.bottom() + h_pad;
+#endif
+
+			rect_i32 bottom_most_control = btn_delete;
+
+			int used_h = bottom_most_control.bottom();
+			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+
+			MyMoveWindow_offset(controls.static_hiragana, static_hiragana, FALSE);
+			MyMoveWindow_offset(controls.combo_lexical_category, cb_lex_categ, FALSE);
+			MyMoveWindow_offset(controls.edit_kanji, edit_kanji, FALSE);
+			MyMoveWindow_offset(controls.edit_translation, edit_translation, FALSE);
+			MyMoveWindow_offset(controls.edit_mnemonic, edit_mnemonic, FALSE);
+
+			//Dates one next to the other, the same for times_... related objs
+			MyMoveWindow_offset(controls.static_creation_date, static_creation_date, FALSE);
+			MyMoveWindow_offset(controls.static_last_shown_date, static_last_shown_date, FALSE);
+			MyMoveWindow_offset(controls.static_score, static_score, FALSE);
+			MyMoveWindow_offset(controls.button_modify, btn_modify, FALSE);
+			MyMoveWindow_offset(controls.button_remember, btn_remember, FALSE);
+			MyMoveWindow_offset(controls.button_delete, btn_delete, FALSE);
+#endif
+		} break;
+		case ProcState::page::review_practice_writing:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_writing);
+		} break;
+		case ProcState::page::review_practice_multiplechoice:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_multiplechoice);
+		} break;
+		case ProcState::page::review_practice_drawing:
+		{
+			//TODO(fran): different layout?
+			resize_controls(state, ProcState::page::practice_drawing);
+		} break;
+		default:Assert(0);
+		}
+	}
+	void resize_controls(ProcState* state) {
+		resize_controls(state, state->current_page);
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -3029,8 +3110,8 @@ namespace べんきょう {
 			st->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
 			st->current_page = ProcState::page::landing;
 			init_cpp_objects(st);
-			set_state(hwnd, st);//TODO(fran): now I wonder why I append everything with the name of the wnd when I can simply use function overloading, even for get_state since all my functions do the same I can simple have one
-			startup(st->settings->db);
+			set_state(hwnd, st);
+			startup(st->settings->db);//TODO(fran):I dont think this should be executed in non-main windows
 			return TRUE;
 		} break;
 		case WM_CREATE:
@@ -3058,7 +3139,7 @@ namespace べんきょう {
 		} break;
 		case WM_SIZE:
 		{
-			LRESULT res = DefWindowProc(hwnd, msg, wparam, lparam);
+			LRESULT res = DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): #speed pointless call to default handler that im pretty sure does nothing on wm_size
 			resize_controls(state);
 			return res;
 		} break;
@@ -3097,54 +3178,19 @@ namespace べんきょう {
 				switch (state->current_page) {
 				case ProcState::page::landing:
 				{
-					//auto& page = state->controls.landingpage;
-					//if (child == page.list.button_new) {
-					//	store_previous_page(state, state->current_page);
-					//	reset_page(state, ProcState::page::new_word);
-					//	set_current_page(state, ProcState::page::new_word);
-					//}
-					//else if (child == page.list.button_practice) {
-					//	store_previous_page(state, state->current_page);
-					//	user_stats stats = get_user_stats(state->settings->db);
-					//	get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
-					//	preload_page(state, ProcState::page::practice, &stats);
-					//	set_current_page(state, ProcState::page::practice);
-					//}
-					//else if (child == page.list.button_search) {
-					//	store_previous_page(state, state->current_page);
-					//	set_current_page(state, ProcState::page::search);
-					//}
-					//else if (child == page.list.combo_languages) {
-					//	WORD notif = HIWORD(wparam);
-					//	switch (notif) {
-					//	case CBN_SELENDOK:
-					//	{
-					//		//user requested a language change
-					//		//TODO(fran): pretty sure I can reduce all this to _get_edit_str() instead of going through the listbox
-					//		i32 cur_sel = (i32)SendMessage(child, CB_GETCURSEL, 0, 0);
-					//		if (cur_sel != CB_ERR) {
-					//			utf16_str lang = alloc_any_str(sizeof(*lang.str) * (SendMessage(child, CB_GETLBTEXTLEN, cur_sel, 0) + 1)); defer{ if(lang.sz) free_any_str(lang.str); };
-					//			if (lang.sz) {
-					//				SendMessage(child, CB_GETLBTEXT, cur_sel, (LPARAM)lang.str);
-					//				LANGUAGE_MANAGER::Instance().ChangeLanguage(lang.str);
-					//			}
-					//		}
-
-					//	} break;
-					//	}
-					//}
 				} break;
 				case ProcState::page::new_word:
 				{
-					auto& page = state->controls.new_word;
-					if (child == page.list.button_save) {
-						if (save_new_word(state)) {
-							//If the new word was successfully saved then go back to the landing, TODO(fran): a better idea may be to reset the new_word page, so that the user can add multiple words faster
-							store_previous_page(state, state->current_page);
-							set_current_page(state, ProcState::page::landing);
-							//TODO(fran): clear new_word controls, now this one's annoying cause not everything is cleared the same way
-						}
-					}
+					//auto& page = state->controls.new_word;
+					//if (child == page.list.button_save) {
+					//	if (save_new_word(state)) {
+					//		learnt_word16 empty{0};
+					//		preload_page(state, state->current_page, &empty);//TODO(fran): function restart_page()
+
+					//		notify(state, notification_relevance::success, RS(600).c_str());
+					//	}
+					//	else notify(state, notification_relevance::error, RS(601).c_str());
+					//}
 				} break;
 				case ProcState::page::practice:
 				{

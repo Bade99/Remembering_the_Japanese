@@ -13,6 +13,7 @@
 //                                          u32 id;//or some other name
 //                                      };
  //TODO(fran): font info should be saved and be end user editable
+//TODO(fran): IDEA: if the user holds shift while moving the window we scroll in a fixed x or y axis depending on which direction the mouse is moving
 //BIG TODO(fran): we can actually pre allocate the sizes for everything, and assign "static" structures to sections of the code for reuse, going back to the handmade hero mentality that'd help a lot, no need for mallocs all over the place, at most we should implement re allocation, but even that's not necessary if we fixed every size, I was thinking about differentiating current size and allocated size for things like strings, but that's also not needed, with fixed sizes we can have everything allocated on the correct size from the start, the content on the pages of this program is very much fixed and controllable
 //BIG TODO(fran): db configuration, pragmas and the like (eg the page size is important to be at least 4KB)
 

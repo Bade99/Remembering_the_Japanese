@@ -18,6 +18,7 @@
 //TODO(fran): on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
 //TODO(fran): at some point I got to trigger a secondary IME candidates window which for some reason decided to show up, this BUG is probably related to the multiple candidates window, maybe we need to manually block the secondary ones, it could be that if you write too much text this extra candidate windows appear
 //TODO(fran): it seems like the IME window is global or smth like that, if I dont ask for candidate windows on WM_IME_SETCONTEXT then it also wont show them for other controls, wtf
+//TODO(fran): double click on a word to select it
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 

@@ -38,7 +38,7 @@ namespace global {
 		op(HBRUSH,Graph_Bk,CreateSolidBrush(RGB(20, 21, 30))) \
 		op(HBRUSH,Graph_Border,CreateSolidBrush(RGB(40, 41, 35))) \
 		op(HBRUSH,hiragana,CreateSolidBrush(RGB(144, 115, 153))) \
-		op(HBRUSH,kanji,CreateSolidBrush(RGB(204, 206, 205))) \
+		op(HBRUSH,kanji,CreateSolidBrush(RGB(208, 125, 0))) \
 		op(HBRUSH,translation,CreateSolidBrush(RGB(192, 99, 108))) \
 		op(HBRUSH,Bk_right_answer,CreateSolidBrush(RGB(23, 206, 44))) \
 		op(HBRUSH,BkMouseover_right_answer,CreateSolidBrush(RGB(13, 186, 24))) \
