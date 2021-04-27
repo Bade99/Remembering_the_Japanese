@@ -30,7 +30,7 @@
 
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
-//TODO(fran): application icon: chidori (talk to bren)
+//TODO(fran): application icon: chidori bird(talk to bren)
 //TODO(fran): scrolling: once we implement scrolling we'll need to add support in all wnds, basically to do scrolling if they have it active (user can scroll, no matter which direction) or send the scroll msg to their parent
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): db: load the whole db in ram

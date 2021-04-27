@@ -47,7 +47,6 @@
 //#define dprintf(...) 
 #endif
 
-
 //---------------------Includes----------------------:
 #include "windows_sdk.h"
 #include <Shlwapi.h> //StrCpyNW
@@ -174,6 +173,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     //------------------Database Setup-------------------:
     //NOTE: at least for now we'll only have one user, when the time comes and we feel that's needed we'll simply add an intermediate folder for each user into which a separate db will be stored
+    auto sqlite_init_res = sqlite3_initialize(); defer{ sqlite3_shutdown(); };
+    runtime_assert(sqlite_init_res == SQLITE_OK, (L"Failure to initialize SQLite, error code " + std::to_wstring(sqlite_init_res)).c_str());
     sqlite3* db;
     constexpr utf16 db_name[] = 
 #ifdef _DEBUG /*TODO(fran): this aint too bulletproof*/
