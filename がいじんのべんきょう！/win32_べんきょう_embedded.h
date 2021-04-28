@@ -110,7 +110,7 @@ namespace embedded {
 				//TODO(fran): we could resize_controls in case we resize by the lenght of the strings
 				SendMessage(state->controls.hiragana, WM_SETTEXT, 0, (LPARAM)word->attributes.hiragana.str);
 				SendMessage(state->controls.kanji, WM_SETTEXT, 0, (LPARAM)word->attributes.kanji.str);
-				SendMessage(state->controls.meaning, WM_SETTEXT, 0, (LPARAM)word->attributes.translation.str);
+				SendMessage(state->controls.meaning, WM_SETTEXT, 0, (LPARAM)word->attributes.meaning.str);
 				SendMessage(state->controls.lexical_category, WM_SETTEXT, 0, (LPARAM)word->attributes.lexical_category.str);
 				SendMessage(state->controls.mnemonic, WM_SETTEXT, 0, (LPARAM)word->attributes.mnemonic.str);
 				//TODO(fran): ask_for_repaint(state) ?

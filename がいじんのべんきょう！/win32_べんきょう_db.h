@@ -33,7 +33,7 @@ union _learnt_word { //contains utf16 when getting data from the UI, and utf8 wh
 #define _foreach_learnt_word_member(op) \
 		op(type,hiragana) \
 		op(type,kanji) \
-		op(type,translation) \
+		op(type,meaning) \
 		op(type,mnemonic) \
 		op(type,lexical_category) \
 
@@ -67,7 +67,7 @@ union _extra_word {
 		op(type,times_right) \
 
 		//NOTE: times_right is a count that goes up each time the user guessed the word correctly
-		//TODO(fran): we may want to separate between times_right and times_shown for hiragana and the translation
+		//TODO(fran): we may want to separate between times_right and times_shown for hiragana and the meaning
 
 		_foreach_extra_word_member(_generate_member_no_default_init);
 
@@ -115,7 +115,7 @@ struct stored_word16 {
 #define べんきょう_table_words_structure \
 	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
-	translation			TEXT NOT NuLL COLLATE NOCASE,\
+	meaning			TEXT NOT NuLL COLLATE NOCASE,\
 	mnemonic			TEXT,\
 	lexical_category	INTEGER,\
 	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
@@ -131,7 +131,7 @@ struct stored_word16 {
 
 //TODO(fran): I really dont know what to do with the primary key constraint, it's more annoying than anything else if applied to the hiragana column, but on the other hand we do need it for the type of practices we want, where we question the user based only on hiragana, maybe simply adding a list is for the best, at least for the 'meaning' column. That would be one kanji, one hiragana, multiple meanings. Check this actually applies to the language
 
-//TODO(fran): hiragana, kanji and translation should actually be lists
+//TODO(fran): hiragana, kanji and meaning should actually be lists
 //				https://stackoverflow.com/questions/9755741/vectors-lists-in-sqlite
 //				https://www.sqlite.org/json1.html
 
@@ -270,7 +270,7 @@ namespace べんきょう {
 		switch (match_type) {
 		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
 		case decltype(match_type)::kanji: filter_col = "kanji"; break;
-		case decltype(match_type)::meaning: filter_col = "translation"; break;
+		case decltype(match_type)::meaning: filter_col = "meaning"; break;
 		default: Assert(0);
 		}
 
@@ -575,7 +575,7 @@ namespace べんきょう {
 
 	//NOTE: returns an array of learnt_words that are contiguous in memory, which means that freeing the base pointer frees all the elements at once
 	ptr<learnt_word16> search_word_matches(sqlite3* db, learnt_word_elem match_type, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
-		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the translation too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
+		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the meaning too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
 		ptr<learnt_word16> res;
 		res.alloc(max_cnt_results);
 		//res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
@@ -585,7 +585,7 @@ namespace べんきょう {
 		switch (match_type) {
 		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
 		case decltype(match_type)::kanji: filter_col = "kanji"; break;
-		case decltype(match_type)::meaning: filter_col = "translation"; break;
+		case decltype(match_type)::meaning: filter_col = "meaning"; break;
 		default: Assert(0);
 		}
 
@@ -671,7 +671,7 @@ namespace べんきょう {
 			auto do_first_and_others = [&]() { if (first) first = !first; else where_req += " AND "; };
 			if (hiragana_req) { do_first_and_others(); where_req += "hiragana" " <> " "''"; }
 			if (kanji_req) { do_first_and_others(); where_req += "kanji" " <> " "''"; }
-			if (meaning_req) { do_first_and_others(); where_req += "translation" " <> " "''"; }
+			if (meaning_req) { do_first_and_others(); where_req += "meaning" " <> " "''"; }
 		}
 
 		std::string select_practice_word =
@@ -731,8 +731,8 @@ namespace べんきょう {
 			req_column = "kanji";
 			break;
 		case decltype(request)::meaning:
-			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.translation.str, (int)filter->attributes.translation.sz).str;
-			req_column = "translation";
+			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.meaning.str, (int)filter->attributes.meaning.sz).str;
+			req_column = "meaning";
 			break;
 		default: Assert(0);
 		}
@@ -967,12 +967,12 @@ namespace べんきょう {
 		//Newer versions will need a "ponerse al día" module, in case they need to add data an old version didnt, an example would be the word count, assuming v1 didnt have it when v2 comes the user has potentially already added lots of words but their counter would be 0, here we'll need the module to to count the current number of already existing words on the db and update the counter(this type of operations could get very expensive, the good thing is they'll only execute once when we go from a lower db version to the higher one)
 		//ADDED PROBLEM: if the user goes up some versions, then down, then adds words and then goes back up the module wont execute since the db version always stays at the highest one, SOLUTION: one way to fix this is to add one extra information, last_db_version_execution (records the db version that was actually used during execution, which can be lower than the effective db_version of the tables), checking against this we can always know when there's a period of version change which means we have to "ponerlo al día".
 
-//#define TEST_WORDS
+#define TEST_WORDS
 #if defined(TEST_WORDS) && defined(_DEBUG)
 		{
 			utf8* errmsg;
 			utf8 test_insert_words[] = SQL(
-				INSERT INTO _べんきょう_table_words(hiragana, kanji, translation, mnemonic, lexical_category)
+				INSERT INTO _べんきょう_table_words(hiragana, kanji, meaning, mnemonic, lexical_category)
 				VALUES
 				('はな', '話', 'Flower', 'Flowernote', -1)comma
 				('なに', '何', 'What', 'Nani?!', -1)comma

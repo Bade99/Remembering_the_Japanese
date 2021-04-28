@@ -32,11 +32,11 @@
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori bird(talk to bren)
 //TODO(fran): scrolling: once we implement scrolling we'll need to add support in all wnds, basically to do scrolling if they have it active (user can scroll, no matter which direction) or send the scroll msg to their parent
+//TODO(fran): test suite: test whole application performance when db is really full, say for example 3500 word entries with every column filled with data
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
-//TODO(fran): db: load the whole db in ram
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
-//TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code
+//TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
 //TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
@@ -110,10 +110,10 @@ void lexical_category_setup_combobox(HWND cb) {
 struct practice_writing_word {
 	learnt_word16 word;//TODO(fran): change name to 'question' and add extra param 'answer' that points to an element inside of 'question'
 	enum class type {//TODO(fran): the type differentiation is kinda pointless, instead I could bake all the differences into variables, eg to check the right answer have a separate pointer to the needed string inside the learnt_word
-		hiragana_to_translation,
-		translation_to_hiragana,
+		hiragana_to_meaning,
+		meaning_to_hiragana,
 		kanji_to_hiragana,
-		kanji_to_translation,
+		kanji_to_meaning,
 		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correctly
 	}practice_type;
 };
@@ -128,7 +128,7 @@ HBRUSH brush_for(learnt_word_elem type) {
 		res = global::colors.kanji;
 	} break;
 	case decltype(type)::meaning: {
-		res = global::colors.translation;
+		res = global::colors.meaning;
 	} break;
 	default:Assert(0);
 	}
@@ -136,12 +136,12 @@ HBRUSH brush_for(learnt_word_elem type) {
 };
 
 template<typename T>
-T str_for_learnt_word_elem(_learnt_word<T>* word, learnt_word_elem type) {//TODO(fran): this is ugly
+T str_for(_learnt_word<T>* word, learnt_word_elem type) {//TODO(fran): this is ugly
 	T res;
 	switch (type) {
 	case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana; break;
 	case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji; break;
-	case decltype(type)::meaning: res = (decltype(res))word->attributes.translation; break;
+	case decltype(type)::meaning: res = (decltype(res))word->attributes.meaning; break;
 	default:res = { 0 }; Assert(0);
 	}
 	return res;
@@ -281,10 +281,10 @@ struct べんきょうProcState {
 			struct {
 				type edit_hiragana;
 				type edit_kanji;
-				type edit_translation;
+				type edit_meaning;
 				type combo_lexical_category;
 				type edit_mnemonic;//create a story/phrase around the word
-				//TODO(fran): here you should be able to add more than one translation
+				//TODO(fran): here you should be able to add more than one meaning
 				//TODO(fran): type edit_notes
 				type button_save;
 				type static_notify;
@@ -380,10 +380,10 @@ struct べんきょうProcState {
 			struct {
 				type static_hiragana;
 				type edit_kanji;
-				type edit_translation;
+				type edit_meaning;
 				type combo_lexical_category;
 				type edit_mnemonic;
-				//TODO(fran): here you should be able to add more than one translation
+				//TODO(fran): here you should be able to add more than one meaning
 
 				type static_creation_date;
 				type static_last_shown_date;
@@ -581,13 +581,8 @@ namespace べんきょう {
 		learnt_word16* word = (decltype(word))element;
 		ProcState* state = get_state((HWND)user_extra);
 		if (state) {
-			utf16_str txt;
-			switch (state->pagestate.search.search_type) {
-			case decltype(state->pagestate.search.search_type)::hiragana: txt = word->attributes.hiragana; break;
-			case decltype(state->pagestate.search.search_type)::kanji: txt = word->attributes.kanji; break;
-			case decltype(state->pagestate.search.search_type)::meaning: txt = word->attributes.translation; break;
-			default: txt = { 0 };/*must zero initialize so compiler doesnt complain*/  Assert(0);
-			}
+			utf16_str txt = str_for(word, state->pagestate.search.search_type);
+			
 			SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt.str);
 		}
 	}
@@ -620,7 +615,7 @@ namespace べんきょう {
 		
 		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
 		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, global::fonts.General, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.meaning, global::fonts.General, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 
 	}
 
@@ -805,7 +800,7 @@ namespace べんきょう {
 		//	i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
 		//	RoundRect(dc, kanji_placeholder_rc.x, kanji_placeholder_rc.y, kanji_placeholder_rc.right(), kanji_placeholder_rc.bottom(), roundedness, roundedness);
 		//}
-		urender::draw_text(dc, meaning_rc, txt->attributes.translation, font, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, txt->attributes.meaning, font, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 	}
 
 	void listbox_recents_func_on_click(void* element, void* user_extra);
@@ -894,7 +889,7 @@ namespace べんきょう {
 
 	bool check_new_word(ProcState* state) {
 		auto& page = state->controls.new_word;
-		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_translation };
+		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_meaning };
 		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
 			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
 			if (!sz_char) {
@@ -907,7 +902,7 @@ namespace べんきょう {
 
 	bool check_show_word(ProcState* state) {
 		auto& page = state->controls.show_word;
-		HWND edit_required[] = { page.list.edit_translation };
+		HWND edit_required[] = { page.list.edit_meaning };
 		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
 			int sz_char = (int)SendMessage(edit_required[i], WM_GETTEXTLENGTH, 0, 0);
 			if (!sz_char) {
@@ -993,7 +988,7 @@ namespace べんきょう {
 			//NOTE: settext already has null checking
 			SendMessageW(controls.list.edit_hiragana, WM_SETTEXT, 0, (LPARAM)new_word->attributes.hiragana.str);
 			SendMessageW(controls.list.edit_kanji, WM_SETTEXT, 0, (LPARAM)new_word->attributes.kanji.str);
-			SendMessageW(controls.list.edit_translation, WM_SETTEXT, 0, (LPARAM)new_word->attributes.translation.str);
+			SendMessageW(controls.list.edit_meaning, WM_SETTEXT, 0, (LPARAM)new_word->attributes.meaning.str);
 			SendMessageW(controls.list.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)new_word->attributes.mnemonic.str);
 			int lex_categ_sel;
 			if (new_word->attributes.lexical_category.str) {
@@ -1011,7 +1006,7 @@ namespace べんきょう {
 
 			SendMessageW(controls.list.static_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
 			SendMessageW(controls.list.edit_kanji, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.kanji.str);
-			SendMessageW(controls.list.edit_translation, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.translation.str);
+			SendMessageW(controls.list.edit_meaning, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.meaning.str);
 			SendMessageW(controls.list.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.mnemonic.str);
 
 			int lex_categ_sel;
@@ -1066,11 +1061,11 @@ namespace べんきょう {
 			bool show_ime_suggestions = true;
 
 			switch (practice->practice_type) {
-			case decltype(practice->practice_type)::hiragana_to_translation:
+			case decltype(practice->practice_type)::hiragana_to_meaning:
 			{
 				test_word = (utf16*)practice->word.attributes.hiragana.str;
 				test_word_br = brush_for(learnt_word_elem::hiragana);
-				//TODO(fran): idk if I should put "translation" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
+				//TODO(fran): idk if I should put "meaning" or "answer", and for hiragana "hiragana" or "こたえ" (meaning answer), and "kanji" or "答え"
 				answer_placeholder = RS(380);
 				answer_br = brush_for(learnt_word_elem::meaning);
 			} break;
@@ -1084,7 +1079,7 @@ namespace べんきょう {
 
 				show_ime_suggestions = false;
 			} break;
-			case decltype(practice->practice_type)::kanji_to_translation:
+			case decltype(practice->practice_type)::kanji_to_meaning:
 			{
 				test_word = (utf16*)practice->word.attributes.kanji.str;
 				test_word_br = brush_for(learnt_word_elem::kanji);
@@ -1092,9 +1087,9 @@ namespace べんきょう {
 				answer_placeholder = RS(380);
 				answer_br = brush_for(learnt_word_elem::meaning);
 			} break;
-			case decltype(practice->practice_type)::translation_to_hiragana:
+			case decltype(practice->practice_type)::meaning_to_hiragana:
 			{
-				test_word = (utf16*)practice->word.attributes.translation.str;
+				test_word = (utf16*)practice->word.attributes.meaning.str;
 				test_word_br = brush_for(learnt_word_elem::meaning);
 
 				answer_placeholder = answer_hiragana;
@@ -1173,7 +1168,7 @@ namespace べんきょう {
 			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
 
 			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
-			case decltype(pagedata->practice->practice_type)::hiragana_to_translation:
+			case decltype(pagedata->practice->practice_type)::hiragana_to_meaning:
 			{
 				question_br = global::colors.hiragana;
 			} break;
@@ -1181,13 +1176,13 @@ namespace べんきょう {
 			{
 				question_br = global::colors.kanji;
 			} break;
-			case decltype(pagedata->practice->practice_type)::kanji_to_translation:
+			case decltype(pagedata->practice->practice_type)::kanji_to_meaning:
 			{
 				question_br = global::colors.kanji;
 			} break;
-			case decltype(pagedata->practice->practice_type)::translation_to_hiragana:
+			case decltype(pagedata->practice->practice_type)::meaning_to_hiragana:
 			{
-				question_br = global::colors.translation;
+				question_br = global::colors.meaning;
 			} break;
 			default:Assert(0);
 			}
@@ -1553,13 +1548,13 @@ namespace べんきょう {
 				switch (search_type) {
 				case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
 				case decltype(search_type)::kanji: search.attributes.kanji = *((utf16_str*)element); break;
-				case decltype(search_type)::meaning: search.attributes.translation= *((utf16_str*)element); break;
+				case decltype(search_type)::meaning: search.attributes.meaning= *((utf16_str*)element); break;
 				default:Assert(0);//TODO
 				}
 				//search = ((utf16_str*)element)->str;
 			}
 
-			get_word_res res = get_word(state->settings->db, search_type, str_for_learnt_word_elem(&search,search_type).str); defer{ free_get_word(res.word); };
+			get_word_res res = get_word(state->settings->db, search_type, str_for(&search,search_type).str); defer{ free_get_word(res.word); };
 			if (res.found) {
 				preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 				store_previous_page(state, state->current_page);
@@ -1605,7 +1600,7 @@ namespace べんきょう {
 
 			_get_edit_str(page.list.static_hiragana, w16.attributes.hiragana);
 			_get_edit_str(page.list.edit_kanji, w16.attributes.kanji);
-			_get_edit_str(page.list.edit_translation, w16.attributes.translation);
+			_get_edit_str(page.list.edit_meaning, w16.attributes.meaning);
 			_get_edit_str(page.list.edit_mnemonic, w16.attributes.mnemonic);
 			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w16.attributes.lexical_category);
 
@@ -1660,7 +1655,7 @@ namespace べんきょう {
 
 			_get_edit_str(page.list.edit_hiragana, w16.attributes.hiragana);
 			_get_edit_str(page.list.edit_kanji, w16.attributes.kanji);
-			_get_edit_str(page.list.edit_translation, w16.attributes.translation);
+			_get_edit_str(page.list.edit_meaning, w16.attributes.meaning);
 			_get_edit_str(page.list.edit_mnemonic, w16.attributes.mnemonic);
 			_get_combo_sel_idx_as_str(page.list.combo_lexical_category, w16.attributes.lexical_category);
 
@@ -1729,23 +1724,23 @@ namespace べんきょう {
 	}
 
 	//TODO(fran): use get_hiragana_kanji_meaning, and rename to has_hiragana_kanji_meaning
-	bool has_hiragana(const learnt_word16* word) {
-		bool res;
-		res = word && word->attributes.hiragana.str && *word->attributes.hiragana.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-		return res;
-	}
+	//bool has_hiragana(const learnt_word16* word) {
+	//	bool res;
+	//	res = word && word->attributes.hiragana.str && *word->attributes.hiragana.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+	//	return res;
+	//}
 
-	bool has_translation(const learnt_word16* word) {
-		bool res;
-		res = word && word->attributes.translation.str && *word->attributes.translation.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-		return res;
-	}
+	//bool has_translation(const learnt_word16* word) {
+	//	bool res;
+	//	res = word && word->attributes.translation.str && *word->attributes.translation.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+	//	return res;
+	//}
 
-	bool has_kanji(const learnt_word16* word) {
-		bool res;
-		res = word && word->attributes.kanji.str && *word->attributes.kanji.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-		return res;
-	}
+	//bool has_kanji(const learnt_word16* word) {
+	//	bool res;
+	//	res = word && word->attributes.kanji.str && *word->attributes.kanji.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
+	//	return res;
+	//}
 
 	struct practice_data {
 		ProcState::page page;
@@ -1766,7 +1761,7 @@ namespace べんきょう {
 			if (w) {
 				if (w->attributes.hiragana.str && *w->attributes.hiragana.str) res |= (u32)learnt_word_elem::hiragana;
 				if (w->attributes.kanji.str && *w->attributes.kanji.str) res |= (u32)learnt_word_elem::kanji;
-				if (w->attributes.translation.str && *w->attributes.translation.str) res |= (u32)learnt_word_elem::meaning;
+				if (w->attributes.meaning.str && *w->attributes.meaning.str) res |= (u32)learnt_word_elem::meaning;
 			}
 			return res;
 		};
@@ -1780,11 +1775,17 @@ namespace べんきょう {
 			data->word = std::move(practice_word);
 
 			std::vector<practice_writing_word::type> practice_types;
-			bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
-			practice_types.push_back(practice_writing_word::type::hiragana_to_translation);//we always add a default to make sure there can never be no items
-			if (hiragana && translation) practice_types.push_back(practice_writing_word::type::translation_to_hiragana);
-			if (hiragana && kanji) practice_types.push_back(practice_writing_word::type::kanji_to_hiragana);
-			if (kanji && translation) practice_types.push_back(practice_writing_word::type::kanji_to_translation);
+			auto word_types = get_hiragana_kanji_meaning(&data->word); Assert(word_types);
+			//bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
+			practice_types.push_back(practice_writing_word::type::hiragana_to_meaning);//we always add a default to make sure there can never be no items
+			if (word_types & (u32)learnt_word_elem::hiragana) {
+				if (word_types & (u32)learnt_word_elem::meaning) 
+					practice_types.push_back(practice_writing_word::type::meaning_to_hiragana);
+				if (word_types & (u32)learnt_word_elem::kanji) 
+					practice_types.push_back(practice_writing_word::type::kanji_to_hiragana);
+			}
+			if (word_types & (u32)learnt_word_elem::kanji && word_types & (u32)learnt_word_elem::meaning) 
+				practice_types.push_back(practice_writing_word::type::kanji_to_meaning);
 
 			data->practice_type = practice_types[random_between(0, (i32)(practice_types.size() - 1))];
 			res.page = ProcState::page::practice_writing;
@@ -1808,11 +1809,11 @@ namespace べんきょう {
 
 			//Move all the choices plus the correct choice into the new array
 			for (int i = 0, j = 0; i < data->choices.cnt; i++) {
-				if (i == data->idx_answer) data->choices[i] = _wcsdup(str_for_learnt_word_elem((learnt_word16*)&data->question, data->choices_type).str);//TODO(fran): replace for my own duplication method
+				if (i == data->idx_answer) data->choices[i] = _wcsdup(str_for((learnt_word16*)&data->question, data->choices_type).str);//TODO(fran): replace for my own duplication method
 				else data->choices[i] = _choices[j++];
 			}
 
-			data->question_str = str_for_learnt_word_elem(&data->question, data->question_type).str;
+			data->question_str = str_for(&data->question, data->question_type).str;
 			
 			res.page = ProcState::page::practice_multiplechoice;
 			res.data = data;
@@ -1826,7 +1827,7 @@ namespace べんきょう {
 			
 			u32 q_elems = get_hiragana_kanji_meaning(&data->question);
 			data->question_type = (decltype(data->question_type))random_bit_set(q_elems & (~(u32)learnt_word_elem::kanji));
-			data->question_str = str_for_learnt_word_elem(&data->question, data->question_type).str;
+			data->question_str = str_for(&data->question, data->question_type).str;
 
 			res.page = ProcState::page::practice_drawing;
 			res.data = data;
@@ -1857,7 +1858,7 @@ namespace べんきょう {
 			_clear_edit(controls.list.edit_hiragana);
 			_clear_edit(controls.list.edit_kanji);
 			_clear_edit(controls.list.edit_mnemonic);
-			_clear_edit(controls.list.edit_translation);
+			_clear_edit(controls.list.edit_meaning);
 		} break;
 		case decltype(page)::practice_writing:
 		{
@@ -2166,10 +2167,10 @@ namespace べんきょう {
 			SendMessage(controls.list.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.list.combo_lexical_category, 123);
 
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.list.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_translation, &meaning_editoneline_theme);
-			AWDT(controls.list.edit_translation, 122);
+			edit_oneline::set_theme(controls.list.edit_meaning, &meaning_editoneline_theme);
+			AWDT(controls.list.edit_meaning, 122);
 
 			controls.list.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -2237,10 +2238,10 @@ namespace べんきょう {
 			edit_oneline::set_theme(controls.list.edit_kanji, &kanji_editoneline_theme);
 			AWDT(controls.list.edit_kanji, 121);
 
-			controls.list.edit_translation = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.list.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.list.edit_translation, &meaning_editoneline_theme);
-			AWDT(controls.list.edit_translation, 122);
+			edit_oneline::set_theme(controls.list.edit_meaning, &meaning_editoneline_theme);
+			AWDT(controls.list.edit_meaning, 122);
 
 			controls.list.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
@@ -2592,7 +2593,7 @@ namespace べんきょう {
 
 			ssizer combo_lexical_category{ controls.combo_lexical_category };
 			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
-			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
 			ssizer btn_save{ controls.button_save };
 			ssizer static_notify{ controls.static_notify };
@@ -2600,7 +2601,7 @@ namespace べんきょう {
 			vsizer meaning_sizer{
 				{&lexical_category,wnd_h},
 				{&lvpad,half_wnd_h},
-				{&edit_translation,wnd_h},
+				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_mnemonic,wnd_h},
 				{&lvpad,half_wnd_h},
@@ -2901,7 +2902,7 @@ namespace べんきょう {
 			auto& controls = state->controls.show_word.list;
 
 #if 1
-			HFONT font = GetWindowFont(controls.edit_translation);
+			HFONT font = GetWindowFont(controls.edit_meaning);
 			int bigwnd_h = wnd_h * 2;
 			SIZE layout_bounds = avg_str_dim(font, 100);
 			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
@@ -2919,12 +2920,12 @@ namespace べんきょう {
 
 			ssizer combo_lexical_category{ controls.combo_lexical_category };
 			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
-			ssizer edit_translation{ controls.edit_translation };
+			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
 			vsizer meaning_sizer{
 				{&lexical_category,wnd_h},
 				{&lvpad,half_wnd_h},
-				{&edit_translation,wnd_h},
+				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_mnemonic,wnd_h},
 			};
@@ -3006,16 +3007,16 @@ namespace べんきょう {
 			edit_kanji.x = (w - edit_kanji.w) / 2;
 			edit_kanji.h = wnd_h;
 
-			rect_i32 edit_translation;
-			edit_translation.y = edit_kanji.bottom() + h_pad;
-			edit_translation.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_translation, WM_GETFONT, 0, 0), 30).cx);
-			edit_translation.x = (w - edit_translation.w) / 2;
-			edit_translation.h = wnd_h;
+			rect_i32 edit_meaning;
+			edit_meaning.y = edit_kanji.bottom() + h_pad;
+			edit_meaning.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_meaning, WM_GETFONT, 0, 0), 30).cx);
+			edit_meaning.x = (w - edit_meaning.w) / 2;
+			edit_meaning.h = wnd_h;
 
 			rect_i32 edit_mnemonic;
 			edit_mnemonic.w = max_w;
 			edit_mnemonic.x = (w - edit_mnemonic.w) / 2;
-			edit_mnemonic.y = edit_translation.bottom() + h_pad;
+			edit_mnemonic.y = edit_meaning.bottom() + h_pad;
 			edit_mnemonic.h = wnd_h;
 
 			rect_i32 last_user = edit_mnemonic;
@@ -3063,7 +3064,7 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.static_hiragana, static_hiragana, FALSE);
 			MyMoveWindow_offset(controls.combo_lexical_category, cb_lex_categ, FALSE);
 			MyMoveWindow_offset(controls.edit_kanji, edit_kanji, FALSE);
-			MyMoveWindow_offset(controls.edit_translation, edit_translation, FALSE);
+			MyMoveWindow_offset(controls.edit_meaning, edit_meaning, FALSE);
 			MyMoveWindow_offset(controls.edit_mnemonic, edit_mnemonic, FALSE);
 
 			//Dates one next to the other, the same for times_... related objs
@@ -3263,14 +3264,14 @@ namespace べんきょう {
 								const utf16_str* correct_answer{ 0 };
 								const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
 								switch (pagestate.practice->practice_type) {
-								case decltype(pagestate.practice->practice_type)::hiragana_to_translation:
+								case decltype(pagestate.practice->practice_type)::hiragana_to_meaning:
 								{
-									correct_answer = &pagestate.practice->word.attributes.translation;
+									correct_answer = &pagestate.practice->word.attributes.meaning;
 									question = &pagestate.practice->word.attributes.hiragana;
 								} break;
-								case decltype(pagestate.practice->practice_type)::kanji_to_translation:
+								case decltype(pagestate.practice->practice_type)::kanji_to_meaning:
 								{
-									correct_answer = &pagestate.practice->word.attributes.translation;
+									correct_answer = &pagestate.practice->word.attributes.meaning;
 									question = &pagestate.practice->word.attributes.kanji;
 								} break;
 								case decltype(pagestate.practice->practice_type)::kanji_to_hiragana:
@@ -3279,10 +3280,10 @@ namespace べんきょう {
 									question = &pagestate.practice->word.attributes.kanji;
 
 								} break;
-								case decltype(pagestate.practice->practice_type)::translation_to_hiragana:
+								case decltype(pagestate.practice->practice_type)::meaning_to_hiragana:
 								{
 									correct_answer = &pagestate.practice->word.attributes.hiragana;
-									question = &pagestate.practice->word.attributes.translation;
+									question = &pagestate.practice->word.attributes.meaning;
 								} break;
 								default:Assert(0);
 								}
