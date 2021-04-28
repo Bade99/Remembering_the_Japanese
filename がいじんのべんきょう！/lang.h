@@ -89,7 +89,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(274,"Never")
 	lang_entry(275,"Remember Me") //TODO(fran): better name
 	lang_entry(276,"This word will be shown more often on practices") //TODO(fran): better explanation
-	lang_entry(280,"Confirm deletion?")
+	lang_entry(280,"Are you sure you want to delete this word?")
 
 	//TODO(fran): get fmt and change Word to %1 (would probably generate a security vulnerability?)
 	lang_entry(300,"Word not found, would you like to add it?")

@@ -37,11 +37,9 @@
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
-//TODO(fran): all pages & db: change "translation" to "meaning"
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
-//TODO(fran): all pages: any button that executes an operation, eg next practice, create word, etc, _must_ be somehow disabled after the first click, otherwise the user can spam clicks and possibly even crash the application
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
@@ -56,6 +54,7 @@
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): page practice_drawing: change button's text to be more similar to anki's style, the user draws, then presses on 'test'/'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
+//TODO(fran): messagebox: in order for a user to be able to press esc key to cancel a msgbox it has to've been created with MB_YESNOCANCEL, having the three buttons adds a bit too much clutter, we want the esc key functionality but on a MB_YESNO msgbox (we may need hooks again)
 
 
 //Leftover IDEAs:
@@ -69,6 +68,10 @@
 //INFO: the hiragana aid on top of kanji is called furigana
 //INFO: Similar applications/Possible Inspiration: anki, memrise, wanikani
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
+
+
+//REMEMBER: have checks in place to make sure the user cant execute operations twice by quickly pressing a button again
+
 
 #define TIMER_next_practice_level 0x5
 
@@ -1707,7 +1710,6 @@ namespace べんきょう {
 					get_word_res old_word = get_word(state->settings->db,learnt_word_elem::hiragana, old_w16.str); defer{ free_get_word(old_word.word); };
 					べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word, &old_word.word);
 					UpdateWindow(べんきょう_nc);
-					//TODO(fran): this window needs to be created without the privilege of being able to quit the program, either we let it know it is a secondary window or we do smth else idk what
 				}
 
 				int ret = MessageBoxW(state->nc_parent, RCS(170), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
@@ -1904,8 +1906,8 @@ namespace べんきょう {
 	}
 
 	//decreases the practice counter and loads/sets a new practice level or goes to the review page if the practice is over
-	void next_practice_level(ProcState* state, u32 ms_delay = USER_TIMER_MAXIMUM) {
-		u32 delay = ms_delay != USER_TIMER_MAXIMUM ? ms_delay : 500;
+	void next_practice_level(ProcState* state, bool apply_delay=true) {
+		u32 delay = apply_delay ? 500 : USER_TIMER_MINIMUM;
 		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
 	}
 
@@ -3212,7 +3214,7 @@ namespace べんきょう {
 							//Clear previous practice data:
 							clear_practices_vector(state->multipagestate.temp_practices);
 
-							next_practice_level(state, USER_TIMER_MINIMUM);
+							next_practice_level(state, false);
 						}
 						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
 					}
@@ -3342,7 +3344,7 @@ namespace べんきょう {
 						}
 						else {
 							//The user already answered and got it wrong, they checked what was wrong and pressed continue again
-							next_practice_level(state);
+							next_practice_level(state,false);
 						}
 					}
 					else if (child == page.list.button_show_word) {
@@ -3460,7 +3462,7 @@ namespace べんきょう {
 					}
 					else if (child == page.list.button_next) {
 						if (already_answered) {
-							next_practice_level(state);
+							next_practice_level(state,false);
 						}
 					}
 					else if (child == page.list.button_show_word) {
@@ -3494,7 +3496,7 @@ namespace べんきょう {
 					}
 					else if (child == page.list.button_next) {
 						if (already_answered) {
-							next_practice_level(state);
+							next_practice_level(state,false);
 						}
 						else {
 							EnableWindow(page.list.paint_answer, FALSE);
