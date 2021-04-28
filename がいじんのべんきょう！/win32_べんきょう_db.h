@@ -40,6 +40,9 @@ union _learnt_word { //contains utf16 when getting data from the UI, and utf8 wh
 		_foreach_learnt_word_member(_generate_member_no_default_init);
 		//IMPORTANT: members that map to primary keys must be first on the list (that way they are easily filtered out when updating their values), and UPDATE pk_count when you add a new primary key
 
+		//TODO(fran): if we add multiple meanings: lexical category should correspond to each 'meaning' since the translations are the ones that can have different lexical categories (eg おもい can be a noun or an adjective)
+
+
 	} attributes;
 	type all[sizeof(attributes) / sizeof(type)];
 

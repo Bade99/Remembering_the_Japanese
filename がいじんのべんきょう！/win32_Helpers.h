@@ -611,6 +611,8 @@ static MsgBoxPlacement __msgbox_store_placement(HWND relativeTo = (HWND)INT32_MI
 	}
 	return MBP;
 }
+#include <CommCtrl.h> //SetWindowSubclass DefSubclassProc
+//#include "windows_msg_mapper.h"
 static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
 {
 	//Thanks https://stackoverflow.com/questions/1530561/set-location-of-messagebox
@@ -658,6 +660,28 @@ static LRESULT CALLBACK Hook_MsgBox(int code, WPARAM wparam, LPARAM lparam)
 
 			//This didnt work
 			//SetWindowPos(wnd, 0,p.x,p.y,0,0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER);
+
+			#if 1 //Add escape key functionality to MB_YESNO msgboxes (on esc key press the msgbox is canceled, returns IDNO)
+			SetWindowSubclass(wnd,
+				[](HWND wnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR , DWORD_PTR ) {
+					//static int __cnt; printf("%d:MSGBOX:%s\n", __cnt++, msgToString(msg));
+					switch (msg) {
+					case WM_COMMAND:
+					{
+						auto notif = HIWORD(wparam);
+						auto ctl_id = LOWORD(wparam);
+						HWND ctl = (decltype(ctl))lparam;
+						if (ctl_id == IDCANCEL) {
+							LONG_PTR style = GetWindowLongPtr(wnd, GWL_STYLE);
+							if (style & MB_YESNO) //TODO(fran): this check isnt quite correct, there are other styles that overlap with this one
+								PostMessage(wnd, WM_COMMAND, MAKEWPARAM(IDNO, BN_CLICKED), 0); //thanks https://stackoverflow.com/questions/13872514/how-to-close-a-messagebox-window-by-its-handle-with-c
+						}
+					} break;
+					}
+					return DefSubclassProc(wnd, msg, wparam, lparam);
+				}
+			, 111, 0);
+			#endif
 		}
 	}
 

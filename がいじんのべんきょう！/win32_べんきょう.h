@@ -37,7 +37,6 @@
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
-//TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
@@ -46,14 +45,12 @@
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
-//TODO(fran): page new_word: extra button 'Add More' that adds the current word and restarts the page so the user can write a new one with no time loss
 //TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): page practice_drawing: change button's text to be more similar to anki's style, the user draws, then presses on 'test'/'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
-//TODO(fran): messagebox: in order for a user to be able to press esc key to cancel a msgbox it has to've been created with MB_YESNOCANCEL, having the three buttons adds a bit too much clutter, we want the esc key functionality but on a MB_YESNO msgbox (we may need hooks again)
 
 
 //Leftover IDEAs:
@@ -1563,7 +1560,7 @@ namespace べんきょう {
 				set_current_page(state, ProcState::page::show_word);
 			}
 			else {
-				int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
+				int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
 				if (ret == IDYES) {
 					//learnt_word2<utf16_str> new_word{ 0 };
 					//new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
@@ -3124,53 +3121,74 @@ namespace べんきょう {
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
+//#define TEST_IME_MODE_SWITCH
+#if defined(TEST_IME_MODE_SWITCH)
 			//NOTE: there seems to be no easy way of setting IME to hiragana by default, the windows defaults for a new process for japanese are fullwidth alphanumeric(aka _not_ japanese)(contrary to all other IMEs that do default to using the f*cking language they're supposed to) //TODO(fran): keep trying? (maybe with TSF text services framework)
-			if constexpr(0) {
-				int sz_elem = GetKeyboardLayoutList(0, 0);
-				ptr<HKL>layouts; layouts.alloc(sz_elem); defer{ layouts.free(); };
-				int res = GetKeyboardLayoutList(sz_elem, layouts.mem); Assert(res == sz_elem);
-				HKL currenthkl = GetKeyboardLayout(0);
-				for (const auto& l : layouts) {
-					ActivateKeyboardLayout(l, KLF_SETFORPROCESS);
-					char layoutname[KL_NAMELENGTH]; GetKeyboardLayoutNameA(layoutname);
-					printf("%s\n", HKLtoString(layoutname));
-					if (!strcmp("00000411", layoutname)) {
-#if 0
-						HIMC imc = ImmGetContext(state->wnd);
-						if (imc != NULL) {
-							defer{ ImmReleaseContext(state->wnd, imc); };
-							DWORD c_mode, s_mode;
-							auto res = ImmGetConversionStatus(imc, &c_mode, &s_mode); Assert(res);
-							c_mode = IME_CMODE_NATIVE;//japanese with hiragana
-							res = ImmSetConversionStatus(imc,c_mode,s_mode); Assert(res);
-						}
-#else
-						SetFocus(state->wnd);
-						INPUT ip;
-						ip.type = INPUT_KEYBOARD;
-						ip.ki.wScan = 0; // hardware scan code for key
-						ip.ki.time = 0;
-						ip.ki.dwExtraInfo = 0;
-						ip.ki.wVk = VK_CONTROL; // virtual-key code for the key
-						ip.ki.dwFlags = 0; // 0 for key press
-						SendInput(1, &ip, sizeof(ip));
-						Sleep(1);
-						ip.ki.wVk = VK_CAPITAL; // virtual-key code for the key
-						SendInput(1, &ip, sizeof(ip));
-						Sleep(1);
-						ip.ki.wVk = VK_CAPITAL;
-						ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
-						SendInput(1, &ip, sizeof(ip));
-
-						ip.ki.wVk = VK_CONTROL;
-						SendInput(1, &ip, sizeof(ip));
-						break;
-#endif
+			SetFocus(state->wnd); //https://docs.microsoft.com/en-us/previous-versions//hh994466(v=vs.85)?redirectedfrom=MSDN
+			int sz_elem = GetKeyboardLayoutList(0, 0);
+			ptr<HKL>layouts; layouts.alloc(sz_elem); defer{ layouts.free(); };
+			int res = GetKeyboardLayoutList(sz_elem, layouts.mem); Assert(res == sz_elem);
+			HKL currenthkl = GetKeyboardLayout(0);
+			for (const auto& l : layouts) {
+				ActivateKeyboardLayout(l, KLF_SETFORPROCESS);
+				char layoutname[KL_NAMELENGTH]; GetKeyboardLayoutNameA(layoutname);
+				printf("%s\n", HKLtoString(layoutname));
+				if (!strcmp("00000411", layoutname)) {
+					#if 0
+					HIMC imc = ImmGetContext(state->wnd);
+					if (imc != NULL) {
+						defer{ ImmReleaseContext(state->wnd, imc); };
+						DWORD c_mode, s_mode;
+						auto res = ImmGetConversionStatus(imc, &c_mode, &s_mode); Assert(res);
+						c_mode = IME_CMODE_NATIVE;//japanese with hiragana
+						res = ImmSetConversionStatus(imc,c_mode,s_mode); Assert(res);
 					}
+					#else
+					#if 0 //Both this solutions switch from alphanumeric to hiragana, but the change isnt sticky, once we restore the old keyboard layout the IME decides to no longer remember that it was changed to hiragana and when the user switches to jp input it goes back to alphanumeric. The problem seems to be even worse, the change is actually sticky if the user straight away changes the keyboard to jp, _but_ if they first click on an edit box and only then switch to jp then it is set to alphanumeric, therefore it seems like the IME in the application doesnt quite know of the change and remains on a semi default state
+					INPUT ip;
+					ip.type = INPUT_KEYBOARD;
+					ip.ki.wScan = 0; // hardware scan code for key
+					ip.ki.time = 0;
+					ip.ki.dwExtraInfo = 0;
+					ip.ki.wVk = VK_CONTROL; // virtual-key code for the key
+					ip.ki.dwFlags = 0; // 0 for key press
+					SendInput(1, &ip, sizeof(ip));
+					ip.ki.wVk = VK_CAPITAL; // virtual-key code for the key
+					SendInput(1, &ip, sizeof(ip));
+					ip.ki.wVk = VK_CAPITAL;
+					ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
+					SendInput(1, &ip, sizeof(ip));
 
+					ip.ki.wVk = VK_CONTROL;
+					SendInput(1, &ip, sizeof(ip));
+					#else
+					HWND hShellTrayWnd = FindWindowEx(NULL, NULL, TEXT("Shell_TrayWnd"), NULL);
+					if (hShellTrayWnd) {
+						HWND hTrayNotifyWnd = FindWindowEx(hShellTrayWnd, NULL, TEXT("TrayNotifyWnd"), NULL);
+						if (hTrayNotifyWnd) {
+							HWND hTrayInputIndicator = FindWindowEx(hTrayNotifyWnd, NULL, TEXT("TrayInputIndicatorWClass"), NULL);
+							if (hTrayInputIndicator) {
+								HWND imebtn = FindWindowEx(hTrayInputIndicator, NULL, TEXT("IMEModeButton"), NULL);
+								if (imebtn) {
+									SendMessage(imebtn, WM_LBUTTONDOWN, 0, 0);
+									SendMessage(imebtn, WM_LBUTTONUP, 0, 0);
+								}
+							}
+						}
+					}
+					#endif
+						
+					SetTimer(state->wnd, (UINT_PTR)currenthkl, 1000, [](HWND wnd, UINT, UINT_PTR id, DWORD) {
+						KillTimer(wnd, id);
+						ActivateKeyboardLayout((HKL)id, KLF_SETFORPROCESS);
+						});
+					break;
+#endif
 				}
-				ActivateKeyboardLayout(currenthkl, KLF_SETFORPROCESS);
+
 			}
+			//ActivateKeyboardLayout(currenthkl, KLF_SETFORPROCESS);
+#endif
 
 			return 0;
 		} break;
@@ -3269,7 +3287,7 @@ namespace べんきょう {
 					}
 					if (child == page.list.button_delete) {
 
-						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
+						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
 						if (ret == IDYES) {
 							if (remove_word(state)) {
 								goto_previous_page(state);
@@ -3778,21 +3796,28 @@ namespace べんきょう {
 			return 1;
 		} break;
 
-		//case WM_KEYDOWN:
-		//case WM_KEYUP:
-		//{
-		//	return DefWindowProc(hwnd, msg, wparam, lparam);
-		//} break;
+#if defined(TEST_IME_MODE_SWITCH)
+		case WM_KEYDOWN:
+		case WM_SYSKEYDOWN:
+		case WM_SYSKEYUP:
+		case WM_KEYUP:
+		case WM_IME_REQUEST:
+		{
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+#endif
 
 		default:
 #ifdef _DEBUG
-			//if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
-			//	TCHAR arr[256];
-			//	int res = GetClipboardFormatName(msg, arr, 256);
-			//	cstr_printf(arr); printf("\n");
-			//	//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
-			//	return DefWindowProc(hwnd, msg, wparam, lparam);
-			//}
+#if defined(TEST_IME_MODE_SWITCH)
+			if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
+				TCHAR arr[256];
+				int res = GetClipboardFormatName(msg, arr, 256);
+				cstr_printf(arr); printf("\n");
+				//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+			}
+#endif
 			Assert(0);
 #else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);

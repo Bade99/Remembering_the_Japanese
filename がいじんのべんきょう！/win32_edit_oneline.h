@@ -1631,7 +1631,7 @@ namespace edit_oneline{
 		{//doc: sent when IME changes composition status cause of keystroke
 			//wparam = DBCS char for latest change to composition string, TODO(fran): find out about DBCS
 
-			#if 1 //At this point there's no way of knowing if the change was caused by the user writing or changing candidates
+			#if 0 //At this point there's no way of knowing if the change was caused by the user writing or changing candidates
 			const char* change; static int cnt;
 			printf("WM_IME_COMPOSITION %d:\n",cnt++);
 			if (lparam & GCS_COMPATTR)			{change = "GCS_COMPATTR"; printf("%s\n", change); }
