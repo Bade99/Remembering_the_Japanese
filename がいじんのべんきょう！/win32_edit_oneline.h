@@ -735,7 +735,7 @@ namespace edit_oneline{
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-		//printf(msgToString(msg)); printf("\n");
+		//static int __c; printf("%d:EDITONELINE:%s\n",__c++, msgToString(msg));
 
 		ProcState* state = get_state(hwnd);
 		switch (msg) {

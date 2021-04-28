@@ -39,7 +39,6 @@
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
 //TODO(fran): all pages & db: lexical category should correspond to each 'meaning' not the hiragana since the translations are the ones that can have different lexical categories
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
-//TODO(fran): all pages: can keyboard input be automatically changed to japanese when needed?
 //TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
@@ -3125,7 +3124,8 @@ namespace べんきょう {
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
-			if constexpr(0) {//TODO(fran): now we have a way of detecting if japanese keyboard is present, now we need to change to it when we want
+			//NOTE: there seems to be no easy way of setting IME to hiragana by default, the windows defaults for a new process for japanese are fullwidth alphanumeric(aka _not_ japanese)(contrary to all other IMEs that do default to using the f*cking language they're supposed to) //TODO(fran): keep trying? (maybe with TSF text services framework)
+			if constexpr(0) {
 				int sz_elem = GetKeyboardLayoutList(0, 0);
 				ptr<HKL>layouts; layouts.alloc(sz_elem); defer{ layouts.free(); };
 				int res = GetKeyboardLayoutList(sz_elem, layouts.mem); Assert(res == sz_elem);
@@ -3134,6 +3134,40 @@ namespace べんきょう {
 					ActivateKeyboardLayout(l, KLF_SETFORPROCESS);
 					char layoutname[KL_NAMELENGTH]; GetKeyboardLayoutNameA(layoutname);
 					printf("%s\n", HKLtoString(layoutname));
+					if (!strcmp("00000411", layoutname)) {
+#if 0
+						HIMC imc = ImmGetContext(state->wnd);
+						if (imc != NULL) {
+							defer{ ImmReleaseContext(state->wnd, imc); };
+							DWORD c_mode, s_mode;
+							auto res = ImmGetConversionStatus(imc, &c_mode, &s_mode); Assert(res);
+							c_mode = IME_CMODE_NATIVE;//japanese with hiragana
+							res = ImmSetConversionStatus(imc,c_mode,s_mode); Assert(res);
+						}
+#else
+						SetFocus(state->wnd);
+						INPUT ip;
+						ip.type = INPUT_KEYBOARD;
+						ip.ki.wScan = 0; // hardware scan code for key
+						ip.ki.time = 0;
+						ip.ki.dwExtraInfo = 0;
+						ip.ki.wVk = VK_CONTROL; // virtual-key code for the key
+						ip.ki.dwFlags = 0; // 0 for key press
+						SendInput(1, &ip, sizeof(ip));
+						Sleep(1);
+						ip.ki.wVk = VK_CAPITAL; // virtual-key code for the key
+						SendInput(1, &ip, sizeof(ip));
+						Sleep(1);
+						ip.ki.wVk = VK_CAPITAL;
+						ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
+						SendInput(1, &ip, sizeof(ip));
+
+						ip.ki.wVk = VK_CONTROL;
+						SendInput(1, &ip, sizeof(ip));
+						break;
+#endif
+					}
+
 				}
 				ActivateKeyboardLayout(currenthkl, KLF_SETFORPROCESS);
 			}
@@ -3744,8 +3778,21 @@ namespace べんきょう {
 			return 1;
 		} break;
 
+		//case WM_KEYDOWN:
+		//case WM_KEYUP:
+		//{
+		//	return DefWindowProc(hwnd, msg, wparam, lparam);
+		//} break;
+
 		default:
 #ifdef _DEBUG
+			//if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
+			//	TCHAR arr[256];
+			//	int res = GetClipboardFormatName(msg, arr, 256);
+			//	cstr_printf(arr); printf("\n");
+			//	//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
+			//	return DefWindowProc(hwnd, msg, wparam, lparam);
+			//}
 			Assert(0);
 #else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
