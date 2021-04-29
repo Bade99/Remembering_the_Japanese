@@ -19,6 +19,7 @@
 //TODO(fran): at some point I got to trigger a secondary IME candidates window which for some reason decided to show up, this BUG is probably related to the multiple candidates window, maybe we need to manually block the secondary ones, it could be that if you write too much text this extra candidate windows appear
 //TODO(fran): it seems like the IME window is global or smth like that, if I dont ask for candidate windows on WM_IME_SETCONTEXT then it also wont show them for other controls, wtf
 //TODO(fran): double click on a word to select it
+//TODO(fran): change EM_SETINVALIDCHARS to be a function call provided by the user, 2 opts: bool that says tell me if there's anything invalid OR remove anything invalid, 2nd opt return array with indexes of invalid chars
 
 //NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
@@ -29,7 +30,7 @@
 //-------------"API" (Additional Messages)-------------:
 #define editoneline_base_msg_addr (WM_USER + 1500)
 
-#define EM_SETINVALIDCHARS (editoneline_base_msg_addr+2) /*characters that you dont want the edit control to accept either trough WM_CHAR or WM_PASTE*/ /*lparam=unused ; wparam=pointer to null terminated cstring, each char will be added as invalid*/ /*INFO: overrides the previously invalid characters that were set before*/ /*TODO(fran): what to do on pasting? reject the entire string or just ignore those chars*/
+//#define EM_SETINVALIDCHARS (editoneline_base_msg_addr+2) /*characters that you dont want the edit control to accept either trough WM_CHAR or WM_PASTE*/ /*lparam=unused ; wparam=pointer to null terminated cstring, each char will be added as invalid*/ /*INFO: overrides the previously invalid characters that were set before*/ /*TODO(fran): what to do on pasting? reject the entire string or just ignore those chars*/
 #define WM_SETTEXT_NO_NOTIFY (editoneline_base_msg_addr+3) /*wparam=unused ; lparam=null terminated utf16* */
 
 
@@ -68,6 +69,10 @@ namespace edit_oneline{
 	constexpr cstr wndclass[] = L"unCap_wndclass_edit_oneline";
 
 	constexpr cstr password_char = sizeof(password_char) > 1 ? _t('●') : _t('*');
+
+	//TODO(fran): now that I think about I think this would be much better done once you need the contents from the editbox, you can perform a one time check, send one notification to the user informing of the problem and that's it
+	struct _has_invalid_chars { bool res; std::wstring explanation; };
+	typedef _has_invalid_chars(*func_has_invalid_chars)(const utf16* txt, size_t char_cnt, void* user_extra);
 
 	struct char_sel {//TODO(fran): we should be using size_t and solve the -1 issue by simply checking for size_t_max
 		using type = size_t;
@@ -123,7 +128,7 @@ namespace edit_oneline{
 			POINT pos;//client coords, it's also top down so this is the _top_ of the caret
 		}caret;
 
-		str char_text;//much simpler to work with and debug
+		std::wstring char_text;//much simpler to work with and debug
 		std::vector<int> char_dims;//NOTE: specifies, for each character, its width
 		//TODO(fran): it's probably better to use signed numbers in case the text overflows ths size of the control
 		int char_pad_x;//NOTE: specifies x offset from which characters start being placed on the screen, relative to the client area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
@@ -131,7 +136,7 @@ namespace edit_oneline{
 		cstr placeholder[100]; //NOTE: uses txt_dis brush for rendering
 		bool maintain_placerholder_on_focus;//Hide placeholder text when the user clicks over it
 		
-		cstr invalid_chars[100];
+		//cstr invalid_chars[100];
 
 		union EditOnelineControls {
 			struct {
@@ -146,6 +151,10 @@ namespace edit_oneline{
 
 		bool hideIMEwnd;
 		bool ignoreIMEcandidates;
+
+		void* user_extra;
+
+		func_has_invalid_chars has_invalid_chars;
 	};
 
 
@@ -159,6 +168,21 @@ namespace edit_oneline{
 	}
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
+	void set_user_extra(HWND wnd, void* user_extra) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->user_extra = user_extra;
+			//TODO(fran): redraw?
+		}
+	}
+
+	void set_function_has_invalid_chars(HWND wnd, func_has_invalid_chars func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->has_invalid_chars = func;
+		}
+	}
 
 	bool _copy_theme(Theme* dst, const Theme* src) {
 		bool repaint = false;
@@ -257,6 +281,72 @@ namespace edit_oneline{
 	}
 
 
+	namespace ETP {
+		enum ETP {//EditOneline_tooltip_placement
+			left = (1 << 1),
+			top = (1 << 2),
+			right = (1 << 3),
+			bottom = (1 << 4),
+			//current_char = (1 << 5), //instead of placement in relation to the control wnd it will be done relative to a character
+		};
+	}
+	//TODO(fran): positioning relative to a character offset, eg {3,5} 3rd char of 5th row place on top or left or...
+	void show_tip(HWND wnd, const cstr* msg, int duration_ms, u32 ETP_flags) {
+		ProcState* state = get_state(wnd); Assert(state);
+		TOOLINFO toolInfo{ sizeof(toolInfo) };
+		toolInfo.hwnd = state->wnd;
+		toolInfo.uId = (UINT_PTR)state->wnd;
+		toolInfo.hinst = GetModuleHandle(NULL);
+		toolInfo.lpszText = const_cast<cstr*>(msg);
+		SendMessage(state->controls.tooltip, TTM_UPDATETIPTEXT, 0, (LPARAM)&toolInfo);
+		SendMessage(state->controls.tooltip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&toolInfo);
+		POINT tooltip_p{ 0,0 };
+		RECT tooltip_r;
+		tooltip_r.left = 0;
+		tooltip_r.right = 50;
+		tooltip_r.top = 0;
+		tooltip_r.bottom = calc_line_height_px(state);//The tooltip uses the same font, so we know the height of its text area
+		SendMessage(state->controls.tooltip, TTM_ADJUSTRECT, TRUE, (LPARAM)&tooltip_r);//convert text area to tooltip full area
+
+		RECT rc; GetClientRect(state->wnd, &rc);
+
+		if (ETP_flags & ETP::left) {
+			tooltip_p.x = 0;
+		}
+
+		if (ETP_flags & ETP::right) {
+			tooltip_p.x = RECTWIDTH(rc);
+		}
+
+		if (ETP_flags & ETP::top) {
+			tooltip_p.y = -RECTHEIGHT(tooltip_r);
+		}
+
+		if (ETP_flags & ETP::bottom) {
+			tooltip_p.y = RECTHEIGHT(rc);
+		}
+
+		ClientToScreen(state->wnd, &tooltip_p);
+		SendMessage(state->controls.tooltip, TTM_TRACKPOSITION, 0, (LPARAM)MAKELONG(tooltip_p.x, tooltip_p.y));
+		SetTimer(state->wnd, EDITONELINE_tooltip_timer_id, duration_ms, NULL);
+	}
+
+	void reposition_caret(ProcState* state) {
+		POINT oldcaretp = state->caret.pos;
+		state->caret.pos = calc_caret_p(state);
+		if (oldcaretp != state->caret.pos) SetCaretPos(state->caret.pos);
+		//if(GetFocus() == state->wnd) SetCaretPos(state->caret.pos); //NOTE: this introduced a bug with settext where calling settext with a null string on the focussed editbox would place the caret on the wrong place
+	}
+
+	void update_char_pad(ProcState* state) {
+		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+		if (style & ES_CENTER) {
+			//Recalc pad_x
+			RECT rc; GetClientRect(state->wnd, &rc);
+			state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+		}
+	}
+
 	void remove_selection(ProcState* state, size_t x_min, size_t x_max) {
 		if (!state->char_text.empty()) {
 			x_min = clamp((size_t)0, x_min, state->char_text.length());
@@ -265,12 +355,7 @@ namespace edit_oneline{
 			state->char_text.erase(x_min, distance(x_min,x_max));
 			state->char_dims.erase(state->char_dims.begin() + x_min, state->char_dims.begin() + x_max);
 
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			if (style & ES_CENTER) {
-				//When the text is centered its pad_x needs to be recalculated on every character addition/removal
-				RECT rc; GetClientRect(state->wnd, &rc);
-				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
-			}
+			update_char_pad(state);
 
 			SendMessage(state->wnd, EM_SETSEL, x_min, x_min);
 			//state->char_cur_sel.anchor = state->char_cur_sel.cursor = x_min;
@@ -282,12 +367,26 @@ namespace edit_oneline{
 		remove_selection(state, state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
 	}
 
-	void insert_character(ProcState* state, utf16_str s, size_t x_min, size_t x_max) {
+	//true if the current contents of the text were modified, false otherwise
+	bool insert_character(ProcState* state, utf16_str s, size_t x_min, size_t x_max) {
+		bool res = false;
 		x_min = clamp((size_t)0, x_min, state->char_text.length());
 		x_max = clamp((size_t)0, x_max, state->char_text.length());
 		char_sel sel{ x_min, x_max };
 
 		if (safe_subtract0(state->char_text.length(), sel.sel_width()) < state->char_max_sz) {
+
+			//check for invalid characters
+			if (state->has_invalid_chars) {//TODO(fran): +1 for having always valid function pointers, we could branch on valid on invalid instead we gotta hack in a return statement in the middle of the code
+				auto [invalid, explanation] = state->has_invalid_chars(s.str, maximum((size_t)0, s.sz_char() - 1), state->user_extra);
+				if (invalid) {
+					res = false;
+					show_tip(state->wnd, explanation.c_str(), EDITONELINE_default_tooltip_duration, ETP::left | ETP::top);
+					return res;//HACK
+				}
+			}
+
+			res = true;
 
 			//remove existing selection
 			if (sel.has_selection()) remove_selection(state, x_min, x_max);
@@ -302,23 +401,28 @@ namespace edit_oneline{
 			size_t cursor = anchor;
 
 			SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
+
+			update_char_pad(state);
+			reposition_caret(state);
 		}
+		return res;
 	}
 
 	//inserts character replacing the current selection
-	void insert_character(ProcState* state, utf16 c) {//TODO(fran): optimized version for single character insertion
+	bool insert_character(ProcState* state, utf16 c) {//TODO(fran): optimized version for single character insertion
 		utf16 txt[2];
 		txt[0] = c;
 		txt[1] = 0;
 
-		insert_character(state, to_utf16_str(txt), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+		return insert_character(state, to_utf16_str(txt), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
 	}
 
 	//inserts string replacing the current selection
-	void insert_character(ProcState* state, const utf16* s) {
-		if (s && *s)
-			insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
-		wprintf(L"%s\n", s);
+	bool insert_character(ProcState* state, const utf16* s) {
+		bool res = false;
+		if (s)
+			res = insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+		return res;
 	}
 
 	bool _settext(ProcState* state, cstr* buf /*null terminated*/) {
@@ -327,54 +431,34 @@ namespace edit_oneline{
 		if (!buf) buf = &empty; //NOTE: this is the standard default behaviour
 		size_t char_sz = cstr_len(buf);//not including null terminator
 		if (char_sz <= (size_t)state->char_max_sz) {
+			//TODO(fran): settext should check for invalid characters
+
 			SendMessage(state->wnd, EM_SETSEL, 0, -1);
-			remove_selection(state);
-			insert_character(state, buf);
 
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			if (style & ES_CENTER) {
-				//Recalc pad_x
-				RECT rc; GetClientRect(state->wnd, &rc);
-				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+			res = insert_character(state, buf);
 
-			}
-			state->caret.pos = calc_caret_p(state);
-			SetCaretPos(state->caret.pos);
-
-			res = true;
-			InvalidateRect(state->wnd, NULL, TRUE);
+			ask_for_repaint(state);//TODO(fran): probably unnecessary
 		}
 		return res;
 	}
 
 	//NOTE: pasting from the clipboard establishes a couple of invariants: lines end with \r\n, there's a null terminator, we gotta parse it carefully cause who knows whats inside
 	bool paste_from_clipboard(ProcState* state, const cstr* txt) { //returns true if it could paste something
-	bool res = false;
-	size_t char_sz = cstr_len(txt);//does not include null terminator
-	if ((size_t)state->char_max_sz >= state->char_text.length() + char_sz) {
-
-	}
-	else {
-		char_sz -= ((state->char_text.length() + char_sz) - (size_t)state->char_max_sz);
-	}
-	if (char_sz > 0) {
-		//TODO(fran): remove invalid chars (we dont know what could be inside)
-
-		remove_selection(state);//NOTE or TODO(fran): not necessary, insert_character already has to do it, but it's easier to read and understand the steps needed
-		insert_character(state, txt);
-
-		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-		if (style & ES_CENTER) {
-			//Recalc pad_x
-			RECT rc; GetClientRect(state->wnd, &rc);
-			state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+		bool res = false;
+		size_t char_sz = cstr_len(txt);//does not include null terminator
+		if ((size_t)state->char_max_sz >= state->char_text.length() + char_sz) {
 
 		}
-		state->caret.pos = calc_caret_p(state);
-		SetCaretPos(state->caret.pos);
-		res = true;
-	}
-	return res;
+		else {
+			char_sz -= ((state->char_text.length() + char_sz) - (size_t)state->char_max_sz);
+		}
+		if (char_sz > 0) {
+			//TODO(fran): remove illegal chars (we dont know what could be inside)
+
+			res = insert_character(state, txt);
+
+		}
+		return res;
 	}
 
 	void set_composition_pos(ProcState* state)//TODO(fran): this must set the other stuff too
@@ -455,56 +539,6 @@ namespace edit_oneline{
 		}
 	}
 
-	namespace ETP {
-		enum ETP {//EditOneline_tooltip_placement
-			left = (1 << 1),
-			top = (1 << 2),
-			right = (1 << 3),
-			bottom = (1 << 4),
-			//current_char = (1 << 5), //instead of placement in relation to the control wnd it will be done relative to a character
-		};
-	}
-	//TODO(fran): positioning relative to a character offset, eg {3,5} 3rd char of 5th row place on top or left or...
-	void show_tip(HWND wnd, const cstr* msg, int duration_ms, u32 ETP_flags) {
-		ProcState* state = get_state(wnd); Assert(state);
-		TOOLINFO toolInfo{ sizeof(toolInfo) };
-		toolInfo.hwnd = state->wnd;
-		toolInfo.uId = (UINT_PTR)state->wnd;
-		toolInfo.hinst = GetModuleHandle(NULL);
-		toolInfo.lpszText = const_cast<cstr*>(msg);
-		SendMessage(state->controls.tooltip, TTM_UPDATETIPTEXT, 0, (LPARAM)&toolInfo);
-		SendMessage(state->controls.tooltip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&toolInfo);
-		POINT tooltip_p{0,0};
-		RECT tooltip_r;
-		tooltip_r.left = 0;
-		tooltip_r.right = 50;
-		tooltip_r.top = 0;
-		tooltip_r.bottom = calc_line_height_px(state);//The tooltip uses the same font, so we know the height of its text area
-		SendMessage(state->controls.tooltip, TTM_ADJUSTRECT, TRUE, (LPARAM)&tooltip_r);//convert text area to tooltip full area
-
-		RECT rc; GetClientRect(state->wnd, &rc);
-
-		if (ETP_flags & ETP::left) {
-			tooltip_p.x = 0;
-		}
-
-		if (ETP_flags & ETP::right) {
-			tooltip_p.x = RECTWIDTH(rc);
-		}
-
-		if (ETP_flags & ETP::top) {
-			tooltip_p.y = -RECTHEIGHT(tooltip_r);
-		}
-
-		if (ETP_flags & ETP::bottom) {
-			tooltip_p.y = RECTHEIGHT(rc);
-		}
-
-		ClientToScreen(state->wnd, &tooltip_p);
-		SendMessage(state->controls.tooltip, TTM_TRACKPOSITION, 0, (LPARAM)MAKELONG(tooltip_p.x, tooltip_p.y));
-		SetTimer(state->wnd, EDITONELINE_tooltip_timer_id, duration_ms, NULL);
-	}
-
 	void notify_parent(ProcState* state, WORD notif_code) {
 		PostMessage(state->parent, WM_COMMAND, MAKELONG(state->identifier, notif_code), (LPARAM)state->wnd);
 	}
@@ -520,12 +554,6 @@ namespace edit_oneline{
 			state->maintain_placerholder_on_focus = maintain;
 			ask_for_repaint(state);//TODO(fran): only ask for repaint when it's actually necessary
 		}
-	}
-
-	void recalculate_caret(ProcState* state) {
-		POINT oldcaretp = state->caret.pos;
-		state->caret.pos = calc_caret_p(state);
-		if (oldcaretp != state->caret.pos) SetCaretPos(state->caret.pos);
 	}
 
 	struct _string_traversal { size_t p; bool reached_limit; };//NOTE: string::npos seems worse since it doesnt give you a valid last pos
@@ -805,16 +833,8 @@ namespace edit_oneline{
 		case WM_SIZE: {//4th, strange, I though this was sent only if you didnt handle windowposchanging (or a similar one)
 			//NOTE: neat, here you resize your render target, if I had one or cared to resize windows' https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-size
 			//This msg is received _after_ the window was resized
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-			if (style & ES_CENTER) {
-				//Recalc pad_x
-				RECT rc; GetClientRect(state->wnd, &rc);
-				state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
-
-			}
-			state->caret.pos = calc_caret_p(state);
-			//SetCaretPos(state->caret.pos);//TODO(fran): should I be setting the caret? maybe only if on focus
-			
+			update_char_pad(state);
+			reposition_caret(state);
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -1426,29 +1446,20 @@ namespace edit_oneline{
 				if (c <= (TCHAR)0x1f) break;//IME
 
 				//TODO(fran): maybe this should be the first check for any WM_CHAR?
-				if (contains_char(c,state->invalid_chars)) {
-					//display tooltip //TODO(fran): make this into a reusable function
-					std::wstring tooltip_msg = (RS(10) + L" " + state->invalid_chars);
-					show_tip(state->wnd, tooltip_msg.c_str(), EDITONELINE_default_tooltip_duration, ETP::left | ETP::top);
-					return 0;
-				}
+
+				//if (contains_char(c, state->invalid_chars)) {
+				//	//display tooltip //TODO(fran): make this into a reusable function
+				//	std::wstring tooltip_msg = (RS(10) + L" " + state->invalid_chars);
+				//	show_tip(state->wnd, tooltip_msg.c_str(), EDITONELINE_default_tooltip_duration, ETP::left | ETP::top);
+				//	return 0;
+				//}
 
 				//We have some normal character
 				//TODO(fran): what happens with surrogate pairs? I dont even know what they are -> READ
 				if (safe_subtract0(state->char_text.length(), state->char_cur_sel.sel_width()) < state->char_max_sz) {
-					insert_character(state, c);
+					en_change = insert_character(state, c);
 					
-					LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);//TODO(fran): again, which function is gonna take the responsibility of doing this?
-					if (style & ES_CENTER) {
-						//Recalc pad_x
-						RECT rc; GetClientRect(state->wnd, &rc);
-						state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
-					}
-					state->caret.pos = calc_caret_p(state);
-					SetCaretPos(state->caret.pos);
-
 					//wprintf(L"%s\n", state->char_text.c_str());
-					en_change = true;
 				}
 
 			}break;
@@ -1713,19 +1724,7 @@ namespace edit_oneline{
 						auto len = ImmGetCompositionStringW(imc, GCS_COMPSTR, txt, szbytes) / sizeof(*txt);
 						txt[len] = 0;//ImmGetCompositionStringW does _not_ write the null terminator
 
-						insert_character(state, txt);
-
-
-						LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);//TODO(fran): again, which function is gonna take the responsibility of doing this?
-						if (style & ES_CENTER) {
-							//Recalc pad_x
-							RECT rc; GetClientRect(state->wnd, &rc);
-							state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
-						}
-						state->caret.pos = calc_caret_p(state);
-						SetCaretPos(state->caret.pos);
-
-						en_change = true;
+						en_change = insert_character(state, txt);
 
 						SendMessage(state->wnd, EM_SETSEL, safe_subtract0(state->char_cur_sel.cursor, len), state->char_cur_sel.cursor);
 					}
@@ -1773,11 +1772,11 @@ namespace edit_oneline{
 			//TODO(fran): check whether we need to redraw
 			return 1;
 		} break;
-		case EM_SETINVALIDCHARS:
-		{
-			cstr* chars = (cstr*)lparam;
-			memcpy_s(state->invalid_chars, sizeof(state->invalid_chars), chars, (cstr_len(chars) + 1) * sizeof(*chars));
-		} break;
+		//case EM_SETINVALIDCHARS:
+		//{
+		//	cstr* chars = (cstr*)lparam;
+		//	memcpy_s(state->invalid_chars, sizeof(state->invalid_chars), chars, (cstr_len(chars) + 1) * sizeof(*chars));
+		//} break;
 		case WM_NOTIFYFORMAT://1st msg sent by our tooltip
 		{
 			switch (lparam) {
@@ -1882,7 +1881,7 @@ namespace edit_oneline{
 				}
 			}
 
-			recalculate_caret(state);//TODO(fran): only do it if cursor changed
+			reposition_caret(state);//TODO(fran): only do it if cursor changed
 
 			return 0;
 		} break;

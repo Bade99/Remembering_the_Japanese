@@ -27,6 +27,7 @@
 #include "win32_notify.h"
 
 #include <string>
+#include <algorithm>
 
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
@@ -43,13 +44,11 @@
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
-//TODO(fran): page new_word: check that no kanji is written to the hiragana box
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: kanji detection via OCR
-//TODO(fran): page practice_drawing: change button's text to be more similar to anki's style, the user draws, then presses on 'test'/'check', sees the correct answer and we provide two buttons 'Right' and 'Wrong', and the user tells us how it went
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 
 
@@ -886,6 +885,7 @@ namespace べんきょう {
 		state->settings->rc = rc;
 	}
 
+	//returns true if the input is valid and usable, returns false otherwise
 	bool check_new_word(ProcState* state) {
 		auto& page = state->controls.new_word;
 		HWND edit_required[] = { page.list.edit_hiragana,page.list.edit_meaning };
@@ -896,10 +896,35 @@ namespace べんきょう {
 				return false;
 			}
 		}
+
+		//TODO(fran): we could build smth strange like an array of tuples in order to be able to repeat the same code but use different function calls and string notifs in each case
+		{
+			HWND edit = page.list.edit_hiragana;
+			const auto& txt = edit_oneline::get_state(edit)->char_text;//quick HACK
+			if (!std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_katakana(c); })) {
+				edit_oneline::show_tip(edit, RCS(12), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
+				return false;
+			}
+		}
+
+		{
+			HWND edit = page.list.edit_kanji;
+			const auto& txt = edit_oneline::get_state(edit)->char_text;
+			if (!txt.empty()) {
+				if (!std::any_of(txt.begin(), txt.end(), [](utf16 c) {return is_kanji(c); })//must have at least one kanji
+					|| !std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_kanji(c); })
+					) {
+					edit_oneline::show_tip(edit, RCS(13), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
+					return false;
+				}
+			}
+		}
+
 		return true;
 	}
 
 	bool check_show_word(ProcState* state) {
+		//TODO(fran): macro to check both new_word and show_word (show_word will now have some of its static edit controls changed to edit controls instead)
 		auto& page = state->controls.show_word;
 		HWND edit_required[] = { page.list.edit_meaning };
 		for (int i = 0; i < ARRAYSIZE(edit_required); i++) {
@@ -909,6 +934,20 @@ namespace べんきょう {
 				return false;
 			}
 		}
+
+		{
+			HWND edit = page.list.edit_kanji;
+			const auto& txt = edit_oneline::get_state(edit)->char_text;
+			if (!txt.empty()) {
+				if (!std::any_of(txt.begin(), txt.end(), [](utf16 c) {return is_kanji(c); }) //at least one kanji
+					|| std::any_of(txt.begin(), txt.end(), [](utf16 c) {return !is_hiragana(c) || !is_kanji(c); })//only kanji/hira
+					) {
+					edit_oneline::show_tip(edit, RCS(13), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
+					return false;
+				}
+			}
+		}
+
 		return true;
 	}
 
@@ -1721,24 +1760,6 @@ namespace べんきょう {
 		return res;
 	}
 
-	//TODO(fran): use get_hiragana_kanji_meaning, and rename to has_hiragana_kanji_meaning
-	//bool has_hiragana(const learnt_word16* word) {
-	//	bool res;
-	//	res = word && word->attributes.hiragana.str && *word->attributes.hiragana.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-	//	return res;
-	//}
-
-	//bool has_translation(const learnt_word16* word) {
-	//	bool res;
-	//	res = word && word->attributes.translation.str && *word->attributes.translation.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-	//	return res;
-	//}
-
-	//bool has_kanji(const learnt_word16* word) {
-	//	bool res;
-	//	res = word && word->attributes.kanji.str && *word->attributes.kanji.str;//TODO(fran): learnt_word should have a defined str type, we cant be guessing here
-	//	return res;
-	//}
 
 	struct practice_data {
 		ProcState::page page;
@@ -2147,6 +2168,7 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.new_word;
 
+			//TODO(fran): hide primary IME window, the one that shows the composition string, we no longer need it now we show the string straight into the editbox
 			controls.list.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.list.edit_hiragana, &hiragana_editoneline_theme);

@@ -53,6 +53,8 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(10,"Invalid character, do not use:")
 	lang_entry(11,"This information cannot be omitted")
+	lang_entry(12,"Input must be in Hiragana and Katakana")
+	lang_entry(13,"Input must be in Kanji and Hiragana")
 
 	lang_entry(100,"New")
 	lang_entry(101,"Practice")
