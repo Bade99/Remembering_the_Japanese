@@ -46,7 +46,7 @@
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
 //TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
-//TODO(fran): page practice: precalculate the entire array of practice leves from the start (avoids duplicates)
+//TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
@@ -221,6 +221,14 @@ struct べんきょうProcState {
 	HWND wnd;
 	HWND nc_parent;
 	べんきょうSettings* settings;
+
+	f32 scroll;//vertical scrolling of page
+	//anim
+	int scroll_frame;
+	f32 scroll_dt;
+	f32 scroll_v;
+	f32 scroll_a;
+	bool scroll_on_anim;
 
 	struct {
 		HBRUSH bk;
@@ -1516,7 +1524,7 @@ namespace べんきょう {
 
 		} break;
 		}
-
+		state->scroll = 0;
 		resize_controls(state);
 		show_page(state, state->current_page, SW_SHOW);
 		set_default_focus(state, state->current_page);
@@ -2484,7 +2492,7 @@ namespace べんきょう {
 		{
 			auto& controls = state->controls.landingpage;
 
-			int start_y = 0;
+			int start_y = (i32)state->scroll;
 
 			rect_i32 button_recents;
 			button_recents.y = start_y;
@@ -2563,7 +2571,7 @@ namespace べんきょう {
 
 			rect_i32 bottom_most_control = graph_accuracy_timeline;
 
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
+			int used_h = distance(start_y,bottom_most_control.bottom());// minus start_y which is always 0
 			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
 
 			MyMoveWindow_offset(controls.list.button_recents, button_recents, FALSE);
@@ -3117,6 +3125,53 @@ namespace べんきょう {
 	void resize_controls(ProcState* state) {
 		resize_controls(state, state->current_page);
 	}
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
+
+	void smooth_scroll(ProcState* state, int increment) {
+		static const int total_frames = 100;
+		state->scroll_frame = 0;
+		
+		state->scroll_a = -(f32)increment;
+		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
+		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
+		
+
+		//NOTEs about this amazing find: 1st lambda must be static, 2nd auto cannot be used, you must declare the function type
+		//thanks https://stackoverflow.com/questions/2067988/recursive-lambda-functions-in-c11
+		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState* state = get_state(hwnd);
+			if (state) {
+				state->scroll_a += -6.5f * state->scroll_v;//drag
+
+				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
+				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
+				dy *= 100;
+				state->scroll += dy;
+				//printf("a %f ; dy %f ; scrollY %f\n", state->scroll_a, dy, state->scroll);
+				/*f32 t = (state->scroll_frame * state->scroll_dt);
+				f32 v = state->scroll_v0 + a*t;
+				f32 dx = v * t + .5f * a * squared(t);
+				state->scroll += (i32)(dx);*/
+				ask_for_resize(state);
+				ask_for_repaint(state);
+				if (state->scroll_frame++ < total_frames) {
+					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
+				}
+				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
+				//printf("Frame %d ; veloc %f ; time %f ; accel %f ; ScrollY %d\n", state->scroll_frame,v,t,a,state->scroll);
+				//TODO(fran): you're given the elapsed time, if Im willing to delay the animation by one frame I can throw away the state->scroll_dt and use the time provided by this function
+			}
+		};
+		if (state->scroll_on_anim) {
+
+		}
+		else {
+			state->scroll_on_anim = true;
+			SetTimer(state->wnd, 1111, 0, scroll_anim);
+		}
+	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -3142,6 +3197,17 @@ namespace べんきょう {
 			add_controls(state);
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
+
+#if 1 //test score anim
+			static void (*testp)(HWND, UINT, UINT_PTR, DWORD) = [](HWND wnd, UINT, UINT_PTR id, DWORD) {
+				static int c;
+				flip_visibility(get_state(wnd)->controls.landingpage.list.score_accuracy);
+				flip_visibility(get_state(wnd)->controls.landingpage.list.score_accuracy);
+				SetTimer(wnd, id, 3000, testp);
+			};
+			SetTimer(state->wnd, 5555, 0, testp);
+#endif
+
 
 //#define TEST_IME_MODE_SWITCH
 #if defined(TEST_IME_MODE_SWITCH)
@@ -3816,6 +3882,36 @@ namespace べんきょう {
 		case WM_XBUTTONUP:
 		{
 			return 1;
+		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
+			short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
+			int dy = avg_str_dim(global::fonts.General, 1).cy;
+			printf("zDelta %d ; height %d\n", zDelta, dy);
+			int step = zDelta * dy;
+			#if 0 //possibly better solution
+			UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
+			ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);
+			#else //handmade solution (no WM_PRINT and friends)
+			smooth_scroll(state,step);
+			
+			/*
+			if (zDelta >= 0)
+				for (int i = 0; i < zDelta; i++)
+					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEUP, 0), 0); //TODO(fran): use ScrollWindowEx ?
+			else
+				for (int i = 0; i > zDelta; i--)
+					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
+			*/
+			#endif
+			return 0;
+		} break;
+		case WM_PRINT:
+		{
+			//ScrollWindowEx works by sending this, and (I assume) asking you to render onto a different dc and overriding whats on screen with that, thing is though that it actually requests you to do it all, sends wm_print and then defwindowproc requests repainting from this window and all the childs, onto the alien dc
+			return DefWindowProc(hwnd, msg, wparam, lparam);
+			return 0;
 		} break;
 
 #if defined(TEST_IME_MODE_SWITCH)

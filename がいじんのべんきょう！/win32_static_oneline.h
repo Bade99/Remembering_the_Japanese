@@ -332,7 +332,13 @@ namespace static_oneline {
 			res = TRUE;
 			ask_for_repaint(state);
 			return res;
-		}break;
+		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//static controls have no reason for needing mousewheel input, therefore we redirect it to our parent
+			return SendMessage(state->parent, msg, wparam, lparam);//TODO(fran): sendmessage or postmessage?
+		} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

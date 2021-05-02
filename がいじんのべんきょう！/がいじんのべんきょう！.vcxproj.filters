@@ -137,6 +137,9 @@
     <ClInclude Include="win32_notify.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Pix_RingLifeBar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">
@@ -147,5 +150,8 @@
     <Image Include="..\assets\logo.ico">
       <Filter>Resource Files</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Pix_RingLifeBar.hlsl" />
   </ItemGroup>
 </Project>
