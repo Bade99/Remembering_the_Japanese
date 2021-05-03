@@ -25,6 +25,7 @@
 #include "win32_べんきょう_embedded.h"
 #include "win32_sizer.h"
 #include "win32_notify.h"
+#include "win32_page.h"
 
 #include <string>
 #include <algorithm>
@@ -222,13 +223,13 @@ struct べんきょうProcState {
 	HWND nc_parent;
 	べんきょうSettings* settings;
 
-	f32 scroll;//vertical scrolling of page
-	//anim
-	int scroll_frame;
-	f32 scroll_dt;
-	f32 scroll_v;
-	f32 scroll_a;
-	bool scroll_on_anim;
+	//f32 scroll;//vertical scrolling of page
+	////anim
+	//int scroll_frame;
+	//f32 scroll_dt;
+	//f32 scroll_v;
+	//f32 scroll_a;
+	//bool scroll_on_anim;
 
 	struct {
 		HBRUSH bk;
@@ -260,6 +261,8 @@ struct べんきょうProcState {
 
 	struct {
 		HWND navbar;
+		HWND page_space;//all pages go inside this one
+		HWND page;
 
 		union landingpage_controls {
 			using type = HWND;
@@ -1524,7 +1527,7 @@ namespace べんきょう {
 
 		} break;
 		}
-		state->scroll = 0;
+		//state->scroll = 0;
 		resize_controls(state);
 		show_page(state, state->current_page, SW_SHOW);
 		set_default_focus(state, state->current_page);
@@ -2030,6 +2033,11 @@ namespace べんきょう {
 		edit_oneline::Theme meaning_editoneline_theme = base_editoneline_theme;
 		meaning_editoneline_theme.brushes.foreground.normal = brush_for(learnt_word_elem::meaning);
 
+		page::Theme base_page_theme;
+		base_page_theme.brushes.bk.normal = global::colors.ControlBk;
+		base_page_theme.brushes.border = base_page_theme.brushes.bk;
+		base_page_theme.dimensions.border_thickness = 0;
+
 		//---------------------Header & Footer----------------------:
 		auto& navbar = state->controls.navbar;
 		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
@@ -2107,19 +2115,29 @@ namespace べんきょう {
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
+		//---------------------Page----------------------:
+		state->controls.page_space = CreateWindowW(page::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		page::set_theme(state->controls.page_space, &base_page_theme);
+
+		//test page
+		state->controls.page = CreateWindowW(page::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+			, 0, 0, 0, 0, state->controls.page_space, 0, NULL, NULL);
+		page::set_theme(state->controls.page, &base_page_theme);
+		page::set_scrolling(state->controls.page, true);
 
 		//---------------------Landing page----------------------:
 		{
 			auto& controls = state->controls.landingpage;
 
 			controls.list.listbox_recents = CreateWindowW(listbox::wndclass, 0, WS_CHILD
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			listbox::set_function_render(controls.list.listbox_recents, listbox_recents_func_render);
 			listbox::set_user_extra(controls.list.listbox_recents, state->wnd);
 			listbox::set_function_on_click(controls.list.listbox_recents, listbox_recents_func_on_click);
 
 			controls.list.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			AWT(controls.list.button_recents, 103);
 			button::set_theme(controls.list.button_recents, &dark_btn_theme);
 			button::set_user_extra(controls.list.button_recents, state->wnd);
@@ -2136,36 +2154,36 @@ namespace べんきょう {
 			);
 
 			controls.list.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			AWT(controls.list.static_word_cnt_title, 351);
 
 			controls.list.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.list.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 
 			controls.list.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			AWT(controls.list.static_practice_cnt_title, 352);
 
 			controls.list.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.list.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 
 			controls.list.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			AWT(controls.list.static_accuracy_title, 353);
 
 			controls.list.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			score::set_brushes(controls.list.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
 
 
 			controls.list.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			AWT(controls.list.static_accuracy_timeline_title, 354);
 
 			controls.list.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, 0, 0, 0, 0, state->controls.page, 0, NULL, NULL);
 			graph::set_brushes(controls.list.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
 
 			//TODO(fran): we may want to add smth else like a total number of words practiced
@@ -2478,8 +2496,8 @@ namespace べんきょう {
 		const int half_wnd_h = wnd_h / 2;
 		const int max_w = w - w_pad * 2;
 
+		rect_i32 navbar;
 		{//navbar test
-			rect_i32 navbar;
 			navbar.left = r.left;
 			navbar.top = r.top;
 			navbar.w = w;
@@ -2487,12 +2505,31 @@ namespace べんきょう {
 			MyMoveWindow(state->controls.navbar, navbar, FALSE);
 		}
 
+		rect_i32 page_space;
+		{//page
+			page_space.left = r.left;
+			page_space.top = navbar.bottom();
+			page_space.w = w;
+			page_space.h = h - navbar.h;
+			MyMoveWindow(state->controls.page_space, page_space, FALSE);
+		}
+
+		{//page //TODO(fran): resize the corresponding page inside the switch statement
+			RECT page_r; GetWindowRect(state->controls.page, &page_r);  MapWindowPoints(0,GetParent(state->controls.page), (POINT*)&page_r, 2);
+			rect_i32 page;
+			page.left = 0;
+			page.top = page_r.top;
+			page.w = w;
+			page.h = page_space.h;// maximum(page_space.h, this_page_h)
+			MyMoveWindow(state->controls.page, page, FALSE);
+		}
+
 		switch (page) {
 		case ProcState::page::landing:
 		{
 			auto& controls = state->controls.landingpage;
 
-			int start_y = (i32)state->scroll;
+			int start_y = 0/*(i32)state->scroll*/;
 
 			rect_i32 button_recents;
 			button_recents.y = start_y;
@@ -3128,6 +3165,7 @@ namespace べんきょう {
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
 	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
 
+#if 0
 	void smooth_scroll(ProcState* state, int increment) {
 		static const int total_frames = 100;
 		state->scroll_frame = 0;
@@ -3204,9 +3242,8 @@ namespace べんきょう {
 			state->scroll_on_anim = true;
 			SetTimer(state->wnd, 1111, 0, scroll_anim);
 		}
-
-
 	}
+#endif
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
@@ -3935,6 +3972,7 @@ namespace べんきょう {
 		} break;
 		case WM_MOUSEWHEEL:
 		{
+#if 0
 			//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
 			short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
 			int dy = avg_str_dim(global::fonts.General, 1).cy;
@@ -3959,6 +3997,9 @@ namespace べんきょう {
 					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
 			*/
 			return 0;
+#else
+			return SendMessage(state->nc_parent, msg, wparam, lparam);
+#endif
 		} break;
 		case WM_PRINT:
 		{

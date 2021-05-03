@@ -535,7 +535,7 @@ namespace score {
 			}
 		}
 
-		//TODO(fran): this must be drawn onto a secondary dc first, together with the ring animation
+		//TODO(fran): this must be drawn onto a secondary dc first, together with the ring animation. 2nd and probably best option: use device_ctx to ->DrawText() before we EndDraw the rendertarget
 		LOGFONT lf; int getobjres = GetObject(state->font, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
 		if (lf.lfFaceName) { //Text rendering
 			HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };

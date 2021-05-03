@@ -2,20 +2,35 @@
 #include "windows_sdk.h"
 #include "win32_Platform.h"
 #include "win32_Helpers.h"
-#include <windowsx.h>
+#include "win32_Global.h"
+#include "unCap_Math.h"
 
 namespace page {
 	constexpr cstr wndclass[] = TEXT("win32_wndclass_page");
 
+	struct Theme {
+		struct {
+			brush_group bk, border;//NOTE: the page itself renders nothing but the background
+		} brushes;
+		struct {
+			u32 border_thickness = U32MAX;
+		}dimensions;
+	};
+
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
-		struct brushes {//NOTE: the page itself renders nothing but the background
-			HBRUSH bk, border;
-			HBRUSH bk_dis, border_dis; //disabled
-		}brushes;
+		Theme theme;
 
-		size_t border_thickness;
+		bool does_scrolling;
+
+		f32 scroll;//vertical scrolling of page
+		//anim
+		int scroll_frame;
+		f32 scroll_dt;
+		f32 scroll_v;
+		f32 scroll_a;
+		bool scroll_on_anim;
 	};
 
 	ProcState* get_state(HWND wnd) {
@@ -31,28 +46,97 @@ namespace page {
 		InvalidateRect(state->wnd, 0, TRUE); //ask for WW_PAINT
 	}
 
-	void set_dimensions(HWND wnd, size_t border_thickness = ((size_t)-1)) {
+	//void set_dimensions(HWND wnd, size_t border_thickness = ((size_t)-1)) {
+	//	ProcState* state = get_state(wnd);
+	//	size_t res;
+	//	if (state) {
+	//		if (border_thickness != ((size_t)-1) && state->border_thickness != border_thickness) {
+	//			state->border_thickness = border_thickness;
+	//			ask_for_repaint(state);
+	//		}
+	//	}
+	//}
+
+	bool _copy_theme(Theme* dst, const Theme* src) {
+		bool repaint = false;
+		repaint |= copy_brush_group(&dst->brushes.bk, &src->brushes.bk);
+		repaint |= copy_brush_group(&dst->brushes.border, &src->brushes.border);
+
+		if (src->dimensions.border_thickness != U32MAX) {
+			dst->dimensions.border_thickness = src->dimensions.border_thickness; repaint = true;
+		}
+
+		return repaint;
+	}
+
+	//Set only what you need, what's not set wont be used
+	//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
+	void set_theme(HWND wnd, const Theme* t) {
 		ProcState* state = get_state(wnd);
-		size_t res;
-		if (state) {
-			if (border_thickness != ((size_t)-1) && state->border_thickness != border_thickness) {
-				state->border_thickness = border_thickness;
-				ask_for_repaint(state);
-			}
+		if (state && t) {
+			bool repaint = _copy_theme(&state->theme, t);
+
+			if (repaint)  ask_for_repaint(state);
 		}
 	}
 
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	//void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	//	ProcState* state = get_state(wnd);
+	//	if (state) {
+	//		if (bk)state->brushes.bk = bk;
+	//		if (border)state->brushes.border = border;
+	//		if (bk_disabled)state->brushes.bk_dis = bk_disabled;
+	//		if (border_disabled)state->brushes.border_dis = border_disabled;
+	//		if (repaint) {
+	//			ask_for_repaint(state);
+	//		}
+	//	}
+	//}
+
+	void set_scrolling(HWND wnd, bool does_scrolling) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			if (bk)state->brushes.bk = bk;
-			if (border)state->brushes.border = border;
-			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-			if (border_disabled)state->brushes.border_dis = border_disabled;
-			if (repaint) {
-				ask_for_repaint(state);
+			state->does_scrolling = does_scrolling;//TODO(fran): reset current scrolling?
+		}
+	}
+
+	void smooth_scroll(ProcState* state, int increment) {
+		static const int total_frames = 100;
+		state->scroll_frame = 0;
+
+		state->scroll_a = -(f32)increment * 10;
+		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
+		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
+
+
+		//NOTEs about this amazing find: 1st lambda must be static, 2nd auto cannot be used, you must declare the function type
+		//thanks https://stackoverflow.com/questions/2067988/recursive-lambda-functions-in-c11
+		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState* state = get_state(hwnd);
+			if (state) {
+				state->scroll_a += -8.5f * state->scroll_v;//drag
+
+				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
+				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
+				dy *= 100;
+
+				state->scroll += dy;
+				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->parent, (POINT*)&r, 2);
+				MoveWindow(state->wnd, r.left, r.top + (int)dy, RECTW(r), RECTH(r), TRUE);//TODO(fran): store f32 y position
+				if (state->scroll_frame++ < total_frames) {
+					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
+				}
+				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
 			}
+		};
+		if (state->scroll_on_anim) {
+
+		}
+		else {
+			state->scroll_on_anim = true;
+			SetTimer(state->wnd, 1111, 0, scroll_anim);
 		}
 	}
 
@@ -63,11 +147,11 @@ namespace page {
 		{ //1st msg received
 			CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
 
-			ProcState* st = (ProcState*)calloc(1, sizeof(ProcState));
-			Assert(st);
-			set_state(hwnd, st);
-			st->wnd = hwnd;
-			st->parent = creation_nfo->hwndParent;
+			ProcState* state = (ProcState*)calloc(1, sizeof(ProcState));
+			Assert(state);
+			set_state(hwnd, state);
+			state->wnd = hwnd;
+			state->parent = creation_nfo->hwndParent;
 			return TRUE; //continue creation
 		} break;
 		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
@@ -222,12 +306,12 @@ namespace page {
 			bool window_enabled = IsWindowEnabled(state->wnd);
 
 			//Bk
-			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
+			HBRUSH bk_br = window_enabled ? state->theme.brushes.bk.normal : state->theme.brushes.bk.disabled;
 			FillRect(dc, &rc, bk_br);
 
 			//Border
-			int border_thickness = (int)state->border_thickness;
-			HBRUSH border_br = window_enabled ? state->brushes.border : state->brushes.border_dis;
+			int border_thickness = (int)state->theme.dimensions.border_thickness;
+			HBRUSH border_br = window_enabled ? state->theme.brushes.border.normal : state->theme.brushes.border.disabled;
 			FillRectBorder(dc, rc, border_thickness, border_br, BORDERALL);
 
 			EndPaint(hwnd, &ps);
@@ -239,6 +323,35 @@ namespace page {
 			if (child) return SendMessage(state->parent, msg, wparam, lparam);//Any msg from our childs goes up to our parent
 			else Assert(0); //No msg from menus nor accelerators should come here
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			if (state->does_scrolling) {
+				//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
+				short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
+				int dy = avg_str_dim(global::fonts.General, 1).cy;
+				//printf("zDelta %d ; height %d\n", zDelta, dy);
+				int step = zDelta * dy;
+#if 0 //possibly better solution
+				UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
+				ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);
+#elif 0 //handmade solution (no WM_PRINT and friends)
+				smooth_scroll(state, step);
+#else
+				smooth_scroll(state, step);
+#endif
+				/*
+				if (zDelta >= 0)
+					for (int i = 0; i < zDelta; i++)
+						SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEUP, 0), 0); //TODO(fran): use ScrollWindowEx ?
+				else
+					for (int i = 0; i > zDelta; i--)
+						SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
+				*/
+				return 0;
+			}
+			else return SendMessage(state->parent, msg, wparam, lparam);
+		} break;
+
 #ifdef _DEBUG
 		Assert(0);
 #else 
