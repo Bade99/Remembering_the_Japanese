@@ -951,7 +951,7 @@ namespace べんきょう {
 			const auto& txt = edit_oneline::get_state(edit)->char_text;
 			if (!txt.empty()) {
 				if (!std::any_of(txt.begin(), txt.end(), [](utf16 c) {return is_kanji(c); }) //at least one kanji
-					|| std::any_of(txt.begin(), txt.end(), [](utf16 c) {return !is_hiragana(c) || !is_kanji(c); })//only kanji/hira
+					|| !std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_kanji(c); })//only kanji/hira
 					) {
 					edit_oneline::show_tip(edit, RCS(13), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
 					return false;
@@ -1440,7 +1440,7 @@ namespace べんきょう {
 
 	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
-		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); break;
+		case decltype(p)::landing: for (auto ctl : state->controls.landingpage.all) ShowWindow(ctl, ShowWindow_cmd); ShowWindow(state->controls.page_space, ShowWindow_cmd);/*TODO(fran): rm this once we have pages for everybody*/ break;
 		case decltype(p)::new_word: 
 			for (auto ctl : state->controls.new_word.all) ShowWindow(ctl, ShowWindow_cmd); 
 			ShowWindow(state->controls.new_word.list.static_notify, SW_HIDE);
@@ -2317,18 +2317,54 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_modify, 273);
 			button::set_theme(controls.list.button_modify, &base_btn_theme);
+			button::set_user_extra(controls.list.button_modify, state);
+			button::set_function_on_click(controls.list.button_modify,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					if (modify_word(state)) {
+						goto_previous_page(state);//TODO(fran): dont go back, simply notify the user of the successful modification; or first notify and only later go back
+					}
+				}
+			);
 
 			controls.list.button_delete = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			//AWT(controls.list.button_modify, 273);
 			button::set_theme(controls.list.button_delete, &img_btn_theme);
 			SendMessage(controls.list.button_delete, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.bin);
+			button::set_user_extra(controls.list.button_delete, state);
+			button::set_function_on_click(controls.list.button_delete,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
+					if (ret == IDYES) {
+						if (remove_word(state)) {
+							goto_previous_page(state);
+						}
+					}
+				}
+			);
 
 			controls.list.button_remember = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_remember, 275);
 			AWTT(controls.list.button_remember, 276);
 			button::set_theme(controls.list.button_remember, &accent_btn_theme);
+			button::set_user_extra(controls.list.button_remember, state);
+			button::set_function_on_click(controls.list.button_remember,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					Assert(state->current_page == ProcState::page::show_word);
+					auto& page = state->controls.show_word;
+					//TODO(fran): change button bk and mouseover color to green
+					if (prioritize_word(state)) {
+						button::Theme accent_btn_theme;
+						accent_btn_theme.brushes.foreground.normal = global::colors.Bk_right_answer;
+						accent_btn_theme.brushes.border.normal = global::colors.Bk_right_answer;
+						button::set_theme(page.list.button_remember, &accent_btn_theme);
+					}
+				}
+			);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2341,7 +2377,31 @@ namespace べんきょう {
 				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			AWT(controls.list.button_start, 350);
 			button::set_theme(controls.list.button_start, &base_btn_theme);
+			button::set_user_extra(controls.list.button_start, state->wnd);
+			button::set_function_on_click(controls.list.button_start,
+				[](void* element, void* user_extra) {
+					ProcState* state = get_state((HWND)user_extra);
+					if (state) {//TODO(fran): probably unnecessary 'if' only for debugging
+						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
+						if (word_cnt > 0) {
+#define TEST_QUICKPRACTICE
+#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
+							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
+#else
+							constexpr int practice_cnt = 2 + 1;
+#endif
+							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
+							store_previous_page(state, state->current_page);
 
+							//Clear previous practice data:
+							clear_practices_vector(state->multipagestate.temp_practices);
+
+							next_practice_level(state, false);
+						}
+						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
+					}
+				}
+			);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -3410,61 +3470,61 @@ namespace べんきょう {
 				} break;
 				case ProcState::page::practice:
 				{
-					auto& page = state->controls.practice;
-					if (child == page.list.button_start) {
-						
-						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
-						if (word_cnt > 0) {
-#define TEST_QUICKPRACTICE
-#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
-							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
-#else
-							constexpr int practice_cnt = 2 + 1;
-#endif
-							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
-							store_previous_page(state, state->current_page);
-
-							//Clear previous practice data:
-							clear_practices_vector(state->multipagestate.temp_practices);
-
-							next_practice_level(state, false);
-						}
-						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
-					}
+//					auto& page = state->controls.practice;
+//					if (child == page.list.button_start) {
+//						
+//						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
+//						if (word_cnt > 0) {
+//#define TEST_QUICKPRACTICE
+//#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
+//							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
+//#else
+//							constexpr int practice_cnt = 2 + 1;
+//#endif
+//							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
+//							store_previous_page(state, state->current_page);
+//
+//							//Clear previous practice data:
+//							clear_practices_vector(state->multipagestate.temp_practices);
+//
+//							next_practice_level(state, false);
+//						}
+//						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
+//					}
 				} break;
 				case ProcState::page::search:
 				{
-					auto& page = state->controls.search;
+					//auto& page = state->controls.search;
 					//NOTE: for now the only thing on this page is the searchbox, which is handled in a decentralized fashion
 				} break;
 				case ProcState::page::show_word:
 				{
-					auto& page = state->controls.show_word;
-					if (child == page.list.button_modify) {
-						if (modify_word(state)) {
-							goto_previous_page(state);
-							//set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
-						}
-					}
-					if (child == page.list.button_delete) {
+					//auto& page = state->controls.show_word;
+					//if (child == page.list.button_modify) {
+					//	if (modify_word(state)) {
+					//		goto_previous_page(state);
+					//		//set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
+					//	}
+					//}
+					//if (child == page.list.button_delete) {
 
-						int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
-						if (ret == IDYES) {
-							if (remove_word(state)) {
-								goto_previous_page(state);
-								//set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
-							}
-						}
-					}
-					if (child == page.list.button_remember) {
-						//TODO(fran): change button bk and mouseover color to green
-						if (prioritize_word(state)) {
-							button::Theme accent_btn_theme;
-							accent_btn_theme.brushes.foreground.normal = global::colors.Bk_right_answer;
-							accent_btn_theme.brushes.border.normal = global::colors.Bk_right_answer;
-							button::set_theme(page.list.button_remember, &accent_btn_theme);
-						}
-					}
+					//	int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
+					//	if (ret == IDYES) {
+					//		if (remove_word(state)) {
+					//			goto_previous_page(state);
+					//			//set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
+					//		}
+					//	}
+					//}
+					//if (child == page.list.button_remember) {
+					//	//TODO(fran): change button bk and mouseover color to green
+					//	if (prioritize_word(state)) {
+					//		button::Theme accent_btn_theme;
+					//		accent_btn_theme.brushes.foreground.normal = global::colors.Bk_right_answer;
+					//		accent_btn_theme.brushes.border.normal = global::colors.Bk_right_answer;
+					//		button::set_theme(page.list.button_remember, &accent_btn_theme);
+					//	}
+					//}
 				} break;
 				case ProcState::page::practice_writing:
 				{
@@ -3569,10 +3629,6 @@ namespace べんきょう {
 					auto& page = state->controls.review_practice;
 					if (child == page.list.button_continue) {
 						store_previous_page(state, state->current_page);
-						//user_stats stats = get_user_stats(state->settings->db);
-						//get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };//TODO(fran): this things should be joined into a function, I've already got to do this same code twice
-						//preload_page(state, ProcState::page::practice, &stats);
-						//set_current_page(state, ProcState::page::practice);
 						set_current_page(state, ProcState::page::landing);//TODO(fran): this isnt best, it'd be nice if we went back to the practice page but from here it'd require a goto_previous_page and the fact that we know prev page is practice and that we should preload cause it's values have changed
 					} 
 					else if (child == page.list.gridview_practices) {
