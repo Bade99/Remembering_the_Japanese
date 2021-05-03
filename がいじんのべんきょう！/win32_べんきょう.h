@@ -3132,7 +3132,7 @@ namespace べんきょう {
 		static const int total_frames = 100;
 		state->scroll_frame = 0;
 		
-		state->scroll_a = -(f32)increment;
+		state->scroll_a = -(f32)increment*10;
 		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
 		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
 		
@@ -3143,25 +3143,19 @@ namespace べんきょう {
 			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
 			ProcState* state = get_state(hwnd);
 			if (state) {
-				state->scroll_a += -6.5f * state->scroll_v;//drag
+				state->scroll_a += -8.5f * state->scroll_v;//drag
 
 				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
 				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
 				dy *= 100;
 				state->scroll += dy;
-				//printf("a %f ; dy %f ; scrollY %f\n", state->scroll_a, dy, state->scroll);
-				/*f32 t = (state->scroll_frame * state->scroll_dt);
-				f32 v = state->scroll_v0 + a*t;
-				f32 dx = v * t + .5f * a * squared(t);
-				state->scroll += (i32)(dx);*/
 				ask_for_resize(state);
 				ask_for_repaint(state);
+				//static int __c; printf("%d SCROLL\n",__c++);
 				if (state->scroll_frame++ < total_frames) {
 					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
 				}
 				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
-				//printf("Frame %d ; veloc %f ; time %f ; accel %f ; ScrollY %d\n", state->scroll_frame,v,t,a,state->scroll);
-				//TODO(fran): you're given the elapsed time, if Im willing to delay the animation by one frame I can throw away the state->scroll_dt and use the time provided by this function
 			}
 		};
 		if (state->scroll_on_anim) {
@@ -3171,6 +3165,47 @@ namespace べんきょう {
 			state->scroll_on_anim = true;
 			SetTimer(state->wnd, 1111, 0, scroll_anim);
 		}
+	}
+
+	void smooth_move(ProcState* state, int increment) {
+		static const int total_frames = 100;
+		state->scroll_frame = 0;
+
+		state->scroll_a = -(f32)increment * 10;
+		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
+		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
+
+
+		//NOTEs about this amazing find: 1st lambda must be static, 2nd auto cannot be used, you must declare the function type
+		//thanks https://stackoverflow.com/questions/2067988/recursive-lambda-functions-in-c11
+		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState* state = get_state(hwnd);
+			if (state) {
+				state->scroll_a += -8.5f * state->scroll_v;//drag
+
+				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
+				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
+				dy *= 100;
+
+				state->scroll += dy;
+				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->nc_parent, (POINT*)&r, 2);
+				MoveWindow(state->wnd, r.left, r.top + (int)dy, RECTW(r), RECTH(r), TRUE);//TODO(fran): store f32 y position
+				if (state->scroll_frame++ < total_frames) {
+					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
+				}
+				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
+			}
+		};
+		if (state->scroll_on_anim) {
+
+		}
+		else {
+			state->scroll_on_anim = true;
+			SetTimer(state->wnd, 1111, 0, scroll_anim);
+		}
+
+
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -3198,7 +3233,8 @@ namespace べんきょう {
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
-#if 1 //test score anim
+//#define TEST_SCORE_ANIM
+#if defined(TEST_SCORE_ANIM)
 			static void (*testp)(HWND, UINT, UINT_PTR, DWORD) = [](HWND wnd, UINT, UINT_PTR id, DWORD) {
 				static int c;
 				flip_visibility(get_state(wnd)->controls.landingpage.list.score_accuracy);
@@ -3774,6 +3810,8 @@ namespace べんきょう {
 		} break;
 		case WM_ERASEBKGND:
 		{
+			return 0;//we dont erase the bk here, instead we do everything on wm_paint
+			/*
 			LRESULT res;
 			if (state->brushes.bk) {
 				//TODO(fran): idk if WS_CLIPCHILDREN | WS_CLIPSIBLINGS automatically clip that regions when I draw or I have to do it manually to avoid flicker
@@ -3784,6 +3822,7 @@ namespace べんきょう {
 			}
 			else res = DefWindowProc(hwnd, msg, wparam, lparam);
 			return res;
+			*/
 		} break;
 		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
 		{
@@ -3809,7 +3848,18 @@ namespace べんきょう {
 		} break;
 		case WM_PAINT:
 		{
+#if 1
+			PAINTSTRUCT ps;
+			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd,&ps); };
+			if (state->brushes.bk) {
+				//TODO(fran): idk if WS_CLIPCHILDREN | WS_CLIPSIBLINGS automatically clip that regions when I draw or I have to do it manually to avoid flicker
+				RECT r; GetClientRect(state->wnd, &r);
+				FillRect(dc, &r, state->brushes.bk);
+			}
+			return 0;
+#else
 			return DefWindowProc(hwnd, msg, wparam, lparam);
+#endif
 		} break;
 		case WM_NCHITTEST:
 		{
@@ -3888,14 +3938,18 @@ namespace べんきょう {
 			//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
 			short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
 			int dy = avg_str_dim(global::fonts.General, 1).cy;
-			printf("zDelta %d ; height %d\n", zDelta, dy);
+			//printf("zDelta %d ; height %d\n", zDelta, dy);
 			int step = zDelta * dy;
 			#if 0 //possibly better solution
 			UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
 			ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);
-			#else //handmade solution (no WM_PRINT and friends)
+			#elif 0 //handmade solution (no WM_PRINT and friends)
 			smooth_scroll(state,step);
-			
+			#else
+			//RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->nc_parent, (POINT*)&r, 2);
+			//MoveWindow(state->wnd, r.left, r.top + step, RECTW(r), RECTH(r), TRUE); //This looks like a much much better idea
+			smooth_move(state, step);
+			#endif
 			/*
 			if (zDelta >= 0)
 				for (int i = 0; i < zDelta; i++)
@@ -3904,7 +3958,6 @@ namespace べんきょう {
 				for (int i = 0; i > zDelta; i--)
 					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
 			*/
-			#endif
 			return 0;
 		} break;
 		case WM_PRINT:
@@ -3955,7 +4008,7 @@ namespace べんきょう {
 		wcex.hInstance = inst;
 		wcex.hIcon = 0;
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		wcex.hbrBackground = 0; //TODO(fran): global::colors.ControlBk hasnt been deserialized by the point pre_post_main gets executed!
+		wcex.hbrBackground = 0;
 		wcex.lpszMenuName = 0;
 		wcex.lpszClassName = wndclass;
 		wcex.hIconSm = 0;

@@ -185,19 +185,19 @@ u8 sample_mask(img* mask, i32 x, i32 y) {
 
 f32 signum(f32 val) { return (f32)((f32(0) < val) - (val < f32(0))); }
 
-f32 isGreaterEqThanZero(f32 num) { return signum(signum(num) + 1); }
+f32 isGreaterEqThanZero(f32 num) { return num>=0; }
 
 f32 signOf(f32 num) { return signum(num) + !num; }
 
 f32 modulus(f32 num, f32 base) { return (f32)fmod(fmod(num, base) + base, base); }
 
-f32 isLowerEqThanZero(f32 num) { return isGreaterEqThanZero(-num); }
+f32 isLowerEqThanZero(f32 num) { return num<=0; }
 
-f32 isGreaterEqThan(f32 a, f32 b) { return isGreaterEqThanZero(a - b); }
+f32 isGreaterEqThan(f32 a, f32 b) { return a>=b; }
 
-f32 isLowerEqThan(f32 a, f32 b) { return isLowerEqThanZero(a - b); }
+f32 isLowerEqThan(f32 a, f32 b) { return a <= b; }
 
-f32 isGreaterThanZero(f32 num) { return !isLowerEqThanZero(num); }
+f32 isGreaterThanZero(f32 num) { return num > 0; }
 
 f32 saturate(f32 n) { return clamp01(n); }
 

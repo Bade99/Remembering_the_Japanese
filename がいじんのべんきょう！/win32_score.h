@@ -35,7 +35,7 @@ namespace score {
 	
 	struct ProcState {
 		HWND wnd;
-		HWND nc_parent;//NOTE: we dont probably care about interacting with the parent, this is just visual candy
+		HWND parent;//NOTE: we dont probably care about interacting with the parent, this is just visual candy
 		f32 score;
 		HFONT font;
 
@@ -464,6 +464,10 @@ namespace score {
 
 		hr = CreateDeviceResources(state);
 
+		v4 ringfull = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringfull), 255);
+		v4 ringempty = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringempty), 255);
+		v4 ring_color = lerp(ringempty, state->score, ringfull);//NOTE: lerping should only be done on already premultiplied values, since we're using 255 we're ok for now
+
 		if (SUCCEEDED(hr)) {
 			state->rendertarget->BeginDraw();
 
@@ -496,14 +500,12 @@ namespace score {
 			bitmapRenderTarget->GetBitmap(&bitmap);
 
 			//NOTE: D2D_VECTOR_4F xyzw == rgba
-			auto v4_to_D2D_VECTOR_4F = [](v4 v) {return D2D_VECTOR_4F{ v.x,v.y,v.z,v.w }; };
+			//auto v4_to_D2D_VECTOR_4F = [](v4 v) {return D2D_VECTOR_4F{ v.x,v.y,v.z,v.w }; };
 
-			v4 ringfull = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringfull), 255);
-			v4 ringempty = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ringempty), 255);
-			D2D_VECTOR_4F ring_color = v4_to_D2D_VECTOR_4F(lerp(ringempty, state->score, ringfull));//NOTE: lerping should only be done on already premultiplied values, since we're using 255 we're ok for now
-			D2D_VECTOR_4F ring_bk = v4_to_D2D_VECTOR_4F(COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ring_bk), 255));
-			D2D_VECTOR_4F inner_circle = v4_to_D2D_VECTOR_4F(COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.inner_circle), 255));
-			D2D_VECTOR_4F bk = v4_to_D2D_VECTOR_4F(COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.bk), 255));
+			
+			v4 ring_bk = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.ring_bk), 255);
+			v4 inner_circle = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.inner_circle), 255);
+			v4 bk = COLORREF_to_v4_linear1(ColorFromBrush(state->brushes.bk), 255);
 			
 
 			state->effect_ringlifebar->SetInput(0, bitmap);
@@ -532,6 +534,34 @@ namespace score {
 				DiscardDeviceResources(state);
 			}
 		}
+
+		//TODO(fran): this must be drawn onto a secondary dc first, together with the ring animation
+		LOGFONT lf; int getobjres = GetObject(state->font, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
+		if (lf.lfFaceName) { //Text rendering
+			HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+
+			RECT rc;  GetClientRect(state->wnd, &rc);
+			int score_w, score_h;
+			score_w = score_h = min(RECTW(rc), RECTH(rc));
+
+			Gdiplus::Graphics graphics(dc);
+			graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
+			str percentage = to_str((u32)(state->score * 100.f));
+#if 0
+			percentage += L"%";
+#endif
+			Gdiplus::FontFamily   fontFamily(lf.lfFaceName);
+			Gdiplus::Font         font(&fontFamily, min(score_w, score_h) * .25f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+			Gdiplus::PointF		  pointF((f32)score_w / 2.f, (f32)score_h / 2.f);
+			Gdiplus::StringFormat stringFormat;
+			stringFormat.SetAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);
+			stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentCenter);
+			COLORREF txt_color = v4_linear1_to_COLORREF(ring_color);
+			Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(GetAValue(txt_color), GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
+
+			graphics.DrawString(percentage.c_str(), (INT)percentage.length(), &font, pointF, &stringFormat, &solidBrush);
+		}
+
 	}
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, FALSE); }//NOTE: directx docs told me to put FALSE instead of TRUE, maybe that avoids sending wm_erasebackground
@@ -635,7 +665,7 @@ namespace score {
 			CREATESTRUCT* create_nfo = (CREATESTRUCT*)lparam;
 			decltype(state) state = (decltype(state))calloc(1, sizeof(decltype(*state)));
 			Assert(state);
-			state->nc_parent = create_nfo->hwndParent;
+			state->parent = create_nfo->hwndParent;
 			state->wnd = hwnd;
 			
 			auto res = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &state->factory); runtime_assert(SUCCEEDED(res), L"Failed to Create D2D Factory");
@@ -833,6 +863,12 @@ namespace score {
 			if(redraw)InvalidateRect(state->wnd, NULL, TRUE);
 			return 0;
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//no reason for needing mousewheel input, therefore we redirect it to our parent
+			return SendMessage(state->parent, msg, wparam, lparam);//TODO(fran): sendmessage or postmessage?
+		} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

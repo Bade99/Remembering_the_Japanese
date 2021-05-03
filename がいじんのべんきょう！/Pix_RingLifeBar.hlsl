@@ -1,3 +1,4 @@
+#pragma warning( disable : 3571 ) //Dont complain about not using abs() before calling pow() //TODO(fran): this warning may be useful in other hlsl code
 
 Texture2D InputTexture : register(t0);
 SamplerState InputSampler : register(s0);
@@ -13,19 +14,19 @@ cbuffer constants : register(b0)
 
 ///////////////////////////////////
 
-float isGreaterEqThanZero(float num) { return num >= 0; /*sign(sign(num) + 1)*/ /* sign(sign(num) + 1); */ }
+float isGreaterEqThanZero(float num) { return num >= 0; }
 
 float signOf(float num) { return sign(num) + !num; }//+1 for positives and zero, -1 for negatives
 
 float modulus(float num, float base) { return ((num % base) + base) % base; }
 
-float isLowerEqThanZero(float num) { return num <= 0; /*sign(sign(-num) + 1)*/ /* isGreaterEqThanZero(-num); */ }
+float isLowerEqThanZero(float num) { return num <= 0; }
 
-float isGreaterEqThan(float a, float b) { return a >= b; /*sign(sign(a - b) + 1)*/ /* isGreaterEqThanZero(a - b); */ }
+float isGreaterEqThan(float a, float b) { return a >= b; }
 
-float isLowerEqThan(float a, float b) { return a <= b; /* sign(sign(-(a - b)) + 1) */ /* isLowerEqThanZero(a - b); */ }
+float isLowerEqThan(float a, float b) { return a <= b; }
 
-float isGreaterThanZero(float num) { return num > 0;/* !sign(sign(-num)+1) */ /* !isLowerEqThanZero(num) */ }
+float isGreaterThanZero(float num) { return num > 0; }
 
 #define PI 3.1415926535f
 #define _2PI (PI * 2.f)

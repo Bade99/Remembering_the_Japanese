@@ -12,3 +12,6 @@ x86/
 
 # User-specific files
 *.user
+
+#DirectX Shaders
+Pix_*.h
