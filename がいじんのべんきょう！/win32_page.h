@@ -124,7 +124,7 @@ namespace page {
 
 				state->scroll += dy;
 				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->parent, (POINT*)&r, 2);
-				MoveWindow(state->wnd, r.left, r.top + (int)dy, RECTW(r), RECTH(r), TRUE);//TODO(fran): store f32 y position
+				MoveWindow(state->wnd, r.left, r.top + (int)dy, RECTW(r), RECTH(r), TRUE);//TODO(fran): store f32 y position (PROBLEM with this idea is then I have a different value from the real one, and if someone else moves us then we'll cancel that move on the next scroll, it may be better to live with this imprecise scrolling for now)
 				if (state->scroll_frame++ < total_frames) {
 					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
 				}

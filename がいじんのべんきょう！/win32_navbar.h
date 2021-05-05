@@ -65,6 +65,7 @@ namespace navbar {
 	}
 
 	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+	void ask_for_repaint(HWND wnd) { InvalidateRect(wnd, NULL, TRUE); }
 
 	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
 
