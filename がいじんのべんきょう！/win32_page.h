@@ -349,7 +349,7 @@ namespace page {
 				*/
 				return 0;
 			}
-			else return SendMessage(state->parent, msg, wparam, lparam);
+			else return DefWindowProc(hwnd, msg, wparam, lparam);//propagates msg to the parent
 		} break;
 
 #ifdef _DEBUG

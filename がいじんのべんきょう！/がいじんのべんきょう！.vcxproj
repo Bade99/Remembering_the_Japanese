@@ -197,7 +197,7 @@
     <ClInclude Include="win32_multibutton.h" />
     <ClInclude Include="win32_navbar.h" />
     <ClInclude Include="win32_notify.h" />
-    <ClInclude Include="win32_sizer.h" />
+    <ClInclude Include="win32_Sizer.h" />
     <ClInclude Include="win32_べんきょう_embedded.h" />
     <ClInclude Include="windows_extra_msgs.h" />
     <ClInclude Include="win32_nonclient.h" />

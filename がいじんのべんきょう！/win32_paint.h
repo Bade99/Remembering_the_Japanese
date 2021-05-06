@@ -737,6 +737,12 @@ namespace paint {
 			ask_for_repaint(state);
 			return 0;
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//for now there's no reason for needing mousewheel input
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+		} break;
+
 		default:
 #ifdef _DEBUG
 			Assert(0);

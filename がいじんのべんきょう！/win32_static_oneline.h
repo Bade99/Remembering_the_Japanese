@@ -335,8 +335,8 @@ namespace static_oneline {
 		} break;
 		case WM_MOUSEWHEEL:
 		{
-			//static controls have no reason for needing mousewheel input, therefore we redirect it to our parent
-			return SendMessage(state->parent, msg, wparam, lparam);//TODO(fran): sendmessage or postmessage?
+			//no reason for needing mousewheel input
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
 		} break;
 
 		default:

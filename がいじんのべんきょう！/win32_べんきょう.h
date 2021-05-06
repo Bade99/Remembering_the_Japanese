@@ -23,7 +23,7 @@
 #include "win32_navbar.h"
 #include "win32_combobox.h"
 #include "win32_べんきょう_embedded.h"
-#include "win32_sizer.h"
+#include "win32_Sizer.h"
 #include "win32_notify.h"
 #include "win32_page.h"
 
@@ -33,19 +33,18 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori bird(talk to bren)
-//TODO(fran): scrolling: once we implement scrolling we'll need to add support in all wnds, basically to do scrolling if they have it active (user can scroll, no matter which direction) or send the scroll msg to their parent
 //TODO(fran): test suite: test whole application performance when db is really full, say for example 3500 word entries with every column filled with data
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
+//TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
-//TODO(fran): all pages: we need an extra control that acts as a page, and is the object that's shown and hidden, this way we can hide and show elements of the page which we currently cannot do since we sw_show each individual one (the control is very easy to implement, it should simply be a passthrough and have no logic at all other than redirect msgs)
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
 //TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
-//TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification
+//TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification, also an "Example Sentece" editbox
 //TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
@@ -1452,7 +1451,8 @@ namespace べんきょう {
 	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
 		case decltype(p)::landing: 
-			for (auto ctl : state->pages.landing.all) ShowWindow(ctl, ShowWindow_cmd);//TODO(fran): we shouldnt do this no more, simply create controls as visible
+			for (auto ctl : state->pages.landing.all) ShowWindow(ctl, ShowWindow_cmd);
+			//TODO(fran): we shouldnt do this no more, simply create controls as visible. Actually im not too sure now, it's good to know exactly what you want to you on realtime and not be stuck with compile time, this add more possibilities and allows each page to function independently of each other, even for the interaction with virtual pages, otherwise virtual pages would have to manually re-show whatever they hide, showing the page _and_ also each individual control doesnt look so bad to me anymore, we'll see in the future
 			ShowWindow(state->pages.landing.page, ShowWindow_cmd);
 			break;
 		case decltype(p)::new_word: 

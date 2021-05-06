@@ -840,6 +840,11 @@ namespace button {
 			cstr* txt = (decltype(txt))lparam;
 			return set_tooltip(state->wnd, txt);
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//no reason for needing mousewheel input
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+		} break;
 
 		default:
 #ifdef _DEBUG

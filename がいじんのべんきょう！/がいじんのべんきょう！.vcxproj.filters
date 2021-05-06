@@ -131,13 +131,13 @@
     <ClInclude Include="win32_べんきょう_embedded.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32_sizer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_notify.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Pix_RingLifeBar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Sizer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
