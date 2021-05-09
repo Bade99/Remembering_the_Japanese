@@ -284,12 +284,12 @@ namespace button {
 			HICON icon = state->icon;
 			//NOTE: we assume all icons to be squares 1:1
 			MYICON_INFO iconnfo = MyGetIconInfo(icon);
-			int max_sz = (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f);
+			int max_sz = (int)((float)min(RECTW(rc), RECTH(rc)) * .8f);
 			int icon_height = max_sz;
 			int icon_width = icon_height;
-			int icon_align_height = (RECTHEIGHT(rc) - icon_height) / 2;
-			int icon_align_width = (RECTWIDTH(rc) - icon_width) / 2;
-			urender::draw_icon(dc, icon_align_height, icon_align_width, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+			int icon_y = (RECTH(rc) - icon_height) / 2;
+			int icon_x = (RECTW(rc) - icon_width) / 2;
+			urender::draw_icon(dc, icon_x, icon_y, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
 		}
 		else if (style & BS_BITMAP) {
 			BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);

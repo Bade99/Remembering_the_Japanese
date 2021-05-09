@@ -141,6 +141,7 @@ namespace page {
 	}
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+		//static int __cnt; printf("%d:PAGE:%s\n", __cnt++, msgToString(msg));
 		ProcState* state = get_state(hwnd);
 		switch (msg) {
 		case WM_NCCREATE:
@@ -351,7 +352,37 @@ namespace page {
 			}
 			else return DefWindowProc(hwnd, msg, wparam, lparam);//propagates msg to the parent
 		} break;
+		case WM_PARENTNOTIFY:
+		{
+			return 0;//We dont care to send this msgs from our childs up the chain, at least for now
+		} break;
 
+		case WM_XBUTTONDOWN:
+		case WM_XBUTTONUP:
+		{
+			return SendMessage(state->parent, msg, wparam, lparam);//let the parent handle it
+		} break;
+
+		case WM_IME_SETCONTEXT: //When we get keyboard focus for the first time this gets sent
+		{
+			return 0; //We dont want IME
+		} break;
+		case WM_SETFOCUS: //Triggered, for example, when the user clicks and generates a WM_XBUTTONDOWN
+		{
+			return 0;//TODO(fran): not sure what to do with this, set focus back to whoever had it, set focus to our parent, do nothing?
+		}
+		case WM_KILLFOCUS:
+		{
+			return 0;
+		}
+
+		case WM_DELETEITEM:
+		{
+			return 1;//we "processed" this msg
+			//TODO(fran): this shouldnt be getting here, I think this is because of the windows default comboboxes I use in some places that send this msg up to their parent when we change langs and the cb elements are cleared
+		} break;
+
+		default:
 #ifdef _DEBUG
 		Assert(0);
 #else 

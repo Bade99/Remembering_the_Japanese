@@ -2028,7 +2028,7 @@ namespace べんきょう {
 		HWND sidebar = state->pages.sidebar;
 		sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(sidebar, state_key);
 		const bool show = !IsWindowVisible(sidebar);
-		const f32 duration_sec = .2f;
+		const f32 duration_sec = (f32)ms/1000.f;
 		const u32 total_frames = (u32)ceilf(duration_sec / (1.f/win32_get_refresh_rate_hz(sidebar)));
 		const f32 dt = 1.f / total_frames;
 		const i32 timer_id = 0x458;
@@ -2077,7 +2077,10 @@ namespace べんきょう {
 				
 				//TODO(fran): update target w & h to match the one returned by getclientrect, and with that we should also correct x & y to make sure we dont stop before/after we should
 
+				//TODO(fran): there's a off by one error with the 'y' placement of the window, could be a floating point problem. it seems to go wrong only when doing the anim to show the window, when hiding it takes the correct 'y' I think, also resizing places it on the right 'y'
+
 				MoveWindow(hwnd, pos.x, pos.y, sidebar_state->target.w, sidebar_state->target.h, TRUE);//TODO(fran): store f32 y position (PROBLEM with this idea is then I have a different value from the real one, and if someone else moves us then we'll cancel that move on the next scroll, it may be better to live with this imprecise scrolling for now)
+				navbar::ask_for_repaint(hwnd);//NOTE: there seem to be two different kinds of painting that are required, I believe movewindow with TRUE as the last param causes repainting of the area left behind after the move, but not of the window that's being moved, so I have to manually ask for the wnd to be redrawn on the new place, which seems very odd to me, this may simply be a problem when multiple windows are overlapping as is the case here
 				sidebar_state->t += sidebar_state->dt;
 				if (sidebar_state->t <= 1.f) {
 					i32 ms = (i32)((1.f / win32_get_refresh_rate_hz(hwnd)) * 1000.f);
@@ -2095,7 +2098,8 @@ namespace べんきょう {
 
 		if (sidebar_state->show) {
 			ShowWindow(sidebar, SW_SHOW);
-			//SetWindowPos(sidebar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW); //TODO(fran): this does allow me to interact with the child windows but destroys drawing for some reason
+			SetWindowPos(sidebar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW); //TODO(fran): this does allow me to interact with the child windows but destroys drawing for some reason
+			//NOTE: if I cant get this to work I can also hack it like youtube does, simply offset the page x position to not cover the sidebar
 		}
 		SetTimer(sidebar, timer_id, 0, sidebar_anim);
 	}
@@ -2108,9 +2112,17 @@ namespace べんきょう {
 		set_current_page(state, ProcState::page::new_word);
 	}
 
+	void button_function_on_click_goto_page_practice(void* element, void* user_extra) {
+		ProcState* state = (decltype(state))user_extra;
+
+		store_previous_page(state, state->current_page);
+		set_current_page(state, ProcState::page::practice);
+	}
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
+		DWORD style_button_icon = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_ICON;
 		button::Theme base_btn_theme;
 		base_btn_theme.dimensions.border_thickness = 1;
 		base_btn_theme.brushes.bk.normal = global::colors.ControlBk;
@@ -2186,13 +2198,14 @@ namespace べんきょう {
 		base_page_theme.brushes.border = base_page_theme.brushes.bk;
 		base_page_theme.dimensions.border_thickness = 0;
 
-		//---------------------Header & Footer----------------------:
-		auto& navbar = state->pages.navbar;
-		navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
-			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		navbar::set_theme(navbar, &nav_theme);
+		//---------------------Navbar----------------------:
 
-		{ //Navbar Elements
+		{
+			auto& navbar = state->pages.navbar;
+			navbar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			navbar::set_theme(navbar, &nav_theme);
+
 			HWND button_three_lines = CreateWindowW(button::wndclass, NULL, style_button_bmp | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			//TODO(fran): try one pixel thick lines, and also try only two lines
@@ -2222,14 +2235,7 @@ namespace べんきょう {
 			AWT(button_practice, 101);
 			button::set_theme(button_practice, &navbar_btn_theme);
 			button::set_user_extra(button_practice, state);
-			button::set_function_on_click(button_practice, 
-				[](void* element, void* user_extra) {
-					ProcState* state = (decltype(state))user_extra;
-
-					store_previous_page(state, state->current_page);
-					set_current_page(state, ProcState::page::practice);
-				}
-			);
+			button::set_function_on_click(button_practice, button_function_on_click_goto_page_practice);
 			navbar::attach(navbar, button_practice, navbar::attach_point::left, -1);
 			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
@@ -2254,34 +2260,54 @@ namespace べんきょう {
 			//TODO(fran): searchbox: changing color of editbox text based on whether it has meaning,hiragana,kanji?
 			//TODO(fran): searchbox: restore what the user wrote when they press the escape key
 
-			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
-				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			languages_setup_combobox(combo_lang);
-			combobox::set_user_extra(combo_lang, state);
-			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
-			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
-			combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
-			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
-			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
-			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
-			navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
-			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+			//HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
+			//	, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			//languages_setup_combobox(combo_lang);
+			//combobox::set_user_extra(combo_lang, state);
+			//combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
+			//combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
+			//combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
+			//combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
+			//combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
+			//combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
+			//navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
+			//SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Page Space----------------------: //TODO(fran): rename to page_slot?
-		state->pages.page_space = CreateWindowW(page::wndclass, NULL, WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
+		state->pages.page_space = CreateWindowW(page::wndclass, NULL, WS_CLIPSIBLINGS | WS_CHILD | WS_VISIBLE //TODO(fran): WS_CLIPCHILDREN?
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		//IMPORTANT INFO: WS_CLIPSIBLINGS is crucial in order to make the sidebar work and not be occluded by the page, it prevents the page from drawing over the sidebar, otherwise it gets occluded
 		page::set_theme(state->pages.page_space, &base_page_theme);
 
 		//---------------------Sidebar----------------------: 
-		auto& sidebar = state->pages.sidebar;
-		//TODO(fran): find a way to get the sidebar to always stay on top of everyone else, right now other controls from the pages can and do draw on top of it
-		sidebar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
-			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-		navbar::set_theme(sidebar, &sidebar_theme);
+		{
+			auto& sidebar = state->pages.sidebar;
+			sidebar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
+				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+			navbar::set_theme(sidebar, &sidebar_theme);
 
-		{ //Sidebar Elements
-			//TODO(fran): fill with elements from navbar and also new ones, like application icon that when clicked takes you back to the landing page. language changing should also go here
+			//TODO(fran): left align everything, also add icons together with the text
+
+			//TODO(fran): fix flickering
+
+			HWND button_landing = CreateWindowW(button::wndclass, NULL, style_button_icon | WS_VISIBLE
+				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
+			button::set_theme(button_landing, &navbar_img_btn_theme);
+			//TODO(fran): store application icon on global::
+			HICON ico_logo; LoadIconMetric(GetModuleHandle(0), MAKEINTRESOURCE(ICO_LOGO), LIM_LARGE, &ico_logo); //TODO(fran): #free
+			SendMessage(button_landing, BM_SETIMAGE, IMAGE_ICON, (LPARAM)ico_logo);
+			button::set_user_extra(button_landing, state);
+			button::set_function_on_click(button_landing,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::landing);
+				}
+			);
+			navbar::attach(sidebar, button_landing, navbar::attach_point::left, -1);
+
 			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
 			AWT(button_new, 100);
@@ -2290,6 +2316,30 @@ namespace べんきょう {
 			button::set_function_on_click(button_new, button_function_on_click_goto_page_new);
 			navbar::attach(sidebar, button_new, navbar::attach_point::left, -1);
 			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			HWND button_practice = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
+			AWT(button_practice, 101);
+			button::set_theme(button_practice, &navbar_btn_theme);
+			button::set_user_extra(button_practice, state);
+			button::set_function_on_click(button_practice, button_function_on_click_goto_page_practice);
+			navbar::attach(sidebar, button_practice, navbar::attach_point::left, -1);
+			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
+			//TODO(fran): add separator before options
+
+			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
+				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
+			languages_setup_combobox(combo_lang);
+			combobox::set_user_extra(combo_lang, state);
+			combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
+			combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
+			combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
+			combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
+			combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
+			combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
+			navbar::attach(sidebar, combo_lang, navbar::attach_point::right, -1);
+			SendMessage(sidebar, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Landing page----------------------:
@@ -2742,6 +2792,7 @@ namespace べんきょう {
 		const int h_pad = (int)((f32)h * .05f);
 		const int max_w = w - w_pad * 2;
 
+		//TODO(fran): find out why the sidebar gets occluded on resizing
 		rect_i32 sidebar;
 		{//sidebar
 			sidebar.left = r.left;//TODO(fran): we should allow the sidebar animation to control the x position at all times
