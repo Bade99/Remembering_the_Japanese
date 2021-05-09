@@ -37,7 +37,6 @@
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary
 //TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
-//TODO(fran): all pages: navbar that has a button trigger on the top left of the window, like on youtube chess.com etc etc, we could also add some extra buttons for triggers to other things, eg the buttons on the landing page, we'd have a row of buttons and if you click the typical three dots/lines button the we open a side bar that shows more options, for example to change the language
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
 //TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
@@ -261,6 +260,7 @@ struct べんきょうProcState {
 	struct {
 		using type = HWND;
 		type navbar;
+		type sidebar;
 		type page_space;//all pages go inside this one
 
 		union landingpage_controls {
@@ -2009,6 +2009,105 @@ namespace べんきょう {
 		return page;
 	}
 
+	f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
+		// thanks https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
+		f32 sqt = t * t;
+		return sqt / (2.0f * (sqt - t) + 1.0f);
+	}
+
+	struct sidebar_state_animate {
+		rect_i32 origin;//Where we started moving //TODO(fran): there may be a way of doing this without the origin
+		rect_i32 target;//Where the sidebar will be placed on the last frame of animation, the sidebar's width and height will be set equal to the target's during the whole animation
+		bool show;//if show == true sidebar is shown on first animation frame, if false sidebar is hidden on last animation frame
+		f32 t; //[0.0,1.0]
+		f32 dt;//increment for 't' per frame
+	};
+
+	void animate_sidebar(ProcState* state, u32 ms) {
+		static constexpr utf16 state_key[] = L"sidebar_state_animate";//NOTE: I need to make this static so the lambda below can capture it
+		HWND sidebar = state->pages.sidebar;
+		sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(sidebar, state_key);
+		const bool show = !IsWindowVisible(sidebar);
+		const f32 duration_sec = .2f;
+		const u32 total_frames = (u32)ceilf(duration_sec / (1.f/win32_get_refresh_rate_hz(sidebar)));
+		const f32 dt = 1.f / total_frames;
+		const i32 timer_id = 0x458;
+
+		if (sidebar_state) {
+			//opposite animation is currently in progress, we have to start our animation offset by the inverse number of frames
+			sidebar_state->t = 1.f - sidebar_state->t;
+			sidebar_state->origin = sidebar_state->target;
+		}
+		else {
+			sidebar_state = (decltype(sidebar_state))malloc(sizeof(sidebar_state_animate));
+			SetPropW(sidebar, state_key, sidebar_state);
+
+			sidebar_state->t = 0.f;
+			RECT r; GetWindowRect(sidebar, &r);
+			MapWindowRect(0, state->wnd, &r);
+			sidebar_state->origin = to_rect_i32(r);
+			//TODO(fran): this is wrong, sidebar origin when there's no animation should be set outside the wnd rect when starting from hidden and on the wnd rect when starting from shown
+		}
+
+		sidebar_state->dt = dt;
+		sidebar_state->show = show;
+		RECT navrc; GetWindowRect(state->pages.navbar, &navrc); MapWindowRect(0, state->wnd, &navrc);
+		RECT siderc; GetClientRect(state->pages.sidebar, &siderc);
+		int sidebar_w = RECTW(siderc);
+		int sidebar_h = RECTH(siderc);
+		if (sidebar_state->show) {
+			sidebar_state->target.top = navrc.top + RECTH(navrc);
+			sidebar_state->target.left = 0;
+			sidebar_state->target.w = sidebar_w;
+			sidebar_state->target.h = sidebar_h;
+		}
+		else {
+			sidebar_state->target.top = navrc.top + RECTH(navrc);
+			sidebar_state->target.left = 0 - sidebar_w;
+			sidebar_state->target.w = sidebar_w;
+			sidebar_state->target.h = sidebar_h;
+		}
+
+		static void (*sidebar_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(hwnd, state_key);
+			if (sidebar_state) {
+				f32 delta = ParametricBlend(sidebar_state->t);
+				v2_i32 pos = lerp(sidebar_state->origin.xy, delta, sidebar_state->target.xy);
+				
+				//TODO(fran): update target w & h to match the one returned by getclientrect, and with that we should also correct x & y to make sure we dont stop before/after we should
+
+				MoveWindow(hwnd, pos.x, pos.y, sidebar_state->target.w, sidebar_state->target.h, TRUE);//TODO(fran): store f32 y position (PROBLEM with this idea is then I have a different value from the real one, and if someone else moves us then we'll cancel that move on the next scroll, it may be better to live with this imprecise scrolling for now)
+				sidebar_state->t += sidebar_state->dt;
+				if (sidebar_state->t <= 1.f) {
+					i32 ms = (i32)((1.f / win32_get_refresh_rate_hz(hwnd)) * 1000.f);
+					SetTimer(hwnd, anim_id, ms, sidebar_anim);
+				}
+				else {
+					if (!sidebar_state->show) ShowWindow(hwnd, SW_HIDE);
+					RemovePropW(hwnd, state_key);
+					free(sidebar_state);
+					KillTimer(hwnd, anim_id);
+				}
+			}
+			else KillTimer(hwnd, anim_id);//this should never happen, if we get here we got a bug
+		};
+
+		if (sidebar_state->show) {
+			ShowWindow(sidebar, SW_SHOW);
+			//SetWindowPos(sidebar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW); //TODO(fran): this does allow me to interact with the child windows but destroys drawing for some reason
+		}
+		SetTimer(sidebar, timer_id, 0, sidebar_anim);
+	}
+
+	void button_function_on_click_goto_page_new(void* element, void* user_extra) {
+		ProcState* state = (decltype(state))user_extra;
+
+		store_previous_page(state, state->current_page);
+		reset_page(state, ProcState::page::new_word);
+		set_current_page(state, ProcState::page::new_word);
+	}
+
 	void add_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
@@ -2026,6 +2125,7 @@ namespace べんきょう {
 		button::Theme img_btn_theme = base_btn_theme;
 		img_btn_theme.brushes.foreground.normal = global::colors.Img;
 
+
 		button::Theme accent_btn_theme = base_btn_theme;
 		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
 		accent_btn_theme.brushes.border.normal = global::colors.Accent;
@@ -2033,10 +2133,19 @@ namespace べんきょう {
 		navbar::Theme nav_theme;
 		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
 		nav_theme.dimensions.spacing = 3;
+		nav_theme.dimensions.is_vertical = false;
+
+		navbar::Theme sidebar_theme = nav_theme;
+		sidebar_theme.dimensions.spacing = 0;
+		sidebar_theme.dimensions.is_vertical = true;
 
 		button::Theme navbar_btn_theme = base_btn_theme;
 		navbar_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
 		navbar_btn_theme.brushes.border = navbar_btn_theme.brushes.bk;
+
+		button::Theme navbar_img_btn_theme = img_btn_theme;
+		navbar_img_btn_theme.brushes.bk.normal = nav_theme.brushes.bk.normal;
+		navbar_img_btn_theme.brushes.border = navbar_img_btn_theme.brushes.bk;
 
 		button::Theme dark_btn_theme = base_btn_theme;
 		dark_btn_theme.brushes.bk.normal = global::colors.CaptionBk;
@@ -2083,21 +2192,28 @@ namespace べんきょう {
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 		navbar::set_theme(navbar, &nav_theme);
 
-		{//navbar test
+		{ //Navbar Elements
+			HWND button_three_lines = CreateWindowW(button::wndclass, NULL, style_button_bmp | WS_VISIBLE
+				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
+			//TODO(fran): try one pixel thick lines, and also try only two lines
+			//AWT(controls.button_modify, 273);
+			button::set_theme(button_three_lines, &navbar_img_btn_theme);
+			SendMessage(button_three_lines, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.threeLines);
+			button::set_user_extra(button_three_lines, state);
+			button::set_function_on_click(button_three_lines,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					animate_sidebar(state, 200);
+				}
+			);
+			navbar::attach(navbar, button_three_lines, navbar::attach_point::left, -1);
+
 			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
 				, 0, 0, 0, 0, navbar, 0, NULL, NULL);
 			AWT(button_new, 100);
 			button::set_theme(button_new, &navbar_btn_theme);
 			button::set_user_extra(button_new, state);
-			button::set_function_on_click(button_new, 
-				[](void* element, void* user_extra) {
-					ProcState* state = (decltype(state))user_extra;
-
-					store_previous_page(state, state->current_page);
-					reset_page(state, ProcState::page::new_word);
-					set_current_page(state, ProcState::page::new_word);
-				}
-			);
+			button::set_function_on_click(button_new, button_function_on_click_goto_page_new);
 			navbar::attach(navbar, button_new, navbar::attach_point::left, -1);
 			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
@@ -2157,6 +2273,24 @@ namespace べんきょう {
 			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
 		page::set_theme(state->pages.page_space, &base_page_theme);
 
+		//---------------------Sidebar----------------------: 
+		auto& sidebar = state->pages.sidebar;
+		//TODO(fran): find a way to get the sidebar to always stay on top of everyone else, right now other controls from the pages can and do draw on top of it
+		sidebar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
+			, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+		navbar::set_theme(sidebar, &sidebar_theme);
+
+		{ //Sidebar Elements
+			//TODO(fran): fill with elements from navbar and also new ones, like application icon that when clicked takes you back to the landing page. language changing should also go here
+			HWND button_new = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
+			AWT(button_new, 100);
+			button::set_theme(button_new, &navbar_btn_theme);
+			button::set_user_extra(button_new, state);
+			button::set_function_on_click(button_new, button_function_on_click_goto_page_new);
+			navbar::attach(sidebar, button_new, navbar::attach_point::left, -1);
+			SendMessage(button_new, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
 
 		//---------------------Landing page----------------------:
 		{
@@ -2594,7 +2728,7 @@ namespace べんきょう {
 		const int half_wnd_h = wnd_h / 2;
 
 		rect_i32 navbar;
-		{//navbar test
+		{//navbar
 			navbar.left = r.left;
 			navbar.top = r.top;
 			navbar.w = w;
@@ -2607,6 +2741,15 @@ namespace べんきょう {
 		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
 		const int h_pad = (int)((f32)h * .05f);
 		const int max_w = w - w_pad * 2;
+
+		rect_i32 sidebar;
+		{//sidebar
+			sidebar.left = r.left;//TODO(fran): we should allow the sidebar animation to control the x position at all times
+			sidebar.top = navbar.bottom();
+			sidebar.w = avg_str_dim(global::fonts.General, 20).cx;
+			sidebar.h = h;
+			MyMoveWindow(state->pages.sidebar, sidebar, FALSE);
+		}
 
 		rect_i32 page_space;
 		{//page

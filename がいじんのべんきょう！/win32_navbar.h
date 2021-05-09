@@ -33,6 +33,7 @@ namespace navbar {
 		} brushes;
 		struct {
 			u8 spacing = U8MAX;
+			b32 is_vertical = I32MAX;//if true elements are stacked one on top of each other
 		}dimensions;
 	};
 
@@ -81,6 +82,10 @@ namespace navbar {
 
 		if (src->dimensions.spacing != U8MAX) {
 			dst->dimensions.spacing = src->dimensions.spacing; repaint = true; resize = true;
+		}
+
+		if (src->dimensions.is_vertical != I32MAX) {
+			dst->dimensions.is_vertical = src->dimensions.is_vertical; repaint = true; resize = true;
 		}
 
 		return { repaint, resize };
@@ -137,9 +142,182 @@ namespace navbar {
 		return lhs;
 	}
 
-	void resize_controls(ProcState* state) {
+	void resize_vertical(ProcState* state) {
 		//TODO(fran): take into account spacing, or simply have the user insert HWND spacers. also should we add spacing on the leftmost and rightmost part of the wnd?
-		struct minmaxsz { SIZE min, max; };
+
+		struct mmds { SIZE min, max; desired_size flexibility; };
+
+		constexpr int region_cnt = ARRAYSIZE(state->controls.all);
+
+		SIZE total_bounds[region_cnt]{ 0 };//left center right
+
+		RECT rc; GetClientRect(state->wnd, &rc);
+		i32 w_max = RECTW(rc);
+		i32 h_max = RECTH(rc);
+		//TODO(fran): should I add an early out? if(!w_max || !h_max) return;
+
+		std::vector<mmds> bounds[region_cnt];
+		for (int i = 0; i < ARRAYSIZE(bounds); i++) bounds[i].reserve(state->controls.all[i].size());
+
+		std::vector<SIZE> final_bounds[region_cnt];
+		for (int i = 0; i < ARRAYSIZE(final_bounds); i++) final_bounds[i].resize(state->controls.all[i].size());
+
+		//Retrieve all desired sizes
+		for (int i = 0; i < region_cnt; i++) {
+			auto& v = state->controls.all[i];
+			for (size_t j = 0; j < v.size(); j++) {
+				mmds b; b.max = { w_max,h_max }; b.min = b.max;
+				b.flexibility = (decltype(b.flexibility))SendMessage(v[j], WM_DESIRED_SIZE, (WPARAM)&b.min, (LPARAM)&b.max);
+				if (b.flexibility != flexible && b.flexibility != fixed) {
+					b.flexibility = flexible;
+					//TODO(fran): assign it the smallest minimum and maximum out of all the others
+					b.max.cy = h_max / (region_cnt * 3);
+					b.min.cy = 0;
+				}
+				bounds[i].push_back(b);//TODO(fran): could do resize instead of reserve and use the obj inside the vector directly instead of having it outside and then making a copy
+
+				total_bounds[i] += b.max;
+			}
+		}
+
+		SIZE tot{ 0 }; for (auto s : total_bounds) tot += s;
+		if (tot.cy <= h_max) { //Great, we can place everyone just how they want to
+
+			for (int i = 0; i < ARRAYSIZE(bounds); i++)
+				for (int j = 0; j < bounds[i].size(); j++)
+					final_bounds[i][j] = bounds[i][j].max;
+
+		}
+		else { //Resizing is necessary
+
+			//First try by only resizing the ones that are flexible
+			int size_to_clear = tot.cy - h_max;
+
+			int flexible_potential = 0;
+			//TODO(fran): #speed create array with ptrs to all the flexible wnds
+			for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible) flexible_potential += distance(b.min.cy, b.max.cy);
+
+			if (flexible_potential >= size_to_clear) { //We can fit everyone by simply resizing the flexible windows
+
+				while (size_to_clear > 0) {//TODO(fran): im sure there's some edge case where this never ends
+					std::vector<mmds*> flexibles;
+					for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible && (b.max.cy - b.min.cy) > 0) flexibles.push_back(&b);
+					int per_wnd_reduction = (int)ceilf((f32)size_to_clear / (f32)flexibles.size());//TODO(fran): may need safe_ratio0() //TODO(fran): if size_to_clear is less than flexibles.size() then per_wnd_reduction will be 0 and we loop forever, I added the ceil to fix that but that probably introduces the case where the possible extra +1 the ceil adds is more than the flexible potential. See if this assumption is true or not
+
+					for (auto f : flexibles) {
+						int reduction = minimum(per_wnd_reduction, distance(f->max.cy, f->min.cy));
+						f->max.cy -= reduction;
+						size_to_clear -= reduction;
+					}
+				}
+
+				//store final values
+				for (int i = 0; i < ARRAYSIZE(bounds); i++)
+					for (int j = 0; j < bounds[i].size(); j++)
+						final_bounds[i][j] = bounds[i][j].max;
+			}
+			else { // We need more space, all fixed windows get downgraded to their small size, and then we try with flexible windows again
+#if 0
+				ZeroMemory(total_bounds, sizeof(total_bounds));
+#else
+				for (auto& b : total_bounds) b = { 0, 0 };
+
+#endif
+
+				for (int i = 0; i < ARRAYSIZE(bounds); i++) {
+					for (int j = 0; j < bounds[i].size(); j++) {
+						if (bounds[i][j].flexibility == fixed) {
+							final_bounds[i][j] = bounds[i][j].min; //load final values for fixed windows
+
+							total_bounds[i] += final_bounds[i][j];
+						}
+						else total_bounds[i] += bounds[i][j].max;
+					}
+				}
+
+				SIZE tot{ 0 }; for (auto s : total_bounds) tot += s;
+				if (tot.cy <= h_max) {//with fixed windows set to small and flexible ones to max everyone fits
+
+					//load final size for flexible windows
+					for (int i = 0; i < ARRAYSIZE(bounds); i++)
+						for (int j = 0; j < bounds[i].size(); j++)
+							if (bounds[i][j].flexibility == flexible) final_bounds[i][j] = bounds[i][j].max;
+
+				}
+				else {//Resize flexible windows, no matter the result we apply resizing after that
+
+					//TODO(fran): join this with the previous flexible wnd resizing code
+					while (size_to_clear > 0) {//TODO(fran): im sure there's some edge case where this never ends
+						std::vector<mmds*> flexibles;
+						for (auto& v : bounds) for (auto& b : v) if (b.flexibility == flexible && (b.max.cy - b.min.cy) > 0) flexibles.push_back(&b);
+						if (flexibles.empty()) break;
+						int per_wnd_reduction = size_to_clear / (int)flexibles.size();//TODO(fran): may need safe_ratio0()
+
+						for (auto f : flexibles) {
+							int reduction = minimum(per_wnd_reduction, distance(f->max.cy, f->min.cy));
+							f->max.cy -= reduction;
+							size_to_clear -= reduction;
+						}
+					}
+
+					//store final values
+					for (int i = 0; i < ARRAYSIZE(bounds); i++)
+						for (int j = 0; j < bounds[i].size(); j++)
+							final_bounds[i][j] = bounds[i][j].max;
+
+				}
+
+			}
+		}
+
+		//Apply resizing
+		//We try to maintain the left-center-right layout, but we allow moving the center and right sections beyond what they should when we cant fit everything
+		//NOTE: since we currently are a horizontal navbar we also apply vertical centering
+		int start_y = rc.top; // == 0
+
+		auto group_resize = [&](int i) {
+			for (int j = 0; j < final_bounds[i].size(); j++) {
+				auto sz = final_bounds[i][j];
+				rect_i32 r;
+				r.left = rc.left;// start_x;
+				r.w = w_max;// sz.cx;
+				r.top = start_y;
+				r.h = sz.cy;
+
+				start_y = r.bottom();
+				MoveWindow(state->controls.all[i][j], r.left, r.top, r.w, r.h, FALSE);
+			}
+		};
+
+		for (int i = 0; i < ARRAYSIZE(final_bounds); i++) {
+			if (i == 0) { //left alignment:go from start_x onwards
+
+				group_resize(i);
+			}
+			else if (i < (ARRAYSIZE(final_bounds) - 1)) { //center alignment: if possible center all the controls relative to the common center
+
+				Assert(i == 1);//TODO(fran): if I ever actually need more than three alignment points then we need to choose the correct center for each group
+
+				int tot_sz = 0; for (auto& sz : final_bounds[i]) tot_sz += sz.cy;
+
+				int center = h_max / 2;
+
+				start_y = maximum(start_y, center - tot_sz / 2);
+
+				group_resize(i);
+			}
+			else { //right alignment: if possible line it up so the last wnd is exactly at the end of the navbar
+				int tot_sz = 0; for (auto& sz : final_bounds[i]) tot_sz += sz.cy;
+
+				start_y = maximum(start_y, (int)rc.bottom - tot_sz);
+
+				group_resize(i);
+			}
+		}
+	}
+
+	void resize_horizontal(ProcState* state) {
+		//TODO(fran): take into account spacing, or simply have the user insert HWND spacers. also should we add spacing on the leftmost and rightmost part of the wnd?
 		
 		struct mmds { SIZE min, max; desired_size flexibility; };
 
@@ -201,7 +379,7 @@ namespace navbar {
 					int per_wnd_reduction = (int)ceilf( (f32)size_to_clear / (f32)flexibles.size());//TODO(fran): may need safe_ratio0() //TODO(fran): if size_to_clear is less than flexibles.size() then per_wnd_reduction will be 0 and we loop forever, I added the ceil to fix that but that probably introduces the case where the possible extra +1 the ceil adds is more than the flexible potential. See if this assumption is true or not
 
 					for (auto f : flexibles) {
-						int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cy));
+						int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cx));
 						f->max.cx -= reduction;
 						size_to_clear -= reduction;
 					}
@@ -250,7 +428,7 @@ namespace navbar {
 						int per_wnd_reduction = size_to_clear / (int)flexibles.size();//TODO(fran): may need safe_ratio0()
 
 						for (auto f : flexibles) {
-							int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cy));
+							int reduction = minimum(per_wnd_reduction, distance(f->max.cx, f->min.cx));
 							f->max.cx -= reduction;
 							size_to_clear -= reduction;
 						}
@@ -311,6 +489,14 @@ namespace navbar {
 			}
 		}
 	}
+
+	void resize_controls(ProcState* state) {
+		const b32 is_horizontal = !state->theme.dimensions.is_vertical;
+		//BIG TODO(fran): find a way to join the two functions and make it parametric
+		if (is_horizontal) resize_horizontal(state);
+		else resize_vertical(state);
+	}
+
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//printf("NAVBAR:%s\n", msgToString(msg));
@@ -511,6 +697,11 @@ namespace navbar {
 		{
 			return 0;
 		} break;
+
+		//case WM_CHILDACTIVATE:
+		//{
+		//	return 0;
+		//} break;
 
 
 		default:

@@ -88,6 +88,25 @@ struct v2_i32 {
 	i32 x, y;
 };
 
+v2_i32 operator+(v2_i32 a, v2_i32 b) {
+	v2_i32 res;
+	res.x = a.x + b.x;
+	res.y = a.y + b.y;
+	return res;
+}
+
+v2_i32 operator*(v2_i32 v, f32 scalar) {
+	v2_i32 res;
+	res.x = (i32)(v.x * scalar);
+	res.y = (i32)(v.y * scalar);
+	return res;
+}
+
+v2_i32 operator*(f32 scalar, v2_i32 v) { //NOTE: waiting for C++20 where I think they let you define the operation only one way
+	v2_i32 res = v * scalar;
+	return res;
+}
+
 //V3 (F32)
 struct v3 {
 	union {

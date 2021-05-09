@@ -96,8 +96,9 @@ namespace global {
 			HBITMAP arrowLine_left;
 			HBITMAP arrowSimple_right;
 			HBITMAP eye;
+			HBITMAP threeLines;
 		};
-		HBITMAP all[11];//REMEMBER to update
+		HBITMAP all[12];//REMEMBER to update
 
 	private: void _() { static_assert(sizeof(all) == sizeof(*this), "Come here and update the array to the correct element count!"); }
 	}static bmps;

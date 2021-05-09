@@ -8,6 +8,11 @@ static i32 distance(i32 a, i32 b) {
 	return abs(a - b);
 }
 
+v2_i32 lerp(v2_i32 n1, f32 t, v2_i32 n2) {
+	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
+	return (1.f - t) * n1 + t * n2;
+}
+
 static i32 roundNup(i32 N, i32 num) {
 	//Thanks https://stackoverflow.com/questions/3407012/c-rounding-up-to-the-nearest-multiple-of-a-number
 	//TODO(fran): check to which side it rounds for negatives

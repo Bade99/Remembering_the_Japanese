@@ -121,6 +121,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     create_global_bmps(arrowLine_left);
     create_global_bmps(arrowSimple_right);
     create_global_bmps(eye);
+    create_global_bmps(threeLines);
 
     defer{ for (auto& bmp : global::bmps.all) if(bmp){ DeleteObject(bmp); bmp = NULL; } };
 

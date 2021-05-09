@@ -344,16 +344,16 @@ namespace button {
 			HFONT font = state->theme.font;
 			if (style & BS_ICON) {
 				MYICON_INFO iconnfo = MyGetIconInfo(state->icon);
-				min->cx = minimum((int)min->cx,iconnfo.nWidth);
-				min->cy = minimum((int)min->cy,iconnfo.nHeight);
+				min->cx = minimum((int)max->cx,(int)(iconnfo.nWidth * 1.5f));
+				min->cy = minimum((int)max->cy,(int)(iconnfo.nHeight * 1.5f));
 
 				*max = *min;//TODO(fran): dont I do rescaling on imgs?
 			}
 			else if (style & BS_BITMAP) {
 				BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);
 
-				min->cx = minimum(min->cx, bitmap.bmWidth);
-				min->cy = minimum(min->cy, bitmap.bmHeight);
+				min->cx = minimum(max->cx, (long)(bitmap.bmWidth * 1.5f));
+				min->cy = minimum(max->cy, (long)(bitmap.bmHeight * 1.5f));
 
 				*max = *min;
 			}
