@@ -131,6 +131,19 @@ static u64 random_bit_set(u64 val) {
 }
 
 //f32
+
+//Ease in & out
+f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
+	// thanks https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
+	f32 sqt = t * t;
+	return sqt / (2.0f * (sqt - t) + 1.0f);
+
+	//more blend functions:
+	//https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
+	//https://math.stackexchange.com/questions/121720/ease-in-out-function/121755#121755
+	//https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
+}
+
 static f32 safe_ratioN(f32 dividend, f32 divisor, f32 n) {
 	f32 res;
 	if (divisor != 0.f) {
@@ -261,6 +274,11 @@ size_t safe_subtract0(size_t a, size_t b) {
 	return safe_subtractN(a, b, (decltype(a))0);
 }
 
+//i64
+i64 lerp(i64 n1, f32 t, i64 n2) {
+	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
+	return (i64)((1.f - t) * (f64)n1 + t * (f64)n2);
+}
 
 //templates
 template<typename T>

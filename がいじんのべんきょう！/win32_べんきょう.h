@@ -45,7 +45,6 @@
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification, also an "Example Sentece" editbox
-//TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): page practice: add list of last words practiced and their results, green for correct and red for incorrect
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
@@ -479,6 +478,16 @@ struct べんきょうProcState {
 	struct {
 		std::vector<practice_header*> temp_practices;
 	}multipagestate;
+
+	struct anim_number_range {
+		HWND wnd;//window to be updated with new numbers //TODO(fran): should I keep this or use the HWND provided by SetTimer?
+		i64 origin, dest;
+		f32 t;//[0.0,1.0]
+		f32 dt;//increment in t, not actually a delta of time since we are normalized 0 to 1
+	};
+	struct {
+		anim_number_range word_count, practice_count;
+	} pageanim;
 };
 
 namespace べんきょう {
@@ -511,6 +520,47 @@ namespace べんきょう {
 		res.right = r.right();
 		res.bottom = r.bottom();
 		return res;
+	}
+
+	//NOTE: you must previously specify wnd, origin and dest inside the animation struct
+	void animate_number_range(ProcState::anim_number_range* anim_state, u32 ms) {
+		Assert(anim_state);
+		const f32 duration_sec = (f32)ms / 1000.f;
+		const u32 total_frames = (u32)ceilf(duration_sec / (1.f / win32_get_refresh_rate_hz(anim_state->wnd)));
+		const f32 dt = 1.f / total_frames;
+		const UINT_PTR timer_id = (decltype(timer_id))anim_state;
+
+		anim_state->t = 0.f;
+		anim_state->dt = dt;
+
+		static void (*number_range_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState::anim_number_range* anim_state = (decltype(anim_state))anim_id;
+			if (anim_state) {
+#if 0
+				f32 delta = ParametricBlend(anim_state->t);//TODO(fran): we may want linear for this one
+#else
+				f32 delta = anim_state->t;//linear blend
+#endif
+				i64 pos = lerp(anim_state->origin, delta, anim_state->dest);
+
+				auto txt = std::to_wstring(pos);
+				SendMessage(anim_state->wnd, WM_SETTEXT, 0, (LPARAM)txt.c_str());
+				f32 oldt = anim_state->t;
+				anim_state->t += anim_state->dt;
+				anim_state->t = clamp01(anim_state->t);
+				if (oldt >= 1.f) {
+					KillTimer(hwnd, anim_id);
+				}
+				else {
+					i32 ms = (i32)((1.f / win32_get_refresh_rate_hz(hwnd)) * 1000.f);
+					SetTimer(hwnd, anim_id, ms, number_range_anim);
+				}
+			}
+			else KillTimer(hwnd, anim_id);//this should never happen, if we get here we got a bug
+		};
+
+		SetTimer(anim_state->wnd, timer_id, 0, number_range_anim);
 	}
 
 	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
@@ -1019,8 +1069,17 @@ namespace べんきょう {
 //#define PRACTICE_TEST_STATS
 #ifndef PRACTICE_TEST_STATS
 			SendMessage(controls.score_accuracy, SC_SETSCORE, f32_to_WPARAM(stats->accuracy()), 0);
-			SendMessage(controls.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
-			SendMessage(controls.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
+
+			state->pageanim.word_count.origin = 0;
+			state->pageanim.word_count.dest = stats->word_cnt;
+			state->pageanim.word_count.wnd = controls.static_word_cnt;
+			animate_number_range(&state->pageanim.word_count, state->pageanim.word_count.dest > 100 ? 1000 : 500);
+			//SendMessage(controls.static_word_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->word_cnt).c_str());
+			state->pageanim.practice_count.origin = 0;
+			state->pageanim.practice_count.dest = stats->times_practiced;
+			state->pageanim.practice_count.wnd = controls.static_practice_cnt;
+			animate_number_range(&state->pageanim.practice_count, state->pageanim.practice_count.dest > 100 ? 1000 : 500);
+			//SendMessage(controls.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
 			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
 			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
 			graph::set_points(controls.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt);
@@ -2012,18 +2071,6 @@ namespace べんきょう {
 		page::set_theme(page, &theme);
 		page::set_scrolling(page, true);
 		return page;
-	}
-
-	//Ease in & out
-	f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
-		// thanks https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
-		f32 sqt = t * t;
-		return sqt / (2.0f * (sqt - t) + 1.0f);
-
-		//more blend functions:
-		//https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
-		//https://math.stackexchange.com/questions/121720/ease-in-out-function/121755#121755
-		//https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
 	}
 
 	struct sidebar_state_animate {
