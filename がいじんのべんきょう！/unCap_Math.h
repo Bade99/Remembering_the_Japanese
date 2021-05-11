@@ -104,6 +104,13 @@ static u64 random_between(u64 min, u64 max) { //NOTE: random integer between use
 //	i32 res = min + (i32)( ((f64)rand() / (f64)RAND_MAX) * (f64)(max - min) );
 //	return res;
 //}
+static f32 random_between(f32 min, f32 max) { //NOTE: random float between user specified range [min,max]
+	f32 res;
+	static std::mt19937 generator((u32)time(0));
+	std::uniform_real_distribution<f32> distribution{ min,max };
+	res = distribution(generator);
+	return res;
+}
 
 #include <immintrin.h>
 static u64 nthset(u64 val, unsigned n) {
@@ -205,6 +212,11 @@ f32 clamp(f32 min, f32 n, f32 max) {
 
 f32 clamp01(f32 n) {
 	return clamp(0.f, n, 1.f);
+}
+
+bool is_between_inclusive(f32 min, f32 n, f32 max) {
+	bool res = n <= max && n >= min;
+	return res;
 }
 
 v4 clamp01(v4 v) {

@@ -818,6 +818,64 @@ namespace urender {
 #endif
 	}
 
+	void draw_text(HDC dc, v2 p/*top left*/, utf16_str txt, HFONT f, HBRUSH br, txt_align alignment, f32 rotation/*[0.0,2PI]*/) {
+		//TODO(fran): we can do this with gdi
+#ifdef UNCAP_GDIPLUS
+		Gdiplus::Graphics graphics(dc);
+		graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
+
+		LOGFONTW lf;
+		int getobjres = GetObject(f, sizeof(lf), &lf); Assert(getobjres == sizeof(lf));
+
+		Gdiplus::FontFamily   fontFamily(lf.lfFaceName);
+
+		int FontStyle_flags = Gdiplus::FontStyle::FontStyleRegular;
+		//TODO(fran): we need our own font renderer, from starters the font weight has a much finer control with logfont
+		if (lf.lfWeight >= FW_BOLD)FontStyle_flags |= Gdiplus::FontStyle::FontStyleBold;
+		if (lf.lfItalic)FontStyle_flags |= Gdiplus::FontStyle::FontStyleItalic;
+		if (lf.lfUnderline)FontStyle_flags |= Gdiplus::FontStyle::FontStyleUnderline;
+		if (lf.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
+
+		f32 fontsize = (f32)abs(lf.lfHeight);
+
+		Gdiplus::Font         font(&fontFamily, fontsize, FontStyle_flags, Gdiplus::UnitPixel);
+
+		Gdiplus::StringFormat stringFormat;
+		stringFormat.SetLineAlignment(Gdiplus::StringAlignment::StringAlignmentNear);//align top left?
+
+		Gdiplus::PointF	pointF(p.x,p.y);
+		Gdiplus::StringAlignment str_alignment;
+		switch (alignment) {
+		case decltype(alignment)::center:
+		{
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentCenter;
+		} break;
+		case decltype(alignment)::left:
+		{
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentNear;//TODO(fran): im not sure if this is it
+		} break;
+		case decltype(alignment)::right:
+		{
+			str_alignment = Gdiplus::StringAlignment::StringAlignmentFar;//TODO(fran): im not sure if this is it
+		} break;
+		}
+
+		stringFormat.SetAlignment(str_alignment);
+
+		if (rotation != 0.f) {
+			graphics.TranslateTransform(p.x, p.y); // Set rotation point
+			graphics.RotateTransform(rotation*180/3.1415926535f); // Rotate text
+			graphics.TranslateTransform(-p.x, -p.y); // Reset translate transform
+		}
+
+		COLORREF txt_color = ColorFromBrush(br);
+		Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
+		graphics.DrawString(txt.str, (INT)(txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
+
+		graphics.ResetTransform();//NOTE: Only needed if you reuse the object for multiple calls to DrawString
+#endif
+	}
+
 	void draw_text_debug(HDC dc, POINT p, const char* _txt, i32 font_h, COLORREF col, txt_align alignment) {
 		//TODO(fran): we can do this with gdi
 #ifdef UNCAP_GDIPLUS

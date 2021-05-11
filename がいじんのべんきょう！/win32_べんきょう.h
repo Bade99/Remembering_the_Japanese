@@ -27,6 +27,8 @@
 #include "win32_notify.h"
 #include "win32_page.h"
 
+//#include "win32_eyecandy.h"
+
 #include <string>
 #include <algorithm>
 
@@ -35,19 +37,20 @@
 //TODO(fran): application icon: chidori bird(talk to bren)
 //TODO(fran): test suite: test whole application performance when db is really full, say for example 3500 word entries with every column filled with data
 //TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
-//TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary
-//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+//TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
+	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
-//TODO(fran): all pages: it'd be nice to have a scrolling background with jp text going in all directions
 //TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
-//TODO(fran): page landing (or new page): words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
+//TODO(fran): page landing (or new page): list words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification, also an "Example Sentece" editbox
 //TODO(fran): page landing: everything animated (including things like word_cnt going from 0 to N)
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
+//TODO(fran): page practice: add list of last words practiced and their results, green for correct and red for incorrect
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran): page practice_drawing: kanji detection via OCR
+//TODO(fran): page review_practice: add visual feedback of the fact the words on the grid can be clicked (change color as buttons do on mouseover, or simply use buttons)
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 
 
@@ -266,6 +269,8 @@ struct べんきょうProcState {
 		union landingpage_controls {
 			struct {
 				type page;//parent of all other controls
+
+				//type candy;
 
 				type button_recents;
 				type listbox_recents;
@@ -2009,10 +2014,16 @@ namespace べんきょう {
 		return page;
 	}
 
+	//Ease in & out
 	f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
 		// thanks https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
 		f32 sqt = t * t;
 		return sqt / (2.0f * (sqt - t) + 1.0f);
+
+		//more blend functions:
+		//https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
+		//https://math.stackexchange.com/questions/121720/ease-in-out-function/121755#121755
+		//https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
 	}
 
 	struct sidebar_state_animate {
@@ -2348,14 +2359,29 @@ namespace べんきょう {
 		
 			controls.page = create_page(state, base_page_theme);
 
+			auto page = controls.page;
+
+#if 0
+			//NOTE: for this to be usable as a page background we need to work with alpha in order to do proper transparency on everything that goes on top of this
+			controls.candy = CreateWindowW(eyecandy::wndclass, 0, WS_CHILD | WS_CLIPCHILDREN
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			eyecandy::Theme candy_theme;
+			candy_theme.brushes.bk.normal = global::colors.ControlBk;//global::colors.Bk_wrong_answer
+			candy_theme.brushes.foreground.normal = global::colors.Img;
+			candy_theme.dimensions.border_thickness = 0;
+			eyecandy::set_theme(controls.candy, &candy_theme);
+			eyecandy::set_db(controls.candy, state->settings->db);
+			page = controls.candy;
+#endif
+
 			controls.listbox_recents = CreateWindowW(listbox::wndclass, 0, WS_CHILD
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			listbox::set_function_render(controls.listbox_recents, listbox_recents_func_render);
 			listbox::set_user_extra(controls.listbox_recents, state);
 			listbox::set_function_on_click(controls.listbox_recents, listbox_recents_func_on_click);
 
 			controls.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.button_recents, 103);
 			button::set_theme(controls.button_recents, &dark_btn_theme);
 			button::set_user_extra(controls.button_recents, state);
@@ -2370,36 +2396,36 @@ namespace べんきょう {
 			);
 
 			controls.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_word_cnt_title, 351);
 
 			controls.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 
 			controls.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_practice_cnt_title, 352);
 
 			controls.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 
 			controls.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_title, 353);
 
 			controls.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			score::set_brushes(controls.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
 
 
 			controls.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_timeline_title, 354);
 
 			controls.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			graph::set_brushes(controls.graph_accuracy_timeline, FALSE, global::colors.Graph_Line, global::colors.Graph_BkUnderLine, global::colors.Graph_Bk, global::colors.Graph_Border);
 
 			//TODO(fran): we may want to add smth else like a total number of words practiced
@@ -2927,6 +2953,12 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.score_accuracy, score_accuracy, FALSE);
 			MyMoveWindow_offset(controls.static_accuracy_timeline_title, static_accuracy_timeline_title, FALSE);
 			MyMoveWindow_offset(controls.graph_accuracy_timeline, graph_accuracy_timeline, FALSE);
+
+#if 0
+			//MoveWindow(controls.candy, 0, 0, min(max_w, avg_str_dim(GetWindowFont(controls.button_recents), 10).cx), h, FALSE);//place one on the left (and one on the right of the page)
+			MoveWindow(controls.candy, 0, 0, w, h, FALSE);//cover the entire page
+#endif
+			
 
 		} break;
 		case ProcState::page::new_word:

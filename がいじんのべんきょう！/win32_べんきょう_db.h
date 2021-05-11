@@ -764,6 +764,48 @@ namespace べんきょう {
 	}
 
 
+	//Returns the desired element of a random word
+	//Always returns a valid null terminated string
+	utf16_str get_random_word_element(sqlite3* db, learnt_word_elem request) {
+		utf16_str res;
+
+		std::string req_column;
+		switch (request) {
+		case decltype(request)::hiragana:
+			req_column = "hiragana";
+			break;
+		case decltype(request)::kanji:
+			req_column = "kanji";
+			break;
+		case decltype(request)::meaning:
+			req_column = "meaning";
+			break;
+		default: Assert(0);
+		}
+		
+		std::string select_word_elem =
+			" SELECT " + req_column + " FROM " べんきょう_table_words
+			" WHERE " + req_column + " <> " " '' "
+			" ORDER BY RANDOM() LIMIT 1;" //TODO(fran): I dont know how random this really is, probably not good enough
+			;
+
+		auto parse_select_word_elem = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			utf16_str* res = (decltype(res))extra_param;
+			Assert(column_cnt == 1);
+			Assert(results);
+
+			*res = (decltype(*res))convert_utf8_to_utf16(*results, (int)strlen(*results) + 1);
+
+			return 0;
+		};
+
+		char* errmsg;
+		sqlite3_exec(db, select_word_elem.c_str(), parse_select_word_elem, &res, &errmsg);
+		sqlite_exec_runtime_check(errmsg);//TODO(fran): this should just be thrown on an error log, since I use it to get stuff automatically and has nothing to do with what the user is doing
+
+		return res;
+	}
+
 	//TODO(fran): it may be less annoying to use a tuple/similar of the form tuple<f_apply,f_rollback>
 	struct db_version {
 		//NOTEs:
