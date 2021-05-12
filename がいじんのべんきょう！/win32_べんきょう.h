@@ -40,7 +40,6 @@
 //TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
 	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
-//TODO(fran): page landing: the 'recents' listbox should remember its visibility state the next time the application is opened
 //TODO(fran): page landing (or new page): list words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
@@ -453,6 +452,10 @@ struct べんきょうProcState {
 
 	struct {
 
+		struct landing_state {
+			bool hide_recents;//hide or show the 'recently added words' listbox
+		}landing;
+
 		struct search_state {
 			learnt_word_elem search_type;
 		}search;
@@ -504,6 +507,9 @@ namespace べんきょう {
 		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);
 	}
 
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
+
 	//NOTE: a null HBRUSH means dont change the current one
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk) {
 		ProcState* state = get_state(wnd);
@@ -511,15 +517,6 @@ namespace べんきょう {
 			if (bk) state->brushes.bk = bk;
 			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
 		}
-	}
-
-	RECT to_rect(const rect_i32& r) {//TODO(fran): get this out of here
-		RECT res;
-		res.left = r.left;
-		res.top = r.top;
-		res.right = r.right();
-		res.bottom = r.bottom();
-		return res;
 	}
 
 	//NOTE: you must previously specify wnd, origin and dest inside the animation struct
@@ -607,7 +604,7 @@ namespace べんきょう {
 
 		//------Rendering------:
 		int w = r.w, h = r.h;
-		RECT rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		RECT rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 
 		//Draw border
 		int thickness = 3;
@@ -669,22 +666,22 @@ namespace べんきょう {
 		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
 		if(flags.onClicked) bk_br = global::colors.ControlBkPush;
 
-		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 		FillRect(dc, &bk_rc, bk_br);
 
 		//Draw text
 		i32 third_w = r.w / 3;
 		rect_i32 tempr = r; tempr.w = third_w;
 
-		RECT hira_rc = to_rect(tempr);
+		RECT hira_rc = to_RECT(tempr);
 
 		tempr.left += tempr.w;
 
-		RECT kanji_rc = to_rect(tempr);
+		RECT kanji_rc = to_RECT(tempr);
 
 		tempr.left += tempr.w;
 
-		RECT meaning_rc = to_rect(tempr);
+		RECT meaning_rc = to_RECT(tempr);
 		
 		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
 		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
@@ -706,12 +703,12 @@ namespace べんきょう {
 		if (flags.onMouseover || flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
 		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
 
-		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 		FillRect(dc, &bk_rc, bk_br);
 
 		//Draw text
 		HFONT font = global::fonts.General;
-		RECT txt_rc = to_rect(r);
+		RECT txt_rc = to_RECT(r);
 
 		urender::draw_text(dc, txt_rc, *txt, font, txt_br, bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
 	}
@@ -793,7 +790,7 @@ namespace べんきょう {
 			SetBkColor(dc, ColorFromBrush(bk_br));
 			SetTextColor(dc, ColorFromBrush(txt_br));
 
-			RECT txt_rc = toRECT(r);
+			RECT txt_rc = to_RECT(r);
 			txt_rc.left += x_pad;
 			txt_rc.right = icon_x;
 
@@ -838,7 +835,7 @@ namespace べんきょう {
 		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
 		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
 
-		RECT bk_rc = to_rect(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 		FillRect(dc, &bk_rc, bk_br);
 
 		//Draw text
@@ -846,15 +843,15 @@ namespace べんきょう {
 		i32 third_w = r.w / 3;
 		rect_i32 tempr = r; tempr.w = third_w;
 
-		RECT hira_rc = to_rect(tempr);
+		RECT hira_rc = to_RECT(tempr);
 
 		tempr.left += tempr.w;
 
-		RECT kanji_rc = to_rect(tempr);
+		RECT kanji_rc = to_RECT(tempr);
 
 		tempr.left += tempr.w;
 
-		RECT meaning_rc = to_rect(tempr);
+		RECT meaning_rc = to_RECT(tempr);
 
 		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
 		//if(*txt->attributes.kanji.str)
@@ -948,7 +945,7 @@ namespace べんきょう {
 			SetBkColor(dc, ColorFromBrush(bk_br));
 			SetTextColor(dc, ColorFromBrush(txt_br));
 
-			RECT txt_rc = toRECT(r);
+			RECT txt_rc = to_RECT(r);
 			txt_rc.left += x_pad;
 			txt_rc.right = icon_x;
 
@@ -2091,6 +2088,15 @@ namespace べんきょう {
 		const f32 dt = 1.f / total_frames;
 		const i32 timer_id = 0x458;
 
+
+		RECT navrc; GetWindowRect(state->pages.navbar, &navrc); MapWindowRect(0, state->wnd, &navrc);
+		RECT siderc; GetClientRect(state->pages.sidebar, &siderc);
+		int sidebar_w = RECTW(siderc);
+		int sidebar_h = RECTH(siderc);
+		//taking as reference point going from outside in:
+		rect_i32 origin{ 0 - sidebar_w,navrc.top + RECTH(navrc),sidebar_w,sidebar_h };
+		rect_i32 target{ 0,navrc.top + RECTH(navrc),sidebar_w,sidebar_h };
+
 		if (sidebar_state) {
 			//opposite animation is currently in progress, we have to start our animation offset by the inverse number of frames
 			sidebar_state->t = 1.f - sidebar_state->t;
@@ -2101,30 +2107,16 @@ namespace べんきょう {
 			SetPropW(sidebar, state_key, sidebar_state);
 
 			sidebar_state->t = 0.f;
-			RECT r; GetWindowRect(sidebar, &r);
-			MapWindowRect(0, state->wnd, &r);
-			sidebar_state->origin = to_rect_i32(r);
+			sidebar_state->origin = show ? origin : target;
+			//RECT r; GetWindowRect(sidebar, &r);
+			//MapWindowRect(0, state->wnd, &r);
+			//sidebar_state->origin = to_rect_i32(r);
 			//TODO(fran): this is wrong, sidebar origin when there's no animation should be set outside the wnd rect when starting from hidden and on the wnd rect when starting from shown
 		}
 
 		sidebar_state->dt = dt;
 		sidebar_state->show = show;
-		RECT navrc; GetWindowRect(state->pages.navbar, &navrc); MapWindowRect(0, state->wnd, &navrc);
-		RECT siderc; GetClientRect(state->pages.sidebar, &siderc);
-		int sidebar_w = RECTW(siderc);
-		int sidebar_h = RECTH(siderc);
-		if (sidebar_state->show) {
-			sidebar_state->target.top = navrc.top + RECTH(navrc);
-			sidebar_state->target.left = 0;
-			sidebar_state->target.w = sidebar_w;
-			sidebar_state->target.h = sidebar_h;
-		}
-		else {
-			sidebar_state->target.top = navrc.top + RECTH(navrc);
-			sidebar_state->target.left = 0 - sidebar_w;
-			sidebar_state->target.w = sidebar_w;
-			sidebar_state->target.h = sidebar_h;
-		}
+		sidebar_state->target = sidebar_state->show ? target : origin;
 
 		static void (*sidebar_anim)(HWND, UINT, UINT_PTR, DWORD) =
 			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
@@ -2342,7 +2334,7 @@ namespace べんきょう {
 		{
 			auto& sidebar = state->pages.sidebar;
 			sidebar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
-				, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
+				, -2000/*HACK: simplifies sidebar handling, we know for sure it isnt visible at the start, nor if we call showwindow, otherwise it can do a ghost appearance for one frame*/, 0, 0, 0, state->wnd, 0, NULL, NULL);
 			navbar::set_theme(sidebar, &sidebar_theme);
 
 			//TODO(fran): left align everything, also add icons together with the text
@@ -2437,7 +2429,10 @@ namespace べんきょう {
 				[](void* element, void* user_extra) {
 					ProcState* state = (decltype(state))user_extra;
 					HWND listbox = state->pages.landing.listbox_recents;
-					flip_visibility(listbox);
+					state->pagestate.landing.hide_recents = !state->pagestate.landing.hide_recents;
+					//flip_visibility(listbox);
+					ask_for_resize(state);
+					ask_for_repaint(state);
 					//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
 				}
 			);
@@ -2913,7 +2908,7 @@ namespace べんきょう {
 
 			rect_i32 listbox_recents;
 			listbox_recents.y = button_recents.bottom();
-			listbox_recents.h = wnd_h * (int)listbox::get_element_cnt(controls.listbox_recents);
+			listbox_recents.h = state->pagestate.landing.hide_recents ? 0 : wnd_h * (int)listbox::get_element_cnt(controls.listbox_recents);
 			listbox_recents.w = button_recents.w;
 			listbox_recents.x = (w - listbox_recents.w) / 2;
 
@@ -3563,8 +3558,7 @@ namespace べんきょう {
 	void resize_controls(ProcState* state) {
 		resize_controls(state, state->current_page);
 	}
-	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
-	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
+	
 
 #if 0
 	void smooth_scroll(ProcState* state, int increment) {

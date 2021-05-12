@@ -419,7 +419,7 @@ union rect_i32 {
 	i32 center_y() const { return top + h / 2; }
 };
 
-RECT toRECT(rect_i32 r) {
+RECT to_RECT(rect_i32 r) {
 	RECT res;
 	res.left = r.left;
 	res.top = r.top;

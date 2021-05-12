@@ -268,7 +268,7 @@ namespace paint {
 		BitBlt(newbackbuffer_dc, oldbackbuffer_rc.x, oldbackbuffer_rc.y, oldbackbuffer_rc.w, oldbackbuffer_rc.h, oldbackbufferdc, state->backbuffer_used.left, state->backbuffer_used.top, SRCCOPY);
 
 		//Update backbuffer_used coordinates
-		state->backbuffer_used = toRECT(oldbackbuffer_rc);
+		state->backbuffer_used = to_RECT(oldbackbuffer_rc);
 		//clamp to new backbuffer size
 		state->backbuffer_used.left =   clamp(0, state->backbuffer_used.left,   RECTW(newbackbuffer_rc) - 1);
 		state->backbuffer_used.right =  clamp(0, state->backbuffer_used.right,  RECTW(newbackbuffer_rc) - 1);
