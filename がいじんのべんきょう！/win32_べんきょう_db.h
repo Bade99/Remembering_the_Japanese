@@ -36,6 +36,8 @@ union _learnt_word { //contains utf16 when getting data from the UI, and utf8 wh
 		op(type,meaning) \
 		op(type,mnemonic) \
 		op(type,lexical_category) \
+		op(type,notes) \
+		op(type,example_sentence) \
 
 		_foreach_learnt_word_member(_generate_member_no_default_init);
 		//IMPORTANT: members that map to primary keys must be first on the list (that way they are easily filtered out when updating their values), and UPDATE pk_count when you add a new primary key
@@ -118,9 +120,11 @@ struct stored_word16 {
 #define べんきょう_table_words_structure \
 	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
-	meaning			TEXT NOT NuLL COLLATE NOCASE,\
+	meaning				TEXT NOT NuLL COLLATE NOCASE,\
 	mnemonic			TEXT,\
 	lexical_category	INTEGER,\
+	notes				TEXT,\
+	example_sentence	TEXT,\
 	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
 	last_shown_date		INTEGER DEFAULT 0,\
 	times_shown			INTEGER DEFAULT 0,\

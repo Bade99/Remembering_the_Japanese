@@ -43,7 +43,6 @@
 //TODO(fran): page landing (or new page): list words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
-//TODO(fran): page new_word: add edit box called "Notes" where the user can write anything eg make a clarification, also an "Example Sentece" editbox
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): page practice: add list of last words practiced and their results, green for correct and red for incorrect
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
@@ -299,11 +298,12 @@ struct べんきょうProcState {
 				type combo_lexical_category;
 				type edit_mnemonic;//create a story/phrase around the word
 				//TODO(fran): here you should be able to add more than one meaning
-				//TODO(fran): type edit_notes
+				type edit_notes;
+				type edit_example_sentence;
 				type button_save;
 				type static_notify;
 			};
-			type all[8];
+			type all[10];
 		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 		} new_word;
 
@@ -404,6 +404,8 @@ struct べんきょうProcState {
 				type edit_meaning;
 				type combo_lexical_category;
 				type edit_mnemonic;
+				type edit_notes;
+				type edit_example_sentence;
 				//TODO(fran): here you should be able to add more than one meaning
 
 				type static_creation_date;
@@ -414,7 +416,7 @@ struct べんきょうProcState {
 				type button_delete;
 				type button_remember;//the user can request the system to prioritize showing this word on practices (the same as if it was a new word that the user just added)
 			};
-			type all[12];
+			type all[14];
 		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 		} show_word;
 
@@ -1110,6 +1112,8 @@ namespace べんきょう {
 			SendMessageW(controls.edit_kanji, WM_SETTEXT, 0, (LPARAM)new_word->attributes.kanji.str);
 			SendMessageW(controls.edit_meaning, WM_SETTEXT, 0, (LPARAM)new_word->attributes.meaning.str);
 			SendMessageW(controls.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)new_word->attributes.mnemonic.str);
+			SendMessageW(controls.edit_notes, WM_SETTEXT, 0, (LPARAM)new_word->attributes.notes.str);
+			SendMessageW(controls.edit_example_sentence, WM_SETTEXT, 0, (LPARAM)new_word->attributes.example_sentence.str);
 			int lex_categ_sel;
 			if (new_word->attributes.lexical_category.str) {
 				try { lex_categ_sel = std::stoi(new_word->attributes.lexical_category.str); }
@@ -1128,6 +1132,8 @@ namespace べんきょう {
 			SendMessageW(controls.edit_kanji, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.kanji.str);
 			SendMessageW(controls.edit_meaning, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.meaning.str);
 			SendMessageW(controls.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.mnemonic.str);
+			SendMessageW(controls.edit_notes, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.notes.str);
+			SendMessageW(controls.edit_example_sentence, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.example_sentence.str);
 
 			int lex_categ_sel;
 			if (word_to_show->user_defined.attributes.lexical_category.str) {
@@ -1742,6 +1748,8 @@ namespace べんきょう {
 			_get_edit_str(page.edit_kanji, w16.attributes.kanji);
 			_get_edit_str(page.edit_meaning, w16.attributes.meaning);
 			_get_edit_str(page.edit_mnemonic, w16.attributes.mnemonic);
+			_get_edit_str(page.edit_notes, w16.attributes.notes);
+			_get_edit_str(page.edit_example_sentence, w16.attributes.example_sentence);
 			_get_combo_sel_idx_as_str(page.combo_lexical_category, w16.attributes.lexical_category);
 
 			learnt_word8 w8; defer{ for (auto& _ : w8.all)free_any_str(_.str); };
@@ -1797,6 +1805,8 @@ namespace べんきょう {
 			_get_edit_str(page.edit_kanji, w16.attributes.kanji);
 			_get_edit_str(page.edit_meaning, w16.attributes.meaning);
 			_get_edit_str(page.edit_mnemonic, w16.attributes.mnemonic);
+			_get_edit_str(page.edit_notes, w16.attributes.notes);
+			_get_edit_str(page.edit_example_sentence, w16.attributes.example_sentence);
 			_get_combo_sel_idx_as_str(page.combo_lexical_category, w16.attributes.lexical_category);
 
 			learnt_word8 w8;
@@ -1979,6 +1989,8 @@ namespace べんきょう {
 			_clear_edit(controls.edit_hiragana);
 			_clear_edit(controls.edit_kanji);
 			_clear_edit(controls.edit_mnemonic);
+			_clear_edit(controls.edit_notes);
+			_clear_edit(controls.edit_example_sentence);
 			_clear_edit(controls.edit_meaning);
 		} break;
 		case decltype(page)::practice_writing:
@@ -2509,6 +2521,17 @@ namespace べんきょう {
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
 
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
+			AWDT(controls.edit_example_sentence, 127);
+
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
+			AWDT(controls.edit_notes, 126);
+			//NOTE: remember that the window switching order because of tabstop is the same as the window creation order
+
 			controls.button_save = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			AWT(controls.button_save, 124);
@@ -2536,25 +2559,6 @@ namespace べんきょう {
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
-		//---------------------Search----------------------:
-		//{
-			//auto& controls = state->pages.search;
-
-			/*			controls.searchbox_search = CreateWindowW(searchbox::wndclass, NULL, WS_CHILD | WS_TABSTOP | SRB_ROUNDRECT
-							, 0, 0, 0, 0, state->wnd, 0, NULL, NULL);
-						ACC(controls.searchbox_search, 251);
-						searchbox::set_editbox_theme(controls.searchbox_search, &base_editoneline_theme);
-						searchbox::set_user_extra(controls.searchbox_search, state->wnd);
-						searchbox::set_function_free_elements(controls.searchbox_search, searchbox_func_free_elements);
-						searchbox::set_function_retrieve_search_options(controls.searchbox_search, searchbox_func_retrieve_search_options);
-						searchbox::set_function_perform_search(controls.searchbox_search, searchbox_func_perform_search);
-						searchbox::set_function_show_element_on_editbox(controls.searchbox_search,searchbox_func_show_on_editbox);
-						searchbox::set_function_render_listbox_element(controls.searchbox_search, listbox_search_renderfunc);
-						searchbox::maintain_placerholder_when_focussed(controls.searchbox_search, true);
-						edit_oneline::set_IME_wnd(searchbox::get_state(controls.searchbox_search)->controls.editbox, true);*/ //HACK: request searchbox for its controls //TODO(fran): as always windows disappoints with very limited configurability, we need to create our own IME window that can be hidden
-
-			//for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
-		//}
 		//---------------------Show word----------------------:
 		{
 			auto& controls = state->pages.show_word;
@@ -2570,11 +2574,6 @@ namespace べんきょう {
 			edit_oneline::set_theme(controls.edit_kanji, &kanji_editoneline_theme);
 			AWDT(controls.edit_kanji, 121);
 
-			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
-			AWDT(controls.edit_meaning, 122);
-
 			controls.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			lexical_category_setup_combobox(controls.combo_lexical_category);
@@ -2582,10 +2581,25 @@ namespace べんきょう {
 			SendMessage(controls.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.combo_lexical_category, 123);
 
+			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
+			AWDT(controls.edit_meaning, 122);
+
 			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
+
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
+			AWDT(controls.edit_example_sentence, 127);
+
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
+			AWDT(controls.edit_notes, 126);
 
 			controls.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
@@ -3038,6 +3052,8 @@ namespace べんきょう {
 			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
 			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			ssizer edit_notes{ controls.edit_notes };
+			ssizer edit_example_sentence{ controls.edit_example_sentence };
 			ssizer btn_save{ controls.button_save };
 			ssizer static_notify{ controls.static_notify };
 			hrsizer save{ {&btn_save,avg_str_dim(font, 10).cx}, {&static_notify,layout_bounds.cx / 2} };
@@ -3047,6 +3063,10 @@ namespace べんきょう {
 				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_mnemonic,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_example_sentence,wnd_h}, //TODO(fran): first 'example sentence' or 'notes'?
+				{&lvpad,half_wnd_h},
+				{&edit_notes,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&save,wnd_h} };
 
@@ -3333,33 +3353,10 @@ namespace べんきょう {
 			MyMoveWindow_offset(controls.button_continue, button_continue, FALSE);
 
 		} break;
-		//case ProcState::page::search:
-		//{
-#if 0
-			auto& controls = state->controls.search;
-
-			rect_i32 cb_search;
-			cb_search.x = w_pad;
-			cb_search.y = h_pad;
-			cb_search.h = 40;//TODO(fran): cbs dont respect this at all, they set a minimum h by the font size I think
-			cb_search.w = max_w;
-
-			rect_i32 searchbox_search;
-			searchbox_search.w = max_w;
-			searchbox_search.x = (w - searchbox_search.w) / 2;
-			searchbox_search.h = wnd_h;
-			searchbox_search.y = h_pad;
-
-			//MyMoveWindow(controls.combo_search, cb_search, FALSE);
-			MyMoveWindow(controls.searchbox_search, searchbox_search, FALSE);
-			searchbox::set_listbox_dimensions(controls.searchbox_search, listbox::dimensions().set_border_thickness(1).set_element_h(wnd_h));
-#endif
-		//} break;
 		case ProcState::page::show_word:
 		{
 			auto& controls = state->pages.show_word;
 
-#if 1
 			HFONT font = GetWindowFont(controls.edit_meaning);
 			int bigwnd_h = wnd_h * 2;
 			SIZE layout_bounds = avg_str_dim(font, 100);
@@ -3380,12 +3377,18 @@ namespace べんきょう {
 			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
 			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
+			ssizer edit_notes{ controls.edit_notes };
+			ssizer edit_example_sentence{ controls.edit_example_sentence };
 			vsizer meaning_sizer{
 				{&lexical_category,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_mnemonic,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_example_sentence,wnd_h},
+				{&lvpad,half_wnd_h},
+				{&edit_notes,wnd_h},
 			};
 
 			hsizer word_info{
@@ -3442,100 +3445,6 @@ namespace べんきょう {
 
 			layout.resize(layout_rc);
 
-#else
-			int bigwnd_h = wnd_h * 4;
-			int start_y = 0;
-
-			rect_i32 static_hiragana;
-			static_hiragana.x = w_pad;
-			static_hiragana.y = start_y;
-			static_hiragana.h = bigwnd_h;
-			static_hiragana.w = max_w; //TODO(fran): we may want to establish a max_w that's more fixed, as a clamp, instead of continually increasing as the wnd width does
-
-			rect_i32 cb_lex_categ;
-			cb_lex_categ.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.combo_lexical_category, WM_GETFONT, 0, 0), 20).cx);
-#if 0
-			cb_lex_categ.x = min(w - w_pad - cb_lex_categ.w, w / 2 + cb_lex_categ.w);//TODO(fran): doesnt look good, maybe just center it
-#else
-			cb_lex_categ.x = (w - cb_lex_categ.w) / 2;
-#endif
-			cb_lex_categ.y = static_hiragana.bottom() + h_pad / 2;
-			cb_lex_categ.h = wnd_h;//TODO(fran): for some reason comboboxes are always a little smaller than you ask, find out how to correctly correct that
-
-			rect_i32 edit_kanji;
-			edit_kanji.y = cb_lex_categ.bottom() + h_pad / 2;
-			edit_kanji.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_kanji, WM_GETFONT, 0, 0), 30).cx);
-			edit_kanji.x = (w - edit_kanji.w) / 2;
-			edit_kanji.h = wnd_h;
-
-			rect_i32 edit_meaning;
-			edit_meaning.y = edit_kanji.bottom() + h_pad;
-			edit_meaning.w = min(max_w, avg_str_dim((HFONT)SendMessage(controls.edit_meaning, WM_GETFONT, 0, 0), 30).cx);
-			edit_meaning.x = (w - edit_meaning.w) / 2;
-			edit_meaning.h = wnd_h;
-
-			rect_i32 edit_mnemonic;
-			edit_mnemonic.w = max_w;
-			edit_mnemonic.x = (w - edit_mnemonic.w) / 2;
-			edit_mnemonic.y = edit_meaning.bottom() + h_pad;
-			edit_mnemonic.h = wnd_h;
-
-			rect_i32 last_user = edit_mnemonic;
-
-			auto stats_grid = create_grid_2x2(
-				wnd_h, avg_str_dim((HFONT)SendMessage(controls.static_creation_date, WM_GETFONT, 0, 0), 25).cx
-				, last_user.bottom() + h_pad, w_pad / 2, h_pad / 2, max_w, w);
-
-			rect_i32 static_creation_date = stats_grid[0][0];
-
-			rect_i32 static_last_shown_date = stats_grid[0][1];
-
-			rect_i32 static_score = stats_grid[1][0];
-
-			rect_i32 last_cell = static_score;//TODO(fran): we still got one more space at [1][1]
-
-			rect_i32 btn_modify;
-			btn_modify.w = 70;
-			btn_modify.h = wnd_h;
-			btn_modify.y = last_cell.bottom() + h_pad;
-			btn_modify.x = (w - btn_modify.w) / 2;
-
-			rect_i32 btn_remember;
-			btn_remember.w = 90;
-			btn_remember.h = wnd_h;
-			btn_remember.y = btn_modify.y;
-			btn_remember.x = btn_modify.right() + w_pad;
-
-			rect_i32 btn_delete;
-			btn_delete.h = wnd_h;
-			btn_delete.w = btn_delete.h;
-#if 0 //TODO(fran): which one to go with?
-			btn_delete.x = btn_modify.right() + w_pad*;/*TODO(fran): clamp to not go beyond w*/
-			btn_delete.y = btn_modify_y;
-#else
-			btn_delete.x = (w - btn_delete.w) / 2;
-			btn_delete.y = btn_modify.bottom() + h_pad;
-#endif
-
-			rect_i32 bottom_most_control = btn_delete;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			MyMoveWindow_offset(controls.static_hiragana, static_hiragana, FALSE);
-			MyMoveWindow_offset(controls.combo_lexical_category, cb_lex_categ, FALSE);
-			MyMoveWindow_offset(controls.edit_kanji, edit_kanji, FALSE);
-			MyMoveWindow_offset(controls.edit_meaning, edit_meaning, FALSE);
-			MyMoveWindow_offset(controls.edit_mnemonic, edit_mnemonic, FALSE);
-
-			//Dates one next to the other, the same for times_... related objs
-			MyMoveWindow_offset(controls.static_creation_date, static_creation_date, FALSE);
-			MyMoveWindow_offset(controls.static_last_shown_date, static_last_shown_date, FALSE);
-			MyMoveWindow_offset(controls.static_score, static_score, FALSE);
-			MyMoveWindow_offset(controls.button_modify, btn_modify, FALSE);
-			MyMoveWindow_offset(controls.button_remember, btn_remember, FALSE);
-			MyMoveWindow_offset(controls.button_delete, btn_delete, FALSE);
-#endif
 		} break;
 		case ProcState::page::review_practice_writing:
 		{
@@ -3559,87 +3468,6 @@ namespace べんきょう {
 		resize_controls(state, state->current_page);
 	}
 	
-
-#if 0
-	void smooth_scroll(ProcState* state, int increment) {
-		static const int total_frames = 100;
-		state->scroll_frame = 0;
-		
-		state->scroll_a = -(f32)increment*10;
-		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
-		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
-		
-
-		//NOTEs about this amazing find: 1st lambda must be static, 2nd auto cannot be used, you must declare the function type
-		//thanks https://stackoverflow.com/questions/2067988/recursive-lambda-functions-in-c11
-		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
-			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
-			ProcState* state = get_state(hwnd);
-			if (state) {
-				state->scroll_a += -8.5f * state->scroll_v;//drag
-
-				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
-				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
-				dy *= 100;
-				state->scroll += dy;
-				ask_for_resize(state);
-				ask_for_repaint(state);
-				//static int __c; printf("%d SCROLL\n",__c++);
-				if (state->scroll_frame++ < total_frames) {
-					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
-				}
-				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
-			}
-		};
-		if (state->scroll_on_anim) {
-
-		}
-		else {
-			state->scroll_on_anim = true;
-			SetTimer(state->wnd, 1111, 0, scroll_anim);
-		}
-	}
-
-	void smooth_move(ProcState* state, int increment) {
-		static const int total_frames = 100;
-		state->scroll_frame = 0;
-
-		state->scroll_a = -(f32)increment * 10;
-		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
-		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
-
-
-		//NOTEs about this amazing find: 1st lambda must be static, 2nd auto cannot be used, you must declare the function type
-		//thanks https://stackoverflow.com/questions/2067988/recursive-lambda-functions-in-c11
-		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
-			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
-			ProcState* state = get_state(hwnd);
-			if (state) {
-				state->scroll_a += -8.5f * state->scroll_v;//drag
-
-				f32 dy = .5f * state->scroll_a * squared(state->scroll_dt) + state->scroll_v * state->scroll_dt;
-				state->scroll_v += state->scroll_a * state->scroll_dt;//TODO: where does this go? //NOTE: Casey put it here, it had it before calculating pos_delta
-				dy *= 100;
-
-				state->scroll += dy;
-				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->nc_parent, (POINT*)&r, 2);
-				MoveWindow(state->wnd, r.left, r.top + (int)dy, RECTW(r), RECTH(r), TRUE);//TODO(fran): store f32 y position
-				if (state->scroll_frame++ < total_frames) {
-					SetTimer(state->wnd, anim_id, scroll_ms, scroll_anim); state->scroll_a = 0;
-				}
-				else { state->scroll_on_anim = false; KillTimer(state->wnd, anim_id); }
-			}
-		};
-		if (state->scroll_on_anim) {
-
-		}
-		else {
-			state->scroll_on_anim = true;
-			SetTimer(state->wnd, 1111, 0, scroll_anim);
-		}
-	}
-#endif
-
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		ProcState* state = get_state(hwnd);
 		switch (msg) {

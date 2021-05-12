@@ -67,6 +67,8 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(123,"Type")
 	lang_entry(124,"Add")
 	lang_entry(125,"Mnemonic")
+	lang_entry(126,"Notes")
+	lang_entry(127,"Example Sentence")
 
 	lang_entry(170,"Word already exists, would you like to override it?")
 
