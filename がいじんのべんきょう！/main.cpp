@@ -192,6 +192,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //TODO(fran): im kind of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
     int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
+    べんきょう::startup(db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
+
     defer{ 
         int close_res = sqlite3_close(db); sqliteok_runtime_check(close_res,db); 
 #if defined(_DEBUG) && defined(_DELETE_DB)

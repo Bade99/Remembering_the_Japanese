@@ -509,19 +509,16 @@ namespace べんきょう {
 
 	//returns sqlite error codes, SQLITE_OK,...
 	int insert_word(sqlite3* db, const learnt_word8& word) {
+		using namespace std::string_literals;
 		int res;
-		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
-
-		//std::string columnsArr[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
-		//std::string valuesArr[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) }; //IMPORTANT: cant use this since this actually dereferences the pointer, and in the case of 'id' it will be nullptr
 
 		std::string columns;
 		std::string values;
 		for (int i = word.pk_count; i < ARRAYSIZE(learnt_word_columns_array); i++) {
 			columns += learnt_word_columns_array[i] + ",";
-			values += word.all[i].str; values += ",";
+			values += "'"s + word.all[i].str + "'" + ",";
 		}
 		columns.pop_back(); //remove the trailing comma
 		values.pop_back(); //remove the trailing comma
@@ -537,6 +534,15 @@ namespace べんきょう {
 		//TODO(fran): handle if the word already exists, maybe show the old word and ask if they want to override that content, NOTE: the handling code shouldnt be here, this function should be as isolated as possible, if we start heavily interacting with the user this will be ugly
 
 		return res;
+	}
+
+	int insert_word(sqlite3* db, const learnt_word16& word) {
+		learnt_word8 w8; defer{ for (int i = w8.pk_count; i < ARRAYSIZE(w8.all); i++)free_any_str(w8.all[i]); };
+		for (int i = word.pk_count; i < ARRAYSIZE(word.all); i++) {
+			w8.all[i] = s16_to_s8(word.all[i]);
+		}
+
+		return insert_word(db, w8);
 	}
 
 	bool update_word(sqlite3* db, const learnt_word8* word) {
@@ -568,6 +574,14 @@ namespace べんきょう {
 		return res;
 	}
 
+	bool update_word(sqlite3* db, const learnt_word16& word) {
+		learnt_word8 w8; defer{ for (auto& _ : w8.all)free_any_str(_.str); };
+		for (int i = 0; i < ARRAYSIZE(word.all); i++) {
+			//TODO(fran): CRASH: should check for valid ptrs before conversion
+			w8.all[i] = s16_to_s8(word.all[i]);
+		}
+		return update_word(db, &w8);
+	}
 
 	//NOTE word should be in utf16
 	void word_update_last_practiced_date(sqlite3* db, const learnt_word16& word) {
@@ -587,43 +601,44 @@ namespace べんきょう {
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
-	//IMPORTANT: do not use directly, only through word_increment_times_practiced__times_right
-	void word_increment_times_practiced(sqlite3* db, const learnt_word16& word) {
-		using namespace std::string_literals;
-
-		std::string key_match = generate_key_match(word);
-
-		std::string increment_times_practiced = SQL(
-			UPDATE _べんきょう_table_words
-			SET times_practiced = times_practiced + 1 comma
-				weight_times_practiced = weight_times_practiced + 1 ) +
-			" WHERE "s + key_match + ";";
-
-		utf8* errmsg;
-		sqlite3_exec(db, increment_times_practiced.c_str(), 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-	}
-
-	//IMPORTANT: do not use directly, only through word_increment_times_practiced__times_right
-	void word_increment_times_right(sqlite3* db, const learnt_word16& word) {
-		using namespace std::string_literals;
-
-		std::string key_match = generate_key_match(word);
-
-		std::string increment_times_right = SQL(
-			UPDATE _べんきょう_table_words 
-			SET times_right = times_right + 1 comma
-				weight_times_right = weight_times_right + 1 ) +
-			" WHERE "s + key_match + ";";
-
-		utf8* errmsg;
-		sqlite3_exec(db, increment_times_right.c_str(), 0, 0, &errmsg);
-		sqlite_exec_runtime_assert(errmsg);
-	}
 
 	//NOTE word should be in utf16
 	void word_increment_times_practiced__times_right(sqlite3* db, const learnt_word16& word, bool inc_times_right) {
 		//INFO: times_practiced _must_ be updated before times_right in order for the triggers to function correctly
+
+		auto word_increment_times_practiced = [](sqlite3* db, const learnt_word16& word) {
+			using namespace std::string_literals;
+
+			std::string key_match = generate_key_match(word);
+
+			std::string increment_times_practiced = SQL(
+				UPDATE _べんきょう_table_words
+				SET times_practiced = times_practiced + 1 comma
+				weight_times_practiced = weight_times_practiced + 1) +
+				" WHERE "s + key_match + ";";
+
+			utf8* errmsg;
+			sqlite3_exec(db, increment_times_practiced.c_str(), 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		};
+
+		auto word_increment_times_right = [](sqlite3* db, const learnt_word16& word) {
+			using namespace std::string_literals;
+
+			std::string key_match = generate_key_match(word);
+
+			std::string increment_times_right = SQL(
+				UPDATE _べんきょう_table_words
+				SET times_right = times_right + 1 comma
+				weight_times_right = weight_times_right + 1) +
+				" WHERE "s + key_match + ";";
+
+			utf8* errmsg;
+			sqlite3_exec(db, increment_times_right.c_str(), 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		};
+
+
 		word_increment_times_practiced(db, word);
 		if (inc_times_right)word_increment_times_right(db, word);
 	}
@@ -668,7 +683,7 @@ namespace べんきょう {
 		std::string select_matches =
 			" SELECT "s + columns + /*TODO(fran): column names should be stored somewhere*/
 			" FROM " べんきょう_table_words +
-			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "%'" +
+			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "%" "'" +
 			" LIMIT " + std::to_string(max_cnt_results) + ";";
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -1087,7 +1102,7 @@ namespace べんきょう {
 		//Newer versions will need a "ponerse al día" module, in case they need to add data an old version didnt, an example would be the word count, assuming v1 didnt have it when v2 comes the user has potentially already added lots of words but their counter would be 0, here we'll need the module to to count the current number of already existing words on the db and update the counter(this type of operations could get very expensive, the good thing is they'll only execute once when we go from a lower db version to the higher one)
 		//ADDED PROBLEM: if the user goes up some versions, then down, then adds words and then goes back up the module wont execute since the db version always stays at the highest one, SOLUTION: one way to fix this is to add one extra information, last_db_version_execution (records the db version that was actually used during execution, which can be lower than the effective db_version of the tables), checking against this we can always know when there's a period of version change which means we have to "ponerlo al día".
 
-#define TEST_WORDS
+//#define TEST_WORDS
 #if defined(TEST_WORDS) && defined(_DEBUG)
 		{
 			utf8* errmsg;

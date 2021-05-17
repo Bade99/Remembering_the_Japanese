@@ -371,14 +371,6 @@ namespace べんきょう {
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			}practice_drawing;
 
-			/*union search_controls {
-				struct {
-					type searchbox_search;
-				};
-				type all[1];
-			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-			} search;*/
-
 			union review_practice_controls {
 				struct {
 					type page;
@@ -638,7 +630,24 @@ namespace べんきょう {
 		//elements.free(); //NOTE: again, all the elements are allocated continually in memory as an array, so we only need to deallocate the first one and the whole mem section is freed
 	}
 
-	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra);
+	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra) {
+		ptr<void*> res{ 0 };
+		ProcState* state = (decltype(state))user_extra;
+		if (user_input.cnt()) {
+
+			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
+			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
+			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
+
+			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			//TODO(fran): search_word_matches should return a ptr
+			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
+			for (size_t i = 0; i < search_res.cnt; i++)
+				//res[i] = search_res.matches[i];
+				res[i] = &search_res[i];
+		}
+		return res;
+	}
 
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra);
 
@@ -1652,31 +1661,8 @@ namespace べんきょう {
 		show_backbtn(state, true);
 	}
 
-	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra) {
-		ptr<void*> res{ 0 };
-		ProcState* state = (decltype(state))user_extra;
-		if (user_input.sz) {
-
-			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
-			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
-			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
-
-			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
-			//TODO(fran): search_word_matches should return a ptr
-			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
-			for (size_t i = 0; i < search_res.cnt; i++)
-				//res[i] = search_res.matches[i];
-				res[i] = &search_res[i];
-		}
-		return res;
-	}
-
 	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra) {
 		ProcState* state = (decltype(state))user_extra;
-		//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
-		//utf16* search;
-
-		//TODO(fran): search can be for kanji and meaning too, we must first find out which one it is, maybe that should be built in like a search_word struct that has learnt_word and search_type
 
 		learnt_word16 search{0};
 
@@ -1692,8 +1678,8 @@ namespace べんきょう {
 			learnt_word_elem search_type = state->pagestate.search.search_type;
 			switch (search_type) {
 			case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
-			case decltype(search_type)::kanji: search.attributes.kanji = *((utf16_str*)element); break;
-			case decltype(search_type)::meaning: search.attributes.meaning= *((utf16_str*)element); break;
+			case decltype(search_type)::kanji:    search.attributes.kanji = *((utf16_str*)element); break;
+			case decltype(search_type)::meaning:  search.attributes.meaning= *((utf16_str*)element); break;
 			default:Assert(0);//TODO
 			}
 			//search = ((utf16_str*)element)->str;
@@ -1720,7 +1706,7 @@ namespace べんきょう {
 			}
 			else SetFocus(focuswnd);//Restore focus to the edit window since messagebox takes it away 
 			//TODO(fran): a way to make this more streamlined would be to implement:
-			//MessageBoxW(){oldfocus=getfocus(); messagebox(); setfocus(oldfocus);}
+			//int MessageBoxW(...){ oldfocus=getfocus(); messagebox(); setfocus(oldfocus); }
 		}
 	}
 
@@ -1740,7 +1726,7 @@ namespace べんきょう {
 	bool modify_word(ProcState* state) {
 		bool res = false;
 		if (check_show_word(state)) {
-			learnt_word16 w16;
+			learnt_word16 w16; defer{ for (auto& _ : w16.all) free_any_str(_.str); };
 			auto& page = state->pages.show_word;
 
 			_get_edit_str(page.static_id, w16.attributes.id);
@@ -1752,14 +1738,7 @@ namespace べんきょう {
 			_get_edit_str(page.edit_example_sentence, w16.attributes.example_sentence);
 			_get_combo_sel_idx_as_str(page.combo_lexical_category, w16.attributes.lexical_category);
 
-			learnt_word8 w8; defer{ for (auto& _ : w8.all)free_any_str(_.str); };
-			for (int i = 0; i < ARRAYSIZE(w16.all); i++) {
-				//TODO(fran): CRASH: should check for valid ptrs before conversion
-				w8.all[i] = convert_utf16_to_utf8(w16.all[i].str, (int)w16.all[i].sz);
-				free_any_str(w16.all[i].str);//maybe set it to zero too
-			}
-
-			res = update_word(state->settings->db, &w8);
+			res = update_word(state->settings->db, w16);
 		}
 		return res;
 	}
@@ -1801,9 +1780,9 @@ namespace べんきょう {
 	bool save_new_word(ProcState* state) {
 		bool res = false;
 		if (check_new_word(state)) {
-			learnt_word16 w16; 
-			auto& page = state->pages.new_word;
+			learnt_word16 w16; defer{ for (int i = w16.pk_count; i < ARRAYSIZE(w16.all); i++) free_any_str(w16.all[i]); };
 
+			auto& page = state->pages.new_word;
 			_get_edit_str(page.edit_hiragana, w16.attributes.hiragana);
 			_get_edit_str(page.edit_kanji, w16.attributes.kanji);
 			_get_edit_str(page.edit_meaning, w16.attributes.meaning);
@@ -1811,25 +1790,19 @@ namespace べんきょう {
 			_get_edit_str(page.edit_notes, w16.attributes.notes);
 			_get_edit_str(page.edit_example_sentence, w16.attributes.example_sentence);
 			_get_combo_sel_idx_as_str(page.combo_lexical_category, w16.attributes.lexical_category);
-			defer{ for (auto& s : w16.all) free_any_str(s); };
-
-			learnt_word8 w8;
-			for (int i = w16.pk_count; i < ARRAYSIZE(w16.all); i++) {
-				w8.all[i] = s16_to_s8(w16.all[i]);
-			}
-			defer{ for (int i = w8.pk_count; i < ARRAYSIZE(w8.all); i++)free_any_str(w8.all[i]); };
-
+			
 			//TODO(fran): check for similar words, and consult the user whether they want to create it as a new word or cancel cause the same word already exists
 
 			//Now we can finally do the insert
 			//TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings. we could show a list, like we do on the landing page, with the similar words, and only if they then click on an element of the list we open a separate window to allow them the see it in full / edit it
-			int insert_res = insert_word(state->settings->db, w8);
+			int insert_res = insert_word(state->settings->db, w16);
 
 			//Error handling
 			switch (insert_res) {
 			case SQLITE_OK: { res = true; } break;
 			case SQLITE_CONSTRAINT:
 			{
+				Assert(0); break;//TODO(fran): check for duplicate words manually, this codepath is not being triggered now
 				//TODO(fran): this should actually be a more specific check for word.hiragana but for now we know that's the only constraint check there is
 
 				//The user tried to add a word that already exists, we must notify them about it and ask wether to override the previous word or cancel
@@ -1868,7 +1841,8 @@ namespace べんきょう {
 
 				int ret = MessageBoxW(state->nc_parent, RCS(170), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
 				if (ret == IDYES) {
-					res = update_word(state->settings->db, &w8);
+					Assert(0); break;//TODO(fran): again, manually check for repeated words, we could offer this option of updating an already existing word with the new contents
+					//res = update_word(state->settings->db, &w8);
 				}
 
 			} break;
@@ -2106,7 +2080,6 @@ namespace べんきょう {
 		const f32 dt = 1.f / total_frames;
 		const i32 timer_id = 0x458;
 
-
 		RECT navrc; GetWindowRect(state->pages.navbar, &navrc); MapWindowRect(0, state->wnd, &navrc);
 		RECT siderc; GetClientRect(state->pages.sidebar, &siderc);
 		int sidebar_w = RECTW(siderc);
@@ -2166,6 +2139,7 @@ namespace べんきょう {
 
 		if (sidebar_state->show) {
 			ShowWindow(sidebar, SW_SHOW);
+			
 			SetWindowPos(sidebar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW); //TODO(fran): this does allow me to interact with the child windows but destroys drawing for some reason
 			//NOTE: if I cant get this to work I can also hack it like youtube does, simply offset the page x position to not cover the sidebar
 		}
@@ -2870,10 +2844,10 @@ namespace べんきょう {
 		const int h_pad = (int)((f32)h * .05f);
 		const int max_w = w - w_pad * 2;
 
-		//TODO(fran): find out why the sidebar gets occluded on resizing
 		rect_i32 sidebar;
 		{//sidebar
-			sidebar.left = r.left;//TODO(fran): we should allow the sidebar animation to control the x position at all times
+			RECT correctsidebar; GetWindowRect(state->pages.sidebar, &correctsidebar); MapWindowRect(0, GetParent(state->pages.sidebar), &correctsidebar);
+			sidebar.left = correctsidebar.left;
 			sidebar.top = navbar.bottom();
 			sidebar.w = avg_str_dim(global::fonts.General, 20).cx;
 			sidebar.h = h;
@@ -3470,15 +3444,14 @@ namespace べんきょう {
 		case WM_NCCREATE:
 		{
 			CREATESTRUCT* create_nfo = (CREATESTRUCT*)lparam;
-			decltype(state) st = (decltype(st))calloc(1, sizeof(decltype(*st)));
-			Assert(st);
-			st->nc_parent = GetParent(hwnd);
-			st->wnd = hwnd;
-			st->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
-			st->current_page = ProcState::page::landing;
-			init_cpp_objects(st);
-			set_state(hwnd, st);
-			startup(st->settings->db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
+			decltype(state) state = (decltype(state))calloc(1, sizeof(decltype(*state)));
+			Assert(state);
+			state->nc_parent = GetParent(hwnd);
+			state->wnd = hwnd;
+			state->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
+			state->current_page = ProcState::page::landing;
+			init_cpp_objects(state);
+			set_state(hwnd, state);
 			return TRUE;
 		} break;
 		case WM_CREATE:
