@@ -2416,34 +2416,38 @@ namespace べんきょう {
 				}
 			);
 
-			controls.static_word_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.static_word_cnt_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_word_cnt_title, 351);
+			static_oneline::set_brushes(controls.static_word_cnt_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, 0, 0, 0);
 
 			controls.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 
-			controls.static_practice_cnt_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.static_practice_cnt_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_practice_cnt_title, 352);
+			static_oneline::set_brushes(controls.static_practice_cnt_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, 0, 0, 0);
 
 			controls.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
 
-			controls.static_accuracy_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.static_accuracy_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_title, 353);
+			static_oneline::set_brushes(controls.static_accuracy_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 
 			controls.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			score::set_brushes(controls.score_accuracy, FALSE, global::colors.ControlBk, global::colors.Score_RingBk, global::colors.Score_RingFull, global::colors.Score_RingEmpty, global::colors.Score_InnerCircle);
 
 
-			controls.static_accuracy_timeline_title = CreateWindowW(L"Static", NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.static_accuracy_timeline_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_timeline_title, 354);
+			static_oneline::set_brushes(controls.static_accuracy_timeline_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
 
 			controls.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
@@ -3573,9 +3577,8 @@ namespace べんきょう {
 		} break;
 		case WM_SIZE:
 		{
-			LRESULT res = DefWindowProc(hwnd, msg, wparam, lparam);//TODO(fran): #speed pointless call to default handler that im pretty sure does nothing on wm_size
 			resize_controls(state);
-			return res;
+			return 0;
 		} break;
 		case WM_CLOSE:
 		{
@@ -3611,15 +3614,10 @@ namespace べんきょう {
 			if (child) {//Notifs from our childs
 				switch (state->current_page) {
 				case ProcState::page::landing:
-				{
-				} break;
 				case ProcState::page::new_word:
-				{
-				} break;
 				case ProcState::page::practice:
-				{
-				} break;
 				case ProcState::page::show_word:
+				case ProcState::page::review_practice:
 				{
 				} break;
 				case ProcState::page::practice_writing:
@@ -3683,10 +3681,7 @@ namespace べんきょう {
 								btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
 								button::set_theme(page.button_next, &btn_theme);
 
-								//TODO(fran): block input to the edit and btn controls, we dont want the user to be inputting new values or pressing next multiple times
-
 								//Update word stats
-								//TODO(fran): if we knew we had the old values in the word object we could simply update those and batch update the whole word
 								word_update_last_practiced_date(state->settings->db, pagestate.practice->word);
 								word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->word, answered_correctly);
 
@@ -3719,9 +3714,6 @@ namespace べんきょう {
 					else if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
 					}
-				} break;
-				case ProcState::page::review_practice:
-				{
 				} break;
 				case ProcState::page::review_practice_writing:
 				{
@@ -3962,32 +3954,12 @@ namespace べんきょう {
 		case WM_ERASEBKGND:
 		{
 			return 0;//we dont erase the bk here, instead we do everything on wm_paint
-			/*
-			LRESULT res;
-			if (state->brushes.bk) {
-				//TODO(fran): idk if WS_CLIPCHILDREN | WS_CLIPSIBLINGS automatically clip that regions when I draw or I have to do it manually to avoid flicker
-				HDC dc = (HDC)wparam;
-				RECT r; GetClientRect(state->wnd, &r);
-				FillRect(dc, &r, state->brushes.bk);
-				res = 1;//We erased the bk
-			}
-			else res = DefWindowProc(hwnd, msg, wparam, lparam);
-			return res;
-			*/
 		} break;
 		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
 		{
 			HDC listboxDC = (HDC)wparam;
 			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
 			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
-
-			return (INT_PTR)global::colors.ControlBk;
-		} break;
-		case WM_CTLCOLORSTATIC: //for the static controls //TODO(fran): this has to go, aka make my own
-		{
-			HDC listboxDC = (HDC)wparam;
-			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
-			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));//TODO(fran): maybe a lighter color to signalize non-editable?
 
 			return (INT_PTR)global::colors.ControlBk;
 		} break;
@@ -3999,7 +3971,6 @@ namespace べんきょう {
 		} break;
 		case WM_PAINT:
 		{
-#if 1
 			PAINTSTRUCT ps;
 			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd,&ps); };
 			if (state->brushes.bk) {
@@ -4008,9 +3979,6 @@ namespace べんきょう {
 				FillRect(dc, &r, state->brushes.bk);
 			}
 			return 0;
-#else
-			return DefWindowProc(hwnd, msg, wparam, lparam);
-#endif
 		} break;
 		case WM_NCHITTEST:
 		{
@@ -4031,8 +3999,7 @@ namespace べんきょう {
 		case WM_LBUTTONDOWN:
 		{
 			SetFocus(0);//remove focus from whoever had it
-			//TODO(fran): BUG: probably on the editbox, if you click the searchbox in the navbar and then click on the 'new' button of the landing the cursor will get misplaced
-			return DefWindowProc(hwnd, msg, wparam, lparam);
+			return 0;
 		} break;
 		case WM_LBUTTONUP:
 		{
@@ -4086,40 +4053,7 @@ namespace べんきょう {
 		} break;
 		case WM_MOUSEWHEEL:
 		{
-#if 0
-			//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
-			short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
-			int dy = avg_str_dim(global::fonts.General, 1).cy;
-			//printf("zDelta %d ; height %d\n", zDelta, dy);
-			int step = zDelta * dy;
-			#if 0 //possibly better solution
-			UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
-			ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);
-			#elif 0 //handmade solution (no WM_PRINT and friends)
-			smooth_scroll(state,step);
-			#else
-			//RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->nc_parent, (POINT*)&r, 2);
-			//MoveWindow(state->wnd, r.left, r.top + step, RECTW(r), RECTH(r), TRUE); //This looks like a much much better idea
-			smooth_move(state, step);
-			#endif
-			/*
-			if (zDelta >= 0)
-				for (int i = 0; i < zDelta; i++)
-					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEUP, 0), 0); //TODO(fran): use ScrollWindowEx ?
-			else
-				for (int i = 0; i > zDelta; i--)
-					SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
-			*/
-			return 0;
-#else
 			return SendMessage(state->nc_parent, msg, wparam, lparam);
-#endif
-		} break;
-		case WM_PRINT:
-		{
-			//ScrollWindowEx works by sending this, and (I assume) asking you to render onto a different dc and overriding whats on screen with that, thing is though that it actually requests you to do it all, sends wm_print and then defwindowproc requests repainting from this window and all the childs, onto the alien dc
-			return DefWindowProc(hwnd, msg, wparam, lparam);
-			return 0;
 		} break;
 
 #if defined(TEST_IME_MODE_SWITCH)

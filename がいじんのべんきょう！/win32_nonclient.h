@@ -50,6 +50,7 @@
 //TODO(fran): look at SetWindowLong(hWnd, GWL_STYLE, currStyles | WS_MAXIMIZE); maybe that helps with maximizing correctly?
 //TODO(fran): if the user maximizes the wnd and then clicks and drags the nonclient to de-maximize we get the problem of our client area not rendering, we need to find the msg that correlates to that and call invalidaterect on the client
 //TODO(fran): BUG: reproduction: user drags the wnd and moves it to the right till half of it goes outside the screen and then drags it back into view, now the imgs are all distorted
+//TODO(fran): change to using a navbar, that way the user can add whatever they want and we can throw away things like WM_BACK
 
 struct unCapNcLpParam {//NOTE: pass a pointer to unCapNcLpParam to set up the client area, if client_class_name is null no client is created
 	const cstr* client_class_name;
@@ -536,7 +537,7 @@ namespace nonclient {
 
 			if (lpParam->client_class_name) {
 				state->client = CreateWindowW(lpParam->client_class_name, NULL, WS_CHILD | WS_VISIBLE
-					,0,0,0,0, state->wnd, 0, 0, lpParam->client_lp_param);
+					,0,0,0,0, state->wnd, 0, 0, lpParam->client_lp_param); //TODO(fran): change to programatically attaching a client, otherwise the client cant set its own flags, and other stuff
 			}
 
 			nonclient::resize_controls(state);

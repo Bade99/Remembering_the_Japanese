@@ -14,6 +14,7 @@
 
 //TODO(fran): draw border and bk
 //TODO(fran): we need a better font size calculation, for one it currently doesnt contemplate letters like "g" with go below the usual height and will usually get truncated
+//TODO(fran): use a Theme
 
 namespace static_oneline {
 	struct ProcState {
@@ -223,6 +224,7 @@ namespace static_oneline {
 				COLORREF txt_color = ColorFromBrush(state->brushes.txt);
 				Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
 				graphics.DrawString(state->txt.str, (INT)(state->txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
+				//TODO(fran): do _not_ use gdiplus when SO_AUTOFONTSIZE isnt set, use instead gdi's TextOut which looks much better
 			}
 #endif
 
