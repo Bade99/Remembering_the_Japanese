@@ -164,6 +164,9 @@ static any_str convert_utf16_to_utf8(const utf16* s, int sz /*bytes*/) {
 	}
 	return res;
 }
+static s8 s16_to_s8(const s16& s) {
+	return convert_utf16_to_utf8(s.str, (int)s.sz);
+}
 
 //----------------------DEFER-----------------------: (essential feature missing from the base language)
 

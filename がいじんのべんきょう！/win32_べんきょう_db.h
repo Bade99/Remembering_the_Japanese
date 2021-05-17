@@ -8,6 +8,8 @@
 #include <string>
 //All interactions with the がいしんのべんきょう db are in here:
 
+//TODO(fran): maybe we should use stored procs, that way we get sintax checking on startup for everything, otherwise something might slip up, still we may also want to add tests for each thing too
+
 //-------------------------Types-----------------------------: //TODO(fran): should the types be inside the namespace?
 
 struct user_stats {
@@ -27,10 +29,13 @@ struct user_stats {
 	}
 };
 
+//TODO(fran): why allocate this? I'd much prefer constant size arrays with a length and no null terminator, we know the approximate size of everyone (probably needs templates)
+	//I really dont know what to do about the null terminator, do I "ignore" it like std::string, basically by not presenting it to the user but always making sure it's there, or strip it altogether
 template <typename type>
 union _learnt_word { //contains utf16 when getting data from the UI, and utf8 when sending requests to the db
 	struct {
 #define _foreach_learnt_word_member(op) \
+		op(type,id) \
 		op(type,hiragana) \
 		op(type,kanji) \
 		op(type,meaning) \
@@ -67,12 +72,12 @@ union _extra_word {
 	struct {
 #define _foreach_extra_word_member(op) \
 		op(type,creation_date) \
-		op(type,last_shown_date) \
-		op(type,times_shown) \
+		op(type,last_practiced_date) \
+		op(type,times_practiced) \
 		op(type,times_right) \
 
 		//NOTE: times_right is a count that goes up each time the user guessed the word correctly
-		//TODO(fran): we may want to separate between times_right and times_shown for hiragana and the meaning
+		//TODO(fran): we may want to separate between times_right & times_practiced for hiragana and the meaning
 
 		_foreach_extra_word_member(_generate_member_no_default_init);
 
@@ -101,7 +106,7 @@ struct stored_word16 {
 #define comma ,
 
 
-#define _sqlite3_generate_columns(type,name,...) "" + #name + ","
+#define _sqlite3_generate_columns(type,name,...) "" #name ","
 //IMPORTANT: you'll have to remove the last comma since sql doesnt accept trailing commas
 
 #define _sqlite3_generate_columns_array(type,name,...) #name,
@@ -118,7 +123,8 @@ struct stored_word16 {
 #define べんきょう_table_words "words"
 #define _べんきょう_table_words words
 #define べんきょう_table_words_structure \
-	hiragana			TEXT PRIMARY KEY COLLATE NOCASE,\
+	id					INTEGER PRIMARY KEY,\
+	hiragana			TEXT COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
 	meaning				TEXT NOT NuLL COLLATE NOCASE,\
 	mnemonic			TEXT,\
@@ -126,15 +132,19 @@ struct stored_word16 {
 	notes				TEXT,\
 	example_sentence	TEXT,\
 	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
-	last_shown_date		INTEGER DEFAULT 0,\
-	times_shown			INTEGER DEFAULT 0,\
-	times_right			INTEGER DEFAULT 0\
+	last_practiced_date	INTEGER DEFAULT 0,\
+	times_practiced		INTEGER DEFAULT 0,\
+	times_right			INTEGER DEFAULT 0,\
+	\
+	weight_last_practiced_date	INTEGER DEFAULT 0,\
+	weight_times_practiced		INTEGER DEFAULT 0,\
+	weight_times_right			INTEGER DEFAULT 0\
 
 //INFO about べんきょう_table_words_structure:
 //	hiragana: hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
 //	general: user modifiable values first, application defined last
 //	creation_date: in Unix time
-//	last_shown_date: in Unix Time, used for sorting, TODO(fran): I should actually default to a negative value since 0 maps to 1970 but unix time can go much further back than that
+//	last_practiced_date: in Unix Time, used for sorting, TODO(fran): I should actually default to a negative value since 0 maps to 1970 but unix time can go much further back than that
 
 //TODO(fran): I really dont know what to do with the primary key constraint, it's more annoying than anything else if applied to the hiragana column, but on the other hand we do need it for the type of practices we want, where we question the user based only on hiragana, maybe simply adding a list is for the best, at least for the 'meaning' column. That would be one kanji, one hiragana, multiple meanings. Check this actually applies to the language
 
@@ -179,7 +189,7 @@ struct stored_word16 {
 
 namespace べんきょう {
 
-	i64 get_table_rowcount(sqlite3* db, std::string table) {
+	i64 get_table_rowcount(sqlite3* db, const std::string& table) {
 		i64 res;
 		std::string count = "SELECT COUNT(*) FROM " + table + ";";
 		sqlite3_stmt* stmt;
@@ -202,7 +212,8 @@ namespace べんきょう {
 	user_stats get_user_stats(sqlite3* db) {
 		user_stats res;
 		utf8 stats[] = SQL(
-			SELECT word_cnt comma times_practiced comma times_shown comma times_right FROM _べんきょう_table_user;
+			SELECT word_cnt comma times_practiced comma times_shown comma times_right 
+			FROM _べんきょう_table_user;
 		);
 
 		sqlite3_stmt* stmt;
@@ -230,7 +241,9 @@ namespace べんきょう {
 		std::string timeline =
 			SQL(SELECT accuracy FROM)
 			+ "("s +
-			SQL(SELECT accuracy comma creation_date FROM _べんきょう_table_accuracy_timeline ORDER BY creation_date DESC LIMIT) + " "s + std::to_string(cnt)
+				SQL(SELECT accuracy comma creation_date
+					FROM _べんきょう_table_accuracy_timeline
+					ORDER BY creation_date DESC LIMIT) + " " + std::to_string(cnt)
 			+ ")" +
 			SQL(ORDER BY creation_date ASC;);
 
@@ -260,87 +273,130 @@ namespace べんきょう {
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
-
-	struct get_word_res { stored_word16 word; bool found; };
-	void free_get_word(stored_word16& word) {
+	struct stored_word16_res { stored_word16 word; bool found; };
+	void free_stored_word(stored_word16& word) {
 		//TODO(fran): I dont think I need the if, I should simply always allocate (and I think I already do)
-		for (auto s : word.application_defined.all) if (s.str) free_any_str(s.str);
-		for (auto s : word.user_defined.all) if (s.str) free_any_str(s.str);
+		for (auto s : word.application_defined.all) free_any_str(s.str);
+		for (auto s : word.user_defined.all) free_any_str(s.str);
 	}
-	get_word_res get_word(sqlite3* db, learnt_word_elem match_type, utf16* match) {
+
+	static auto parse_select_stored_word = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+		stored_word16_res* res = (decltype(res))extra_param;
+		res->found = true;
+		//here we should already know the order of the columns since they should all be specified in their correct order in the select
+		//NOTE: we should always get only one result since we search by hiragana
+
+#define load_learnt_word_member(type,name,...) if(results) res->word.user_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
+#define load_extra_word_member(type,name,...) if(results) res->word.application_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
+		_foreach_learnt_word_member(load_learnt_word_member);
+		_foreach_extra_word_member(load_extra_word_member);
+
+		try {//Format last_practiced_date (this would be easier to do in the query but I'd have to remove the macros)
+			i64 unixtime = std::stoll(res->word.application_defined.attributes.last_practiced_date.str, nullptr, 10);
+			free_any_str(res->word.application_defined.attributes.last_practiced_date.str);
+			if (unixtime == 0) {
+				//this word has never been shown in a practice run
+				str never = RS(274);
+				int sz_bytes = (int)(never.length() + 1) * sizeof(str::value_type);
+				res->word.application_defined.attributes.last_practiced_date = alloc_any_str(sz_bytes);
+				memcpy(res->word.application_defined.attributes.last_practiced_date.str, never.c_str(), sz_bytes);
+			}
+			else {
+				std::time_t temp = unixtime;
+				std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
+				res->word.application_defined.attributes.last_practiced_date = alloc_any_str(30 * sizeof(utf16));
+				wcsftime(res->word.application_defined.attributes.last_practiced_date.str, 30, L"%Y-%m-%d", time);
+			}
+		}
+		catch (...) {}
+
+		try {//Format created_date (this would be easier to do in the query but I'd have to remove the macros)
+			i64 unixtime = std::stoll(res->word.application_defined.attributes.creation_date.str, nullptr, 10);
+			free_any_str(res->word.application_defined.attributes.creation_date.str);
+
+			std::time_t temp = unixtime;
+			std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
+			res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
+			wcsftime(res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
+		}
+		catch (...) {}
+
+		return 0;
+	};
+
+	stored_word16_res get_word(sqlite3* db, learnt_word_elem match_type, const s16 match) {
 		using namespace std::string_literals;
-		get_word_res res{ 0 };
-		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match) + 1) * sizeof(*match)); defer{ free_any_str(match_str.str); };
+		stored_word16_res res{ 0 };
+		auto match_str = s16_to_s8(match); defer{ free_any_str(match_str); };
 
 		//TODO(fran): this should be a function that returns ptr to static strings of the columns
 		const char* filter_col = 0;
 		switch (match_type) {
 		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
-		case decltype(match_type)::kanji: filter_col = "kanji"; break;
-		case decltype(match_type)::meaning: filter_col = "meaning"; break;
+		case decltype(match_type)::kanji:    filter_col = "kanji"; break;
+		case decltype(match_type)::meaning:  filter_col = "meaning"; break;
 		default: Assert(0);
 		}
 
-		std::string select_word = "SELECT "s
-			+ _foreach_learnt_word_member(_sqlite3_generate_columns)
-			+ _foreach_extra_word_member(_sqlite3_generate_columns);
-		select_word.pop_back();//remove trailing comma
-		select_word += " FROM "s + べんきょう_table_words +
-			" WHERE " + filter_col + " LIKE '" + (utf8*)match_str.str + "'" ";";
-		//NOTE: here I'd like to check last_shown_date and do an if last_shown_date == 0 -> 'Never' else last_shown_data, but I cant cause of the macros, it's pretty hard to do operations on specific columns if you have to autogen it with macros
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns) _foreach_extra_word_member(_sqlite3_generate_columns);
+		columns.pop_back();//remove trailing comma
 
-		auto parse_select_word_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
-			get_word_res* res = (decltype(res))extra_param;
-			res->found = true;
-			//here we should already know the order of the columns since they should all be specified in their correct order in the select
-			//NOTE: we should always get only one result since we search by hiragana
-
-			//TODO(fran): the conversion im doing here from "convert_res" to "s" should get standardized in one type eg "any_text" or "any_str" where struct any_str{void* mem,size_t sz;/*bytes*/}
-#define load_learnt_word_member(type,name,...) if(results) res->word.user_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
-#define load_extra_word_member(type,name,...) if(results) res->word.application_defined.attributes.name = convert_utf8_to_utf16(*results, (int)strlen(*results) + 1); results++;
-			_foreach_learnt_word_member(load_learnt_word_member);
-			_foreach_extra_word_member(load_extra_word_member);
-
-			try {//Format last_shown_date (this would be easier to do in the query but I'd have to remove the macros)
-				i64 unixtime = std::stoll(res->word.application_defined.attributes.last_shown_date.str, nullptr, 10);
-				free_any_str(res->word.application_defined.attributes.last_shown_date.str);
-				if (unixtime == 0) {
-					//this word has never been shown in a practice run
-					str never = RS(274);
-					int sz_bytes = (int)(never.length() + 1) * sizeof(str::value_type);
-					res->word.application_defined.attributes.last_shown_date = alloc_any_str(sz_bytes);
-					memcpy(res->word.application_defined.attributes.last_shown_date.str, never.c_str(), sz_bytes);
-				}
-				else {
-					std::time_t temp = unixtime;
-					std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
-					res->word.application_defined.attributes.last_shown_date = alloc_any_str(30 * sizeof(utf16));
-					wcsftime(res->word.application_defined.attributes.last_shown_date.str, 30, L"%Y-%m-%d", time);
-				}
-			}
-			catch (...) {}
-
-			try {//Format created_date (this would be easier to do in the query but I'd have to remove the macros)
-				i64 unixtime = std::stoll(res->word.application_defined.attributes.creation_date.str, nullptr, 10);
-				free_any_str(res->word.application_defined.attributes.creation_date.str);
-
-				std::time_t temp = unixtime;
-				std::tm* time = std::localtime(&temp);//UNSAFE: not multithreading safe, returns a pointer to an internal unique object
-				res->word.application_defined.attributes.creation_date = alloc_any_str(30 * sizeof(utf16));
-				wcsftime(res->word.application_defined.attributes.creation_date.str, 30, L"%Y-%m-%d", time);
-			}
-			catch (...) {}
-
-			//TODO(fran): once again we want to change something for the UI, the created_date should only show "y m d", that may mean that we want macros for the user defined stuff, but not for application defined, there are 2 out of 4 things we want to change there
-
-			return 0;
-		};
-		//TODO(fran):in the sql query convert the datetime values to the user's localtime
+		std::string select_word = 
+			" SELECT " + columns + 
+			" FROM " べんきょう_table_words
+			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "'" "LIMIT 1" ";";
 
 		char* select_errmsg;
-		sqlite3_exec(db, select_word.c_str(), parse_select_word_result, &res, &select_errmsg);
+		sqlite3_exec(db, select_word.c_str(), parse_select_stored_word, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);
-		return std::move(res);
+		return res;
+	}
+
+	static const std::string learnt_word_columns_array[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
+
+	static std::string generate_key_match(const learnt_word8& _key) {
+		using namespace std::string_literals;
+
+		std::string key_match;
+		//TODO(fran): if pk isnt a number we'll have to add '...' to the ones where it corresponds
+		for (int i = 0/*match by pk columns*/; i < _key.pk_count; i++)
+			key_match += learnt_word_columns_array[i] + " = "s + _key.all[i].str + (((i + 1) != _key.pk_count) ? "AND" : "");
+		return key_match;
+	}
+
+	static std::string generate_key_match(const learnt_word16& _key) {
+		using namespace std::string_literals;
+
+		learnt_word8 _key8; defer{ for (int i = 0; i < _key8.pk_count; i++) free_any_str(_key8.all[i]); };
+
+		for (int i = 0; i < _key.pk_count; i++) _key8.all[i] = s16_to_s8(_key.all[i]); 
+
+		return generate_key_match(_key8);
+	}
+
+	static std::string generate_key_match(const stored_word16& _key) {
+		return generate_key_match(_key.user_defined);
+	}
+
+	stored_word16_res get_stored_word(sqlite3* db, const learnt_word16& _key) { //TODO(fran): static member function?
+		//TODO(fran): we should take in a learnt_word8 and have conversion functions for utf16
+		using namespace std::string_literals;
+		stored_word16_res res{ 0 };
+
+		std::string key_match = generate_key_match(_key);
+
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns) _foreach_extra_word_member(_sqlite3_generate_columns);
+		columns.pop_back();//remove trailing comma
+
+		std::string select_word =
+			" SELECT " + columns +
+			" FROM " べんきょう_table_words
+			" WHERE " + key_match + ";";
+
+		char* select_errmsg;
+		sqlite3_exec(db, select_word.c_str(), parse_select_stored_word, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+		return res;
 	}
 
 	//TODO(fran): I should handle gmt to localtime and viceversa conversions inside the db and leave the rest of the program to work in localtime
@@ -348,7 +404,7 @@ namespace べんきょう {
 	ptr<learnt_word16> get_learnt_word_by_date(sqlite3* db, time64 gmt_start, time64 gmt_end) {
 		using namespace std::string_literals;
 		ptr<learnt_word16> res;
-		std::string columns = ""s + _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
 
 		std::string filter = 
 			" FROM "s + べんきょう_table_words +
@@ -374,7 +430,7 @@ namespace べんきょう {
 			sqlite3_finalize(stmt);
 		}
 
-		res.alloc(cnt);//TODO(fran): I think allocating zero size works just as well but im not sure
+		res.alloc(cnt);//TODO(fran): I think allocating zero size (cnt=0) works just as well but im not sure
 		res.cnt = 0;
 
 		auto parse_learnt_word_array = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -452,19 +508,27 @@ namespace べんきょう {
 	}
 
 	//returns sqlite error codes, SQLITE_OK,...
-	int insert_word(sqlite3* db, const learnt_word8* word) {
+	int insert_word(sqlite3* db, const learnt_word8& word) {
 		int res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
 
-		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
-		columns.pop_back(); //We need to remove the trailing comma
+		//std::string columnsArr[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
+		//std::string valuesArr[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) }; //IMPORTANT: cant use this since this actually dereferences the pointer, and in the case of 'id' it will be nullptr
 
-		std::string values = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_values);
-		values.pop_back(); //We need to remove the trailing comma
+		std::string columns;
+		std::string values;
+		for (int i = word.pk_count; i < ARRAYSIZE(learnt_word_columns_array); i++) {
+			columns += learnt_word_columns_array[i] + ",";
+			values += word.all[i].str; values += ",";
+		}
+		columns.pop_back(); //remove the trailing comma
+		values.pop_back(); //remove the trailing comma
 
-		std::string insert_word = std::string(" INSERT INTO ") + べんきょう_table_words + "(" + columns + ")" + " VALUES(" + values + ");";
+		std::string insert_word = 
+			" INSERT INTO " べんきょう_table_words "(" + columns + ")" +
+			" VALUES(" + values + ");";
 
 		//char* insert_errmsg;
 		res = sqlite3_exec(db, insert_word.c_str(), 0, 0, 0/*&insert_errmsg*/) /*== SQLITE_OK*/;
@@ -475,25 +539,27 @@ namespace べんきょう {
 		return res;
 	}
 
-
-	bool update_word(sqlite3* db, learnt_word8* word) {
+	bool update_word(sqlite3* db, const learnt_word8* word) {
 		bool res;
 		//TODO(fran): specify all the columns for the insert, that will be our error barrier
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
 
-		std::string columns[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
+		//std::string columns[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
 
 		std::string values[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) };
 
-		std::string update_word = std::string(" UPDATE ") + べんきょう_table_words + " SET ";
-		for (int i = word->pk_count/*dont update pk columns*/; i < ARRAYSIZE(columns); i++)
-			update_word += columns[i] + "=" + values[i] + ",";
-		update_word.pop_back();//you probably need to remove the trailing comma as always
-		update_word += " WHERE ";
-		for (int i = 0/*match by pk columns*/; i < word->pk_count; i++)
-			update_word += columns[i] + " LIKE " + values[i] + (((i + 1) != word->pk_count) ? "AND" : "");
-		//TODO(fran): should I use "like" or "="  or "==" ?
+		std::string key_match = generate_key_match(*word);
+
+		std::string new_values;
+		for (int i = word->pk_count/*dont update pk columns*/; i < ARRAYSIZE(learnt_word_columns_array); i++)
+			new_values += learnt_word_columns_array[i] + "=" + values[i] + ",";
+		new_values.pop_back();//you probably need to remove the trailing comma as always
+
+		std::string update_word = 
+			" UPDATE " べんきょう_table_words 
+			" SET " + new_values + 
+			" WHERE " + key_match + ";";
 
 		char* update_errmsg;
 		res = sqlite3_exec(db, update_word.c_str(), 0, 0, &update_errmsg) == SQLITE_OK;
@@ -504,43 +570,51 @@ namespace べんきょう {
 
 
 	//NOTE word should be in utf16
-	void word_update_last_shown_date(sqlite3* db, const learnt_word16& word) {
+	void word_update_last_practiced_date(sqlite3* db, const learnt_word16& word) {
 		using namespace std::string_literals;
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
-		std::string update_last_shown_date = SQL(
-			UPDATE _べんきょう_table_words SET last_shown_date = strftime('%s', 'now') WHERE hiragana =
-		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+		std::string key_match = generate_key_match(word);
+
+		std::string update_last_practiced_date = SQL(
+			UPDATE _べんきょう_table_words
+			SET last_practiced_date = strftime('%s', 'now') comma
+				weight_last_practiced_date = last_practiced_date) +
+			" WHERE "s + key_match + ";";
+		//hiragana = ) + "'"s + hiragana.str + "'" ";";
 
 		utf8* errmsg;
-		sqlite3_exec(db, update_last_shown_date.c_str(), 0, 0, &errmsg);
+		sqlite3_exec(db, update_last_practiced_date.c_str(), 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
-	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
-	void word_increment_times_shown(sqlite3* db, const learnt_word16& word) {
+	//IMPORTANT: do not use directly, only through word_increment_times_practiced__times_right
+	void word_increment_times_practiced(sqlite3* db, const learnt_word16& word) {
 		using namespace std::string_literals;
-		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
 
-		std::string increment_times_shown = SQL(
-			UPDATE _べんきょう_table_words SET times_shown = times_shown + 1 WHERE hiragana =
-		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+		std::string key_match = generate_key_match(word);
+
+		std::string increment_times_practiced = SQL(
+			UPDATE _べんきょう_table_words
+			SET times_practiced = times_practiced + 1 comma
+				weight_times_practiced = weight_times_practiced + 1 ) +
+			" WHERE "s + key_match + ";";
 
 		utf8* errmsg;
-		sqlite3_exec(db, increment_times_shown.c_str(), 0, 0, &errmsg);
+		sqlite3_exec(db, increment_times_practiced.c_str(), 0, 0, &errmsg);
 		sqlite_exec_runtime_assert(errmsg);
 	}
 
-	//IMPORTANT: do not use directly, only through word_increment_times_shown__times_right
+	//IMPORTANT: do not use directly, only through word_increment_times_practiced__times_right
 	void word_increment_times_right(sqlite3* db, const learnt_word16& word) {
 		using namespace std::string_literals;
-		//TODO(fran): having to convert the hiragana is pretty annoying and pointless, rowid or similar looks much better
-		utf8_str hiragana = (utf8_str)convert_utf16_to_utf8(word.attributes.hiragana.str, (int)word.attributes.hiragana.sz); defer{ free_any_str(hiragana.str); };
+
+		std::string key_match = generate_key_match(word);
 
 		std::string increment_times_right = SQL(
-			UPDATE _べんきょう_table_words SET times_right = times_right + 1 WHERE hiragana =
-		) + "'"s + std::string((utf8*)hiragana.str) + "'" ";";
+			UPDATE _べんきょう_table_words 
+			SET times_right = times_right + 1 comma
+				weight_times_right = weight_times_right + 1 ) +
+			" WHERE "s + key_match + ";";
 
 		utf8* errmsg;
 		sqlite3_exec(db, increment_times_right.c_str(), 0, 0, &errmsg);
@@ -548,46 +622,40 @@ namespace べんきょう {
 	}
 
 	//NOTE word should be in utf16
-	void word_increment_times_shown__times_right(sqlite3* db, const learnt_word16& word, bool inc_times_right) {
-		//INFO: times_shown _must_ be updated before times_right in order for the triggers to function correctly
-		word_increment_times_shown(db, word);
+	void word_increment_times_practiced__times_right(sqlite3* db, const learnt_word16& word, bool inc_times_right) {
+		//INFO: times_practiced _must_ be updated before times_right in order for the triggers to function correctly
+		word_increment_times_practiced(db, word);
 		if (inc_times_right)word_increment_times_right(db, word);
 	}
 
 
-	bool delete_word(sqlite3* db, learnt_word8* word) {//TODO(fran): it'd be better to receive a learnt_word16 and only here convert it to learnt_word8
+	bool delete_word(sqlite3* db, const learnt_word8& word) {//TODO(fran): it'd be better to receive a learnt_word16 and only here convert it to learnt_word8
 		using namespace std::string_literals;
 		bool res = false;
 
+		std::string key_match = generate_key_match(word);
+
 		//To delete you find the word by its primary keys
 		std::string delete_word = SQL(
-			DELeTE FROM _べんきょう_table_words WHERE hiragana =
-		) + "'"s + word->attributes.hiragana.str + "'" ";";//TODO(fran): parametric filtering by all primary keys
+			DELeTE FROM _べんきょう_table_words ) +
+			" WHERE "s + key_match + ";";
 
 
-		char* delete_errmsg;
-		res = sqlite3_exec(db, delete_word.c_str(), 0, 0, &delete_errmsg) == SQLITE_OK;
-		sqlite_exec_runtime_check(delete_errmsg);
+		char* errmsg;
+		res = sqlite3_exec(db, delete_word.c_str(), 0, 0, &errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(errmsg);
 		return res;
 	}
 
-
-	//struct search_word_res { utf16** matches; int cnt; };
-	//void free_search_word(search_word_res res) {
-	//	for (int i = 0; i < res.cnt; i++) {
-	//		free_any_str(res.matches[i]);
-	//	}
-	//	free(res.matches);
-	//}
-
 	//NOTE: returns an array of learnt_words that are contiguous in memory, which means that freeing the base pointer frees all the elements at once
-	ptr<learnt_word16> search_word_matches(sqlite3* db, learnt_word_elem match_type, utf16* match/*bytes*/, int max_cnt_results/*eg. I just want the top 5 matches*/) {
+	ptr<learnt_word16> search_word_matches(sqlite3* db, learnt_word_elem match_type, const s16 match, int max_cnt_results/*eg. I just want the top 5 matches*/) {
+		using namespace std::string_literals;
 		//NOTE/TODO(fran): for now we'll simply retrieve the hiragana, it might be good to get the meaning too, so the user can quick search, and if they really want to know everything about that word then the can click it and pass to the next stage
 		ptr<learnt_word16> res;
 		res.alloc(max_cnt_results);
 		//res.matches = (decltype(res.matches))malloc(max_cnt_results * sizeof(*res.matches));
 		res.cnt = 0;
-		auto match_str = convert_utf16_to_utf8(match, (int)(cstr_len(match) + 1) * sizeof(*match)); defer{ free_any_str(match_str.str); };
+		auto match_str = s16_to_s8(match); defer{ free_any_str(match_str.str); };
 		const char* filter_col = 0;
 		switch (match_type) {
 		case decltype(match_type)::hiragana: filter_col = "hiragana"; break;
@@ -596,12 +664,11 @@ namespace べんきょう {
 		default: Assert(0);
 		}
 
-		std::string learnt_word_cols = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns); learnt_word_cols.pop_back();//remove trailing comma
-		char* select_errmsg;
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();//remove trailing comma
 		std::string select_matches =
-			std::string(" SELECT ") + learnt_word_cols + /*TODO(fran): column names should be stored somewhere*/
-			" FROM " + べんきょう_table_words +
-			" WHERE " + filter_col + " LIKE '" + (utf8*)match_str.str + "%'" +
+			" SELECT "s + columns + /*TODO(fran): column names should be stored somewhere*/
+			" FROM " べんきょう_table_words +
+			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "%'" +
 			" LIMIT " + std::to_string(max_cnt_results) + ";";
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -620,24 +687,27 @@ namespace べんきょう {
 			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
 		};
 
-		sqlite3_exec(db, select_matches.c_str(), parse_match_result, &res, &select_errmsg);
-		sqlite_exec_runtime_check(select_errmsg);//TODO(fran): should I free the result and return an empty?
+		char* errmsg;
+		sqlite3_exec(db, select_matches.c_str(), parse_match_result, &res, &errmsg);
+		sqlite_exec_runtime_check(errmsg);//TODO(fran): should I free the result and return an empty?
 		return res;
 	}
 
 
-	bool reset_word_priority(sqlite3* db, learnt_word8* word) {
+	bool reset_word_priority(sqlite3* db, const learnt_word8& word) {
 		using namespace std::string_literals;
 		bool res = false;
 		//HACK: TODO(fran): store on the db two different values for each of the prioritizing columns so we can maintain untouched the one we show to the user but change/reset the real values the system uses when choosing practice words
 
+		std::string key_match = generate_key_match(word);
+
 		//TODO(fran): can I SET to default values?
 		std::string reset_priority = SQL(
 			UPDATE _べんきょう_table_words
-			SET last_shown_date = 0 comma
-			times_shown = 0
-			WHERE hiragana =
-		) + "'"s + word->attributes.hiragana.str + "'" ";";
+			SET weight_last_practiced_date = 0 comma
+				weight_times_practiced = 0 comma
+				weight_times_right = 0 ) +
+			" WHERE "s + key_match + ";";
 
 		utf8* errmsg;
 		res = sqlite3_exec(db, reset_priority.c_str(), 0, 0, &errmsg) == SQLITE_OK;
@@ -645,31 +715,32 @@ namespace べんきょう {
 		return res;
 	}
 
-	bool reset_word_priority(sqlite3* db, learnt_word16* word16) {
-		learnt_word8 word8{ 0 }/*we actually only need to clear what can be used by the real function*/;
-		//TODO(fran): here we'll only convert what's strictly necessary for the real function to succeed
-		word8.attributes.hiragana = convert_utf16_to_utf8(word16->attributes.hiragana.str, (int)word16->attributes.hiragana.sz); defer{ free_any_str(word8.attributes.hiragana.str); };
-		return reset_word_priority(db, &word8);
+	bool reset_word_priority(sqlite3* db, const learnt_word16& word16) {
+		learnt_word8 word8;
+		for(int i = 0; i < word16.pk_count;i++)
+			word8.all[i] = s16_to_s8(word16.all[i]); 
+		defer{ for (int i = 0; i < word16.pk_count; i++) free_any_str(word8.all[i]); };
+		return reset_word_priority(db, word8);
 	}
 
 
 	learnt_word16 get_practice_word(sqlite3* db, bool hiragana_req = false, bool kanji_req = false, bool meaning_req = false) {
-		learnt_word16 res{ 0 };
+		learnt_word16 res{ 0 };//TODO(fran): instead of zeroing this out we should allocate everything even if simply to put a null terminator, otherwise if we want to stay this way we should start sending nulls to the db too
 
 		//Algorithms to decide which words to show:
 		//Baseline:
-		//1. least shown: use times_shown and pick the 30 of lowest value, then reduce that at random down to 10.
-		//2. least recently shown: use last_shown_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
-		//TODO(fran): When the user asks explicitly for a word to be remembered we reset the times_shown count to 0 and maybe also set last_shown_date to the oldest possible date, and do the same for words the user gets wrong on the practices.
+		//1. least shown: use weight_times_practiced and pick the 30 of lowest value, then reduce that at random down to 10.
+		//2. least recently shown: use last_practiced_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
+		//TODO(fran): When the user asks explicitly for a word to be remembered we reset the weight_times_practiced count to 0 and maybe also set last_practiced_date to the oldest possible date, and do the same for words the user gets wrong on the practices.
 		//Advantages: assuming a 5 words a day workflow the user will see the new words off and on for a week, old words are guaranteed to be shown from time to time and in case the user fails at one of them it will go to the front of our priority queue, not so in the case they get it right, then it'll probably dissapear for quite a while, the obvious problem with this system is the lack of use of words that land in the middle of the two filters, we may want to maintain new words appearing for more than a week, closer to a month, one solution would be to pick 60 or 90 words
 		//Extra: we could allow for specific practices, for example, replacing the "note besides the bed" in the sense that the user can tells us I want to practice specifically what I added yesterday or the day I last added something new
 		//Super extra: when remembering a word this feature should also discriminate between each possible translation, say one jp word has a noun and an adjective registered, then both should work as separate entities, aka the user can ask for one specific translation to be put on the priority queue, we got a "one to many" situation
 
 
-		std::string columns = std::string("") + _foreach_learnt_word_member(_sqlite3_generate_columns);
-		columns.pop_back(); //We need to remove the trailing comma
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns);
+		columns.pop_back(); //remove trailing comma
 
-		//TODO(fran): we probably want to speed up this searches via adding indexes to times_shown and last_shown_date
+		//TODO(fran): we probably want to speed up this searches via adding indexes to weight_times_practiced and last_practiced_date
 
 		std::string where_req("");
 		if (hiragana_req || kanji_req || meaning_req) {
@@ -684,19 +755,19 @@ namespace べんきょう {
 		std::string select_practice_word =
 			" SELECT * FROM "
 			"("
-			//1. least shown: use times_shown and pick the 30 of lowest value, then reduce that at random down to 10.
+			//1. least shown: use times_practiced and pick the 30 of lowest value, then reduce that at random down to 10.
 			" SELECT * FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
 			"("
 			" SELECT * FROM "
-			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY times_shown ASC LIMIT 30" ")"
+			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY weight_times_practiced ASC LIMIT 30" ")"
 			"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
 			")"
 			" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
-			//2. least recently shown: use last_shown_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
+			//2. least recently shown: use last_practiced_date and pick the 30 oldest dates (lowest numbers), then reduce that at random down to 5
 			" SELECT * FROM "
 			"("
 			" SELECT * FROM "
-			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY last_shown_date ASC LIMIT 30"  ")"
+			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY weight_last_practiced_date ASC LIMIT 30"  ")"
 			"ORDER BY RANDOM() LIMIT 5"
 			")"
 			")"
@@ -730,15 +801,15 @@ namespace べんきょう {
 		std::string req_column;
 		switch (request) {
 		case decltype(request)::hiragana:
-			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.hiragana.str, (int)filter->attributes.hiragana.sz).str;
+			filter_elem = s16_to_s8(filter->attributes.hiragana).str;
 			req_column = "hiragana";
 			break;
 		case decltype(request)::kanji:
-			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.kanji.str, (int)filter->attributes.kanji.sz).str;
+			filter_elem = s16_to_s8(filter->attributes.kanji).str;
 			req_column = "kanji";
 			break;
 		case decltype(request)::meaning:
-			filter_elem = (utf8*)convert_utf16_to_utf8(filter->attributes.meaning.str, (int)filter->attributes.meaning.sz).str;
+			filter_elem = s16_to_s8(filter->attributes.meaning).str;
 			req_column = "meaning";
 			break;
 		default: Assert(0);
@@ -775,7 +846,7 @@ namespace べんきょう {
 
 		std::string req_column;
 		switch (request) {
-		case decltype(request)::hiragana:
+		case decltype(request)::hiragana://TODO(fran): I have this repeated at least 3 times
 			req_column = "hiragana";
 			break;
 		case decltype(request)::kanji:
@@ -845,7 +916,7 @@ namespace べんきょう {
 			}
 			{
 				utf8 create_word_table[] = SQL(
-					CREATE TABLE _べんきょう_table_words(べんきょう_table_words_structure) WITHOUT ROWID;
+					CREATE TABLE _べんきょう_table_words(べんきょう_table_words_structure);
 				);
 				sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -929,9 +1000,9 @@ namespace べんきょう {
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_increment_times_shown[] = SQL(
 					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_times_shown
-					AFTER UPDATE OF times_shown ON _べんきょう_table_words
+					AFTER UPDATE OF times_practiced ON _べんきょう_table_words
 					BEGIN
-					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_shown - OLD.times_shown;
+					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_practiced - OLD.times_practiced;
 				END;
 				);
 				sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
@@ -956,7 +1027,7 @@ namespace べんきょう {
 					AFTER UPDATE OF times_shown ON _べんきょう_table_user
 					BEGIN
 					INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
-					VALUES(CAST((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL) * 100.0) AS INTEGER));
+					VALUES(CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER));
 				END;
 				);
 
@@ -1016,18 +1087,18 @@ namespace べんきょう {
 		//Newer versions will need a "ponerse al día" module, in case they need to add data an old version didnt, an example would be the word count, assuming v1 didnt have it when v2 comes the user has potentially already added lots of words but their counter would be 0, here we'll need the module to to count the current number of already existing words on the db and update the counter(this type of operations could get very expensive, the good thing is they'll only execute once when we go from a lower db version to the higher one)
 		//ADDED PROBLEM: if the user goes up some versions, then down, then adds words and then goes back up the module wont execute since the db version always stays at the highest one, SOLUTION: one way to fix this is to add one extra information, last_db_version_execution (records the db version that was actually used during execution, which can be lower than the effective db_version of the tables), checking against this we can always know when there's a period of version change which means we have to "ponerlo al día".
 
-//#define TEST_WORDS
+#define TEST_WORDS
 #if defined(TEST_WORDS) && defined(_DEBUG)
 		{
 			utf8* errmsg;
 			utf8 test_insert_words[] = SQL(
-				INSERT INTO _べんきょう_table_words(hiragana, kanji, meaning, mnemonic, lexical_category)
+				INSERT INTO _べんきょう_table_words(hiragana, kanji, meaning, mnemonic, lexical_category, notes, example_sentence)
 				VALUES
-				('はな', '話', 'Flower', 'Flowernote', -1)comma
-				('なに', '何', 'What', 'Nani?!', -1)comma
-				('ひと', '人', 'Person', 'Note...', -1)comma
-				('べんきょう', '勉強', 'Study', 'Emm...', -1)comma
-				('おかしい', '', 'Strange', 'ちょっとおかしくないですか', -1);
+				('はな', '話', 'Flower', 'Flowernote', -1,'','')comma
+				('なに', '何', 'What', 'Nani?!', -1, '', '')comma
+				('ひと', '人', 'Person', 'Note...', -1, '', '')comma
+				('べんきょう', '勉強', 'Study', 'Emm...', -1, '', '')comma
+				('おかしい', '', 'Strange', 'ちょっとおかしくないですか', -1, '', '');
 			);
 			sqlite3_exec(db, test_insert_words, 0, 0, &errmsg);
 			sqlite_exec_runtime_assert(errmsg);

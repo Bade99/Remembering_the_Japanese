@@ -51,14 +51,24 @@ struct text { //A _non_ null terminated cstring
 struct utf8_str {
 	utf8* str;
 	size_t sz;/*bytes*/
+
+	operator utf8* () { return str; }
 };
 
 struct utf16_str {
 	utf16* str;
 	size_t sz;/*bytes*/
 
+	operator utf16* () { return str; }//NOTE: I dont yet know whether this will be dangerous/confusing
+
 	//Includes null terminator
 	size_t sz_char() { return sz / sizeof(*str); }//TODO(fran): it's probably better to not include the null terminator, or give two functions
+
+	//Does _not_ include null terminator
+	size_t cnt() { return (sz ? sz - 1 * sizeof(*str) : sz) / sizeof(*str); }
+
+	//Includes null terminator
+	size_t cntn() { return sz / sizeof(*str); }
 
 	utf16& operator[](size_t i) { return str[i]; }
 
@@ -67,6 +77,9 @@ struct utf16_str {
 	//TODO(fran): does this include the null terminator? if so we gotta fix it, null terminator shouldnt appear
 	utf16* end() { return this->sz ? (utf16*)((u8*)&(*this)[0] + this->sz) : nullptr; /*ptr one past the last element*/ }
 };
+
+typedef utf16_str s16;
+typedef utf8_str s8;
 
 struct any_str {
 	void* str;
@@ -79,10 +92,16 @@ static any_str alloc_any_str(size_t sz) {
 	any_str res{ malloc(sz), sz };
 	return res;
 }
-static any_str alloc_any_str(std::wstring s) {
+static any_str alloc_any_str(const std::wstring& s) {
 	size_t sz = (s.size() + 1) * sizeof(s[0]);
 	any_str res{ malloc(sz), sz };
 	memcpy(res.str, s.c_str(), sz);
+	return res;
+}
+static s16 alloc_s16(std::u16string_view s) {
+	size_t sz = (s.size() + 1) * sizeof(s[0]);
+	s16 res{ (decltype(&*res))malloc(sz), sz };
+	memcpy(res, s.data(), sz);
 	return res;
 }
 static void free_any_str(void* str) { free(str); };
@@ -122,7 +141,7 @@ struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
 //TODO(fran): it may be easier to read if we asked for the pointer directly, eg ptr<i32*> may be nicer than ptr<i32> as is now
 
 
-
+//TODO(fran): this should go to a new win32_platform.h and maybe this one be renamed to platform.h and #ifdef WINDOWS then #include win32_platform.h
 union brush_group {
 	struct {
 		HBRUSH normal, disabled, mouseover, clicked;

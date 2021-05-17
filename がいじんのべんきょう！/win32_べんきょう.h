@@ -36,7 +36,6 @@
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori bird(talk to bren)
 //TODO(fran): test suite: test whole application performance when db is really full, say for example 3500 word entries with every column filled with data
-//TODO(fran): db: table words: go back to using rowid and add an id member to the learnt_word struct (hiragana words arent unique)
 //TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
 	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
@@ -49,6 +48,7 @@
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): page review_practice: add visual feedback of the fact the words on the grid can be clicked (change color as buttons do on mouseover, or simply use buttons)
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
+//TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
 
 
 //Leftover IDEAs:
@@ -66,42 +66,6 @@
 
 //REMEMBER: have checks in place to make sure the user cant execute operations twice by quickly pressing a button again
 
-
-#define TIMER_next_practice_level 0x5
-
-
-//NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
-enum lexical_category { //this value is stored on the db
-	dont_care = -1, //I tend to annotate the different adjectives, but not much else
-	noun,
-	verb,
-	adj_い,
-	adj_な,
-	adverb,
-	conjunction, //and, or, but, ...
-	pronoun,
-	counter,
-	particle
-};
-str lexical_category_to_str(lexical_category cat) {
-	return RS(200 + cat); //NOTE: dont_care should never be shown
-}
-//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
-u32 lexical_category_str_lang_id(lexical_category cat) {
-	return 200 + cat; //NOTE: dont_care should never be shown
-}
-void lexical_category_setup_combobox(HWND cb) {
-	//INFO: the first element to add to a combobox _must_ be at index 0, it does not support starting at any index, conclusion: windows' combobox is terrible
-	ACT(cb, lexical_category::noun, lexical_category_str_lang_id(lexical_category::noun));
-	ACT(cb, lexical_category::verb, lexical_category_str_lang_id(lexical_category::verb));
-	ACT(cb, lexical_category::adj_い, lexical_category_str_lang_id(lexical_category::adj_い));
-	ACT(cb, lexical_category::adj_な, lexical_category_str_lang_id(lexical_category::adj_な));
-	ACT(cb, lexical_category::adverb, lexical_category_str_lang_id(lexical_category::adverb));
-	ACT(cb, lexical_category::conjunction, lexical_category_str_lang_id(lexical_category::conjunction));
-	ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
-	ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
-	ACT(cb, lexical_category::particle, lexical_category_str_lang_id(lexical_category::particle));
-}
 
 //Structures for different practice levels
 struct practice_writing_word {
@@ -133,7 +97,7 @@ HBRUSH brush_for(learnt_word_elem type) {
 };
 
 template<typename T>
-T str_for(_learnt_word<T>* word, learnt_word_elem type) {//TODO(fran): this is ugly
+T str_for(_learnt_word<T>* word, learnt_word_elem type) {
 	T res;
 	switch (type) {
 	case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana; break;
@@ -216,289 +180,317 @@ struct べんきょうSettings {
 };
 _add_struct_to_serialization_namespace(べんきょうSettings);
 
-struct べんきょうProcState {
-	HWND wnd;
-	HWND nc_parent;
-	べんきょうSettings* settings;
-
-	//f32 scroll;//vertical scrolling of page
-	////anim
-	//int scroll_frame;
-	//f32 scroll_dt;
-	//f32 scroll_v;
-	//f32 scroll_a;
-	//bool scroll_on_anim;
-
-	struct {
-		HBRUSH bk;
-	} brushes;
-
-	enum class page {
-		landing,
-		new_word,
-		practice,
-		practice_writing,
-		practice_multiplechoice,
-		practice_drawing,//drawing kanji
-		review_practice,
-		//search,
-		show_word,
-
-		//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
-		review_practice_writing,
-		review_practice_multiplechoice,
-		review_practice_drawing,
-	} current_page;
-
-	struct prev_page_fifo_queue{
-		decltype(current_page) pages[10];
-		u32 cnt;
-	}previous_pages;
-
-	u32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
-
-	struct {
-		using type = HWND;
-		type navbar;
-		type sidebar;
-		type page_space;//all pages go inside this one
-
-		union landingpage_controls {
-			struct {
-				type page;//parent of all other controls
-
-				//type candy;
-
-				type button_recents;
-				type listbox_recents;
-				
-				type static_word_cnt_title;
-				type static_word_cnt;
-
-				type static_practice_cnt_title;
-				type static_practice_cnt;
-
-				type static_accuracy_title;
-				type score_accuracy;
-
-				type static_accuracy_timeline_title;
-				type graph_accuracy_timeline;
-			};
-			type all[11]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		} landing;
-
-		union new_word_controls {
-			struct {
-				type page;
-
-				type edit_hiragana;
-				type edit_kanji;
-				type edit_meaning;
-				type combo_lexical_category;
-				type edit_mnemonic;//create a story/phrase around the word
-				//TODO(fran): here you should be able to add more than one meaning
-				type edit_notes;
-				type edit_example_sentence;
-				type button_save;
-				type static_notify;
-			};
-			type all[10];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		} new_word;
-
-		union practice_controls {
-			struct {
-				type page;
-				type button_start;
-			};
-			type all[2];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		} practice;
-
-		union practice_writing_controls {
-			struct {
-				type page;
-
-				type static_test_word;
-
-				type edit_answer;
-
-				type button_next;//TODO(fran): not the best name
-
-				type button_show_word;
-
-				type embedded_show_word_reduced;//#hidden by default
-			};
-			type all[6];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		}practice_writing;
-
-		union practice_multiplechoice_controls {
-			struct {
-				type page;
-
-				type static_question;
-
-				type multibutton_choices;
-
-				type button_next;//#disabled by default
-
-				type button_show_word;//#disabled by default
-
-				type embedded_show_word_reduced;//#hidden by default
-			};
-			type all[6];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		}practice_multiplechoice;
-
-		union practice_drawing_controls {
-			struct {
-				type page;
-
-				type static_question;
-
-				type paint_answer;
-
-				type button_next;//#disabled by default (gets enabled when the user drew smth)
-				type button_show_word;//#disabled
-
-				type static_correct_answer;//#hidden
-				//NOTE: working on a good handwriting recognition pipeline so this can be automatically checked (probably google translate style)
-
-				type button_right;//#hidden by default
-				type button_wrong;//#hidden by default
-
-				type embedded_show_word_reduced;//#hidden by default
-			};
-			type all[9];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		}practice_drawing;
-
-		/*union search_controls {
-			struct {
-				type searchbox_search;
-			};
-			type all[1];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		} search;*/
-
-		union review_practice_controls {
-			struct {
-				type page;
-
-				type static_review;
-				type gridview_practices;
-				type button_continue;
-			};
-			type all[4];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		}review_practice;
-
-		union show_word_controls {
-			struct {
-				type page;
-
-				type static_hiragana;
-				type edit_kanji;
-				type edit_meaning;
-				type combo_lexical_category;
-				type edit_mnemonic;
-				type edit_notes;
-				type edit_example_sentence;
-				//TODO(fran): here you should be able to add more than one meaning
-
-				type static_creation_date;
-				type static_last_shown_date;
-				type static_score; //eg Score: 4/5 - 80%
-
-				type button_modify;
-				type button_delete;
-				type button_remember;//the user can request the system to prioritize showing this word on practices (the same as if it was a new word that the user just added)
-			};
-			type all[14];
-		private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-		} show_word;
-
-	}pages;
-
-	enum class available_practices {
-		writing,
-		multiplechoice,
-		drawing,
-	};
-
-	struct practice_header {
-		available_practices type;
-	};
-	struct practice_writing {
-		practice_header header;
-		practice_writing_word* practice;//#free
-		const utf16_str* question;//points to some element inside practice.word
-		utf16_str user_answer;//#free
-		const utf16_str* correct_answer;//points to some element inside practice.word
-		bool answered_correctly;//precalculated value so strcmp is used only once
-	};
-	struct practice_multiplechoice {
-		practice_header header;
-		practice_multiplechoice_word* practice;//#free
-		size_t user_answer_idx;
-		bool answered_correctly;//precalculated value
-	};
-	struct practice_drawing {
-		practice_header header;
-		practice_drawing_word* practice;//#free
-		HBITMAP user_answer;//#free (DeleteBitmap)
-		bool answered_correctly;//precalculated value
-	};
-
-	struct {
-
-		struct landing_state {
-			bool hide_recents;//hide or show the 'recently added words' listbox
-		}landing;
-
-		struct search_state {
-			learnt_word_elem search_type;
-		}search;
-
-		struct practice_review_state {
-			std::vector<practice_header*> practices;
-		}practice_review;
-
-		struct practice_writing_state {
-			practice_writing_word* practice;
-		}practice_writing;//TODO(fran): if we already had the entire practices array from the start we could simplify this to a simple size_t idx and the multipage_mem.temp_practices[pagestate.practice_writing.idx]
-
-		struct practice_multiplechoice_state {
-			practice_multiplechoice_word* practice;
-		}practice_multiplechoice;
-
-		struct practice_drawing_state {
-			practice_drawing_word* practice;
-		}practice_drawing;
-
-	} pagestate;
-
-	struct {
-		std::vector<practice_header*> temp_practices;
-	}multipagestate;
-
-	struct anim_number_range {
-		HWND wnd;//window to be updated with new numbers //TODO(fran): should I keep this or use the HWND provided by SetTimer?
-		i64 origin, dest;
-		f32 t;//[0.0,1.0]
-		f32 dt;//increment in t, not actually a delta of time since we are normalized 0 to 1
-	};
-	struct {
-		anim_number_range word_count, practice_count;
-	} pageanim;
-};
-
 namespace べんきょう {
-	constexpr cstr wndclass[] = L"がいじんの_wndclass_べんきょう";
+	constexpr cstr wndclass[] = L"win32_wndclass_べんきょう";
 
-	using ProcState = べんきょうProcState;
+	struct {
+		int next_practice_level = 0x5;
+	} constexpr timerIDs;
+
+	//NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
+	//TODO(fran): store lexical_category value together with it's string in the combobox, that way we dont depend on the order of the elements for mapping
+	enum lexical_category { //this value is stored on the db
+		dont_care = -1, //I tend to annotate the different adjectives, but not much else
+		noun,
+		verb,
+		adj_い,
+		adj_な,
+		adverb,
+		conjunction, //and, or, but, ...
+		pronoun,
+		counter,
+		particle
+	};
+	str lexical_category_to_str(lexical_category cat) {
+		return RS(200 + cat); //NOTE: dont_care should never be shown
+	}
+	//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
+	u32 lexical_category_str_lang_id(lexical_category cat) {
+		return 200 + cat; //NOTE: dont_care should never be shown
+	}
+	void lexical_category_setup_combobox(HWND cb) {
+		//INFO: the first element to add to a combobox _must_ be at index 0, it does not support starting at any index, conclusion: windows' combobox is terrible
+		ACT(cb, lexical_category::noun, lexical_category_str_lang_id(lexical_category::noun));
+		ACT(cb, lexical_category::verb, lexical_category_str_lang_id(lexical_category::verb));
+		ACT(cb, lexical_category::adj_い, lexical_category_str_lang_id(lexical_category::adj_い));
+		ACT(cb, lexical_category::adj_な, lexical_category_str_lang_id(lexical_category::adj_な));
+		ACT(cb, lexical_category::adverb, lexical_category_str_lang_id(lexical_category::adverb));
+		ACT(cb, lexical_category::conjunction, lexical_category_str_lang_id(lexical_category::conjunction));
+		ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
+		ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
+		ACT(cb, lexical_category::particle, lexical_category_str_lang_id(lexical_category::particle));
+	}
+
+	struct ProcState {
+		HWND wnd;
+		HWND nc_parent;
+		べんきょうSettings* settings;
+
+		struct {
+			HBRUSH bk;
+		} brushes;
+
+		enum class page {
+			landing,
+			new_word,
+			practice,
+			practice_writing,
+			practice_multiplechoice,
+			practice_drawing,//drawing kanji
+			review_practice,
+			show_word,
+
+			//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
+			review_practice_writing,
+			review_practice_multiplechoice,
+			review_practice_drawing,
+		} current_page;
+
+		struct prev_page_fifo_queue{
+			page pages[10];
+			u32 cnt;
+		}previous_pages;
+
+		u32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
+
+		struct {
+			using type = HWND;
+			type navbar;
+			type sidebar;
+			type page_space;//all pages go inside this one
+
+			union landingpage_controls {
+				struct {
+					type page;//parent of all other controls
+
+					//type candy;
+
+					type button_recents;
+					type listbox_recents;
+				
+					type static_word_cnt_title;
+					type static_word_cnt;
+
+					type static_practice_cnt_title;
+					type static_practice_cnt;
+
+					type static_accuracy_title;
+					type score_accuracy;
+
+					type static_accuracy_timeline_title;
+					type graph_accuracy_timeline;
+				};
+				type all[11]; //NOTE: make sure you understand structure padding before implementing this, also this should be re-tested if trying with different compilers or alignment
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} landing;
+
+			union new_word_controls {
+				struct {
+					type page;
+
+					type edit_hiragana;
+					type edit_kanji;
+					type edit_meaning;
+					type combo_lexical_category;
+					type edit_mnemonic;//create a story/phrase around the word
+					//TODO(fran): here you should be able to add more than one meaning
+					type edit_notes;
+					type edit_example_sentence;
+					type button_save;
+					type static_notify;
+				};
+				type all[10];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} new_word;
+
+			union practice_controls {
+				struct {
+					type page;
+					type button_start;
+				};
+				type all[2];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} practice;
+
+			union practice_writing_controls {
+				struct {
+					type page;
+
+					type static_test_word;
+
+					type edit_answer;
+
+					type button_next;//TODO(fran): not the best name
+
+					type button_show_word;
+
+					type embedded_show_word_reduced;//#hidden by default
+				};
+				type all[6];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			}practice_writing;
+
+			union practice_multiplechoice_controls {
+				struct {
+					type page;
+
+					type static_question;
+
+					type multibutton_choices;
+
+					type button_next;//#disabled by default
+
+					type button_show_word;//#disabled by default
+
+					type embedded_show_word_reduced;//#hidden by default
+				};
+				type all[6];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			}practice_multiplechoice;
+
+			union practice_drawing_controls {
+				struct {
+					type page;
+
+					type static_question;
+
+					type paint_answer;
+
+					type button_next;//#disabled by default (gets enabled when the user drew smth)
+					type button_show_word;//#disabled
+
+					type static_correct_answer;//#hidden
+					//NOTE: working on a good handwriting recognition pipeline so this can be automatically checked (probably google translate style)
+
+					type button_right;//#hidden by default
+					type button_wrong;//#hidden by default
+
+					type embedded_show_word_reduced;//#hidden by default
+				};
+				type all[9];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			}practice_drawing;
+
+			/*union search_controls {
+				struct {
+					type searchbox_search;
+				};
+				type all[1];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} search;*/
+
+			union review_practice_controls {
+				struct {
+					type page;
+
+					type static_review;
+					type gridview_practices;
+					type button_continue;
+				};
+				type all[4];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			}review_practice;
+
+			union show_word_controls {
+				struct {
+					type page;
+
+					type static_id;//HACK?: probably nicer solution would be for the page to have a pagestate where it saves it's current word id
+					type static_hiragana;
+					type edit_kanji;
+					type edit_meaning;
+					type combo_lexical_category;
+					type edit_mnemonic;
+					type edit_notes;
+					type edit_example_sentence;
+					//TODO(fran): here you should be able to add more than one meaning
+
+					type static_creation_date;
+					type static_last_practiced_date;
+					type static_score; //eg Score: 4/5 - 80%
+
+					type button_modify;
+					type button_delete;
+					type button_remember;//the user can request the system to prioritize showing this word on practices (the same as if it was a new word that the user just added)
+				};
+				type all[15];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} show_word;
+
+		}pages;
+
+		enum class available_practices {
+			writing,
+			multiplechoice,
+			drawing,
+		};
+
+		struct practice_header {
+			available_practices type;
+		};
+		struct practice_writing {
+			practice_header header;
+			practice_writing_word* practice;//#free
+			const utf16_str* question;//points to some element inside practice.word
+			utf16_str user_answer;//#free
+			const utf16_str* correct_answer;//points to some element inside practice.word
+			bool answered_correctly;//precalculated value so strcmp is used only once
+		};
+		struct practice_multiplechoice {
+			practice_header header;
+			practice_multiplechoice_word* practice;//#free
+			size_t user_answer_idx;
+			bool answered_correctly;//precalculated value
+		};
+		struct practice_drawing {
+			practice_header header;
+			practice_drawing_word* practice;//#free
+			HBITMAP user_answer;//#free (DeleteBitmap)
+			bool answered_correctly;//precalculated value
+		};
+
+		struct {
+
+			struct landing_state {
+				bool hide_recents;//hide or show the 'recently added words' listbox
+			}landing;
+
+			struct search_state {
+				learnt_word_elem search_type;
+			}search;
+
+			struct practice_review_state {
+				std::vector<practice_header*> practices;
+			}practice_review;
+
+			struct practice_writing_state {
+				practice_writing_word* practice;
+			}practice_writing;//TODO(fran): if we already had the entire practices array from the start we could simplify this to a simple size_t idx and the multipage_mem.temp_practices[pagestate.practice_writing.idx]
+
+			struct practice_multiplechoice_state {
+				practice_multiplechoice_word* practice;
+			}practice_multiplechoice;
+
+			struct practice_drawing_state {
+				practice_drawing_word* practice;
+			}practice_drawing;
+
+		} pagestate;
+
+		struct {
+			std::vector<practice_header*> temp_practices;
+		}multipagestate;
+
+		struct anim_number_range {
+			HWND wnd;//window to be updated with new numbers //TODO(fran): should I keep this or use the HWND provided by SetTimer?
+			i64 origin, dest;
+			f32 t;//[0.0,1.0]
+			f32 dt;//increment in t, not actually a delta of time since we are normalized 0 to 1
+		};
+		struct {
+			anim_number_range word_count, practice_count;
+		} pageanim;
+	};
 
 	ProcState* get_state(HWND wnd) {
 		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
@@ -796,7 +788,7 @@ namespace べんきょう {
 			txt_rc.left += x_pad;
 			txt_rc.right = icon_x;
 
-			DrawTextW(dc, s->str, (int)s->sz_char(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+			DrawTextW(dc, s->str, (int)s->cnt(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 		}
 
 	}
@@ -808,7 +800,7 @@ namespace べんきょう {
 		if (element) {
 			utf16_str* s = (decltype(s))element;
 			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
-			GetTextExtentPoint32W(dc, s->str, (int)s->sz_char() - 1, &sz);
+			GetTextExtentPoint32W(dc, s->str, (int)s->cnt(), &sz);
 			int char_cnt = 2 + 3;//icon, spacing
 			sz.cx += avg_str_dim(font, char_cnt).cx;
 		}
@@ -1128,6 +1120,7 @@ namespace べんきょう {
 			auto controls = state->pages.show_word;
 			//IDEA: in this page we could reuse the controls from new_word, that way we first call preload_page(new_word) with word_to_show.user_defined and then do our thing (this idea doesnt quite work)
 
+			SendMessageW(controls.static_id, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.id.str);
 			SendMessageW(controls.static_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
 			SendMessageW(controls.edit_kanji, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.kanji.str);
 			SendMessageW(controls.edit_meaning, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.meaning.str);
@@ -1146,14 +1139,14 @@ namespace べんきょう {
 			if(word_to_show->application_defined.attributes.creation_date.str)
 				SendMessageW(controls.static_creation_date, WM_SETTEXT, 0, (LPARAM)(RS(270) + L" " + (utf16*)word_to_show->application_defined.attributes.creation_date.str).c_str());
 
-			if (word_to_show->application_defined.attributes.last_shown_date.str)
-				SendMessageW(controls.static_last_shown_date, WM_SETTEXT, 0, (LPARAM)(RS(271) + L" " + (utf16*)word_to_show->application_defined.attributes.last_shown_date.str).c_str());
+			if (word_to_show->application_defined.attributes.last_practiced_date.str)
+				SendMessageW(controls.static_last_practiced_date, WM_SETTEXT, 0, (LPARAM)(RS(271) + L" " + (utf16*)word_to_show->application_defined.attributes.last_practiced_date.str).c_str());
 
-			if (word_to_show->application_defined.attributes.times_right.str && word_to_show->application_defined.attributes.times_shown.str) {
-				std::wstring score = (RS(272) + L" " + (utf16*)word_to_show->application_defined.attributes.times_right.str + L" / " + (utf16*)word_to_show->application_defined.attributes.times_shown.str);
+			if (word_to_show->application_defined.attributes.times_right.str && word_to_show->application_defined.attributes.times_practiced.str) {
+				std::wstring score = (RS(272) + L" " + (utf16*)word_to_show->application_defined.attributes.times_right.str + L" / " + (utf16*)word_to_show->application_defined.attributes.times_practiced.str);
 				try {
 					float numerator = std::stof((utf16*)word_to_show->application_defined.attributes.times_right.str);
-					float denominator = std::stof((utf16*)word_to_show->application_defined.attributes.times_shown.str);
+					float denominator = std::stof((utf16*)word_to_show->application_defined.attributes.times_practiced.str);
 					if (denominator != 0.f) {
 						int percentage = (int)((numerator/denominator) * 100.f);
 						score += L" - " + std::to_wstring(percentage) + L"%";
@@ -1291,24 +1284,23 @@ namespace べんきょう {
 				answer_bk.mouseover = global::colors.BkMouseover_wrong_answer;
 				answer_bk.clicked = global::colors.BkPush_wrong_answer;
 			}
-			//TODO(fran): set up all the colors and text, (use pagedata->practice->practice_type to know text colors)
 
 			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
 			case decltype(pagedata->practice->practice_type)::hiragana_to_meaning:
 			{
-				question_br = global::colors.hiragana;
+				question_br = brush_for(learnt_word_elem::hiragana);
 			} break;
 			case decltype(pagedata->practice->practice_type)::kanji_to_hiragana:
 			{
-				question_br = global::colors.kanji;
+				question_br = brush_for(learnt_word_elem::kanji);
 			} break;
 			case decltype(pagedata->practice->practice_type)::kanji_to_meaning:
 			{
-				question_br = global::colors.kanji;
+				question_br = brush_for(learnt_word_elem::kanji);
 			} break;
 			case decltype(pagedata->practice->practice_type)::meaning_to_hiragana:
 			{
-				question_br = global::colors.meaning;
+				question_br = brush_for(learnt_word_elem::meaning);
 			} break;
 			default:Assert(0);
 			}
@@ -1633,10 +1625,14 @@ namespace べんきょう {
 		set_default_focus(state, state->current_page);
 	}
 
+	void show_backbtn(ProcState* state, bool show) {
+		PostMessage(state->nc_parent, WM_SHOWBACKBTN, show, 0);
+	}
+
 	void goto_previous_page(ProcState* state) {
 		if (state->previous_pages.cnt > 0) {
 			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
-			if (state->previous_pages.cnt == 0)PostMessage(state->nc_parent, WM_SHOWBACKBTN, FALSE, 0);//hide the back button
+			if (state->previous_pages.cnt == 0) show_backbtn(state, false);
 		}
 	}
 
@@ -1653,7 +1649,7 @@ namespace べんきょう {
 			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
 		}
 
-		PostMessage(state->nc_parent, WM_SHOWBACKBTN, TRUE, 0);//show the back button
+		show_backbtn(state, true);
 	}
 
 	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra) {
@@ -1665,7 +1661,7 @@ namespace べんきょう {
 			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
 			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
 
-			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input.str, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
+			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
 			//TODO(fran): search_word_matches should return a ptr
 			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
 			for (size_t i = 0; i < search_res.cnt; i++)
@@ -1679,20 +1675,21 @@ namespace べんきょう {
 		ProcState* state = (decltype(state))user_extra;
 		//TODO(fran): differentiate implementation for is_element true or false once *element isnt always a utf16*
 		//utf16* search;
-		learnt_word_elem search_type;
 
 		//TODO(fran): search can be for kanji and meaning too, we must first find out which one it is, maybe that should be built in like a search_word struct that has learnt_word and search_type
 
 		learnt_word16 search{0};
 
+		stored_word16_res res; defer{ if(res.found) free_stored_word(res.word); };
 		if (is_element) {
 			//TODO(fran): at this point we already know which word to find on the db, the problem is we dont have its ID, we gotta search by string (hiragana) again, we need to retrieve and store IDs on the db. And add a function get_word(ID)
 			search = *(decltype(&search))element;
-			search_type = decltype(search_type)::hiragana;
+			
+			res = get_stored_word(state->settings->db, search);
 		}
 		else {
 			//NOTE: here we dont know the "ID" so the search will simply take the first word it finds that matches the requirements //TODO(fran): we could present multiple results and ask the user which one to open
-			search_type = state->pagestate.search.search_type;
+			learnt_word_elem search_type = state->pagestate.search.search_type;
 			switch (search_type) {
 			case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
 			case decltype(search_type)::kanji: search.attributes.kanji = *((utf16_str*)element); break;
@@ -1700,10 +1697,12 @@ namespace べんきょう {
 			default:Assert(0);//TODO
 			}
 			//search = ((utf16_str*)element)->str;
+
+			res = get_word(state->settings->db, search_type, str_for(&search,search_type)); 
 		}
 
-		get_word_res res = get_word(state->settings->db, search_type, str_for(&search,search_type).str); defer{ free_get_word(res.word); };
 		if (res.found) {
+			
 			preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 			store_previous_page(state, state->current_page);
 			set_current_page(state, ProcState::page::show_word);
@@ -1729,7 +1728,7 @@ namespace べんきょう {
 		ProcState* state = (decltype(state))user_extra;
 		learnt_word16* txt = (decltype(txt))element;
 
-		get_word_res res = get_word(state->settings->db, learnt_word_elem::hiragana, txt->attributes.hiragana.str); defer{ free_get_word(res.word); };
+		stored_word16_res res = get_stored_word(state->settings->db, *txt/*TODO(fran): make sure this isnt a copy*/);  defer{ if (res.found) free_stored_word(res.word); };
 		if (res.found) {
 			preload_page(state, ProcState::page::show_word, &res.word);
 			store_previous_page(state, state->current_page);
@@ -1744,6 +1743,7 @@ namespace べんきょう {
 			learnt_word16 w16;
 			auto& page = state->pages.show_word;
 
+			_get_edit_str(page.static_id, w16.attributes.id);
 			_get_edit_str(page.static_hiragana, w16.attributes.hiragana);
 			_get_edit_str(page.edit_kanji, w16.attributes.kanji);
 			_get_edit_str(page.edit_meaning, w16.attributes.meaning);
@@ -1754,6 +1754,7 @@ namespace べんきょう {
 
 			learnt_word8 w8; defer{ for (auto& _ : w8.all)free_any_str(_.str); };
 			for (int i = 0; i < ARRAYSIZE(w16.all); i++) {
+				//TODO(fran): CRASH: should check for valid ptrs before conversion
 				w8.all[i] = convert_utf16_to_utf8(w16.all[i].str, (int)w16.all[i].sz);
 				free_any_str(w16.all[i].str);//maybe set it to zero too
 			}
@@ -1763,34 +1764,36 @@ namespace べんきょう {
 		return res;
 	}
 
-	bool remove_word(ProcState* state) {
-		bool res = false;
-		learnt_word16 word16{ 0 };
-
+	learnt_word8 show_word_getPks(ProcState* state) {
 		auto& page = state->pages.show_word;
 
-		_get_edit_str(page.static_hiragana, word16.attributes.hiragana); //TODO(fran): should check for valid values? I feel it's pointless in this case
-		defer{ free_any_str(word16.attributes.hiragana.str); };
+		learnt_word16 word16;
+		_get_edit_str(page.static_id, word16.attributes.id); defer{ free_any_str(word16.attributes.id); };
+		static_assert(word16.pk_count == 1, "Additional primary keys need to be retrieved");
 
-		learnt_word8 word8; //TODO(fran): maybe converting the attributes in place would be nicer, also we could iterate over all the members and check for valid pointers and only convert those
+		learnt_word8 word8;
+		for (int i = 0; i < word8.pk_count; i++) word8.all[i] = s16_to_s8(word16.all[i]);
 
-		word8.attributes.hiragana = convert_utf16_to_utf8(word16.attributes.hiragana.str, (int)word16.attributes.hiragana.sz);
-		defer{ free_any_str(word8.attributes.hiragana.str); };
+		return word8;
+	}
 
-		res = delete_word(state->settings->db, &word8);
+	bool remove_word(ProcState* state) {
+		bool res = false;
+		
+		learnt_word8 word = show_word_getPks(state);
+		defer{ for (int i = 0; i < word.pk_count; i++) free_any_str(word.all[i]); };
+
+		res = delete_word(state->settings->db, word);
 		return res;
 	}
 
 	bool prioritize_word(ProcState* state) {
 		//TODO(fran): should accept any word, not manually take it from the UI
 		bool res = false;
-		learnt_word16 w16{ 0 };
+		learnt_word8 word = show_word_getPks(state);
+		defer{ for (int i = 0; i < word.pk_count; i++) free_any_str(word.all[i]); };
 
-		auto& page = state->pages.show_word;
-
-		_get_edit_str(page.static_hiragana, w16.attributes.hiragana); defer{ free_any_str(w16.attributes.hiragana.str); };
-
-		res = reset_word_priority(state->settings->db,&w16);
+		res = reset_word_priority(state->settings->db,word);
 
 		return res;
 	}
@@ -1798,7 +1801,7 @@ namespace べんきょう {
 	bool save_new_word(ProcState* state) {
 		bool res = false;
 		if (check_new_word(state)) {
-			learnt_word16 w16;
+			learnt_word16 w16; 
 			auto& page = state->pages.new_word;
 
 			_get_edit_str(page.edit_hiragana, w16.attributes.hiragana);
@@ -1808,16 +1811,19 @@ namespace べんきょう {
 			_get_edit_str(page.edit_notes, w16.attributes.notes);
 			_get_edit_str(page.edit_example_sentence, w16.attributes.example_sentence);
 			_get_combo_sel_idx_as_str(page.combo_lexical_category, w16.attributes.lexical_category);
+			defer{ for (auto& s : w16.all) free_any_str(s); };
 
 			learnt_word8 w8;
-			for (int i = 0; i < ARRAYSIZE(w16.all); i++) {
-				auto res = convert_utf16_to_utf8(w16.all[i].str, (int)w16.all[i].sz);
-				w8.all[i] = res;
-				free_any_str(w16.all[i].str);//maybe set it to zero too
+			for (int i = w16.pk_count; i < ARRAYSIZE(w16.all); i++) {
+				w8.all[i] = s16_to_s8(w16.all[i]);
 			}
-			defer{ for (auto& _ : w8.all)free_any_str(_.str); };
-			//Now we can finally do the insert, TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings
-			int insert_res = insert_word(state->settings->db, &w8);
+			defer{ for (int i = w8.pk_count; i < ARRAYSIZE(w8.all); i++)free_any_str(w8.all[i]); };
+
+			//TODO(fran): check for similar words, and consult the user whether they want to create it as a new word or cancel cause the same word already exists
+
+			//Now we can finally do the insert
+			//TODO(fran): see if there's some way to go straight from utf16 to the db, and to send things like ints without having to convert them to strings. we could show a list, like we do on the landing page, with the similar words, and only if they then click on an element of the list we open a separate window to allow them the see it in full / edit it
+			int insert_res = insert_word(state->settings->db, w8);
 
 			//Error handling
 			switch (insert_res) {
@@ -1853,9 +1859,10 @@ namespace べんきょう {
 					べんきょう::set_brushes(nonclient::get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk);
 					べんきょう::set_current_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word);
 
-					auto old_w16 = (utf16_str)convert_utf8_to_utf16((utf8*)w8.attributes.hiragana.str, (int)w8.attributes.hiragana.sz); defer{ free_any_str(old_w16.str); };//HACK: reconverting to utf16 for searching the old word
-					get_word_res old_word = get_word(state->settings->db,learnt_word_elem::hiragana, old_w16.str); defer{ free_get_word(old_word.word); };
-					べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word, &old_word.word);
+					if (stored_word16_res old_word = get_stored_word(state->settings->db, w16); old_word.found) {
+						defer{ free_stored_word(old_word.word); };
+						べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), ProcState::page::show_word, &old_word.word);
+					}
 					UpdateWindow(べんきょう_nc);
 				}
 
@@ -2029,7 +2036,6 @@ namespace べんきょう {
 			set_current_page(state, practice.page);//go practice!
 		}
 		else {
-			//TODO(fran): increase the practice counter on the db
 			user_stats_increment_times_practiced(state->settings->db);
 			preload_page(state, ProcState::page::review_practice,&state->multipagestate.temp_practices);
 			set_current_page(state, ProcState::page::review_practice);
@@ -2039,7 +2045,7 @@ namespace べんきょう {
 	//decreases the practice counter and loads/sets a new practice level or goes to the review page if the practice is over
 	void next_practice_level(ProcState* state, bool apply_delay=true) {
 		u32 delay = apply_delay ? 500 : USER_TIMER_MINIMUM;
-		SetTimer(state->wnd, TIMER_next_practice_level, delay, _next_practice_level);
+		SetTimer(state->wnd, timerIDs.next_practice_level, delay, _next_practice_level);
 	}
 
 	void button_practice_func_on_click(void* element, void* user_extra) {
@@ -2321,19 +2327,6 @@ namespace べんきょう {
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 			//TODO(fran): searchbox: changing color of editbox text based on whether it has meaning,hiragana,kanji?
 			//TODO(fran): searchbox: restore what the user wrote when they press the escape key
-
-			//HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
-			//	, 0, 0, 0, 0, navbar, 0, NULL, NULL);
-			//languages_setup_combobox(combo_lang);
-			//combobox::set_user_extra(combo_lang, state);
-			//combobox::set_function_free_elements(combo_lang, langbox_func_free_elements);
-			//combobox::set_function_render_combobox(combo_lang, langbox_func_render_combobox);
-			//combobox::set_function_on_listbox_opening(combo_lang, langbox_func_on_listbox_opening);
-			//combobox::set_function_on_selection_accepted(combo_lang, langbox_func_on_selection_accepted);
-			//combobox::set_function_desired_size_combobox(combo_lang, langbox_func_desired_size);
-			//combobox::set_function_render_listbox_element(combo_lang, langbox_func_render_listbox_element);
-			//navbar::attach(navbar, combo_lang, navbar::attach_point::right, -1);
-			//SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 		//---------------------Page Space----------------------: //TODO(fran): rename to page_slot?
@@ -2565,6 +2558,9 @@ namespace べんきょう {
 
 			controls.page = create_page(state, base_page_theme);
 
+			controls.static_id = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+
 			controls.static_hiragana = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_hiragana, TRUE, brush_for(learnt_word_elem::hiragana), global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
@@ -2605,9 +2601,9 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			static_oneline::set_brushes(controls.static_creation_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
-			controls.static_last_shown_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
+			controls.static_last_practiced_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_last_shown_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+			static_oneline::set_brushes(controls.static_last_practiced_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
 
 			controls.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
@@ -3398,11 +3394,11 @@ namespace べんきょう {
 			};
 
 			ssizer static_creation_date{ controls.static_creation_date };
-			ssizer static_last_shown_date{ controls.static_last_shown_date };
+			ssizer static_last_practiced_date{ controls.static_last_practiced_date };
 			vsizer left_stats{
 				{&static_creation_date,wnd_h},
 				{&lvpad,half_wnd_h},
-				{&static_last_shown_date,wnd_h},
+				{&static_last_practiced_date,wnd_h},
 			};//TODO(fran): vcsizer
 
 			ssizer static_score{ controls.static_score };
@@ -3482,7 +3478,7 @@ namespace べんきょう {
 			st->current_page = ProcState::page::landing;
 			init_cpp_objects(st);
 			set_state(hwnd, st);
-			startup(st->settings->db);//TODO(fran):I dont think this should be executed in non-main windows
+			startup(st->settings->db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
 			return TRUE;
 		} break;
 		case WM_CREATE:
@@ -3698,7 +3694,7 @@ namespace べんきょう {
 						bool already_answered = IsWindowEnabled(page.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
 						if (!already_answered) {
 							utf16_str user_answer; _get_edit_str(page.edit_answer, user_answer);
-							if (user_answer.sz_char() != 1) {
+							if (user_answer.cnt()) {
 								const utf16_str* correct_answer{ 0 };
 								const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
 								switch (pagestate.practice->practice_type) {
@@ -3754,8 +3750,8 @@ namespace べんきょう {
 
 								//Update word stats
 								//TODO(fran): if we knew we had the old values in the word object we could simply update those and batch update the whole word
-								word_update_last_shown_date(state->settings->db, pagestate.practice->word);
-								word_increment_times_shown__times_right(state->settings->db, pagestate.practice->word, answered_correctly);
+								word_update_last_practiced_date(state->settings->db, pagestate.practice->word);
+								word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->word, answered_correctly);
 
 								//Add this practice to the list of current completed ones
 								ProcState::practice_writing* p = (decltype(p))malloc(sizeof(*p));
@@ -3875,8 +3871,8 @@ namespace べんきょう {
 							button::set_theme(page.button_next, &btn_theme);
 
 							//Update word stats
-							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_shown__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
+							word_update_last_practiced_date(state->settings->db, pagestate.practice->question);
+							word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
 
 							//Add this practice to the list of current completed ones
 							ProcState::practice_multiplechoice* p = (decltype(p))malloc(sizeof(*p));
@@ -3955,8 +3951,8 @@ namespace べんきょう {
 							button::set_theme(page.button_next, &btn_theme);
 
 							//Update word stats
-							word_update_last_shown_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_shown__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
+							word_update_last_practiced_date(state->settings->db, pagestate.practice->question);
+							word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
 
 							//Add this practice to the list of current completed ones
 							ProcState::practice_drawing* p = (decltype(p))malloc(sizeof(*p));
