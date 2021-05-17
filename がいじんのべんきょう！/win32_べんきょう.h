@@ -547,7 +547,7 @@ namespace べんきょう {
 	}
 
 	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
-	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element) {
+	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element, void* user_extra) {
 		ProcState::practice_header* header = (decltype(header))element;
 
 		//------Render Setup------:
@@ -1416,8 +1416,8 @@ namespace べんきょう {
 			multibutton::set_button_theme(controls.multibutton_choices, &multibutton_user_choice_button_theme,pagedata->user_answer_idx);
 
 			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk.normal = user_choice_bk.normal;
-			btn_next_theme.brushes.border.normal = user_choice_bk.normal;
+			btn_next_theme.brushes.bk = user_choice_bk;
+			btn_next_theme.brushes.border = user_choice_bk;
 			btn_next_theme.brushes.foreground.normal = global::colors.Img;
 			button::set_theme(controls.button_next, &btn_next_theme);
 
@@ -1960,7 +1960,7 @@ namespace べんきょう {
 
 
 	void reset_page(ProcState* state, ProcState::page page) {
-		//NOTE: one solution here would be to destroy all the controls remove_controls(page) and then call add_controls(page)
+		//NOTE: one solution here would be to destroy all the controls remove_controls(page) and then call addcontrols(page)
 		switch (page) {
 		case decltype(page)::new_word:
 		{
@@ -1980,7 +1980,7 @@ namespace べんきょう {
 
 			_clear_static(controls.static_test_word);
 			_clear_edit(controls.edit_answer);
-			//TODO(fran): I really need to destroy the controls and call add_controls, I cant be restoring colors here when that's already done there
+			//TODO(fran): I really need to destroy the controls and call addcontrols, I cant be restoring colors here when that's already done there
 		} break;
 		case decltype(page)::practice_multiplechoice:
 		{
@@ -2017,8 +2017,8 @@ namespace べんきょう {
 	}
 
 	//decreases the practice counter and loads/sets a new practice level or goes to the review page if the practice is over
-	void next_practice_level(ProcState* state, bool apply_delay=true) {
-		u32 delay = apply_delay ? 500 : USER_TIMER_MINIMUM;
+	void next_practice_level(ProcState* state, bool add_delay=true) {
+		u32 delay = add_delay ? 500 : USER_TIMER_MINIMUM;
 		SetTimer(state->wnd, timerIDs.next_practice_level, delay, _next_practice_level);
 	}
 
@@ -2811,12 +2811,38 @@ namespace べんきょう {
 #else
 			gridview::set_brushes(controls.gridview_practices, TRUE, global::colors.CaptionBk, 0, global::colors.CaptionBk_Inactive, 0);
 #endif
-			gridview::set_render_function(controls.gridview_practices, gridview_practices_renderfunc);
+			gridview::set_user_extra(controls.gridview_practices, state);
+			gridview::set_function_render_element(controls.gridview_practices, gridview_practices_renderfunc);
+			gridview::set_function_on_click_element(controls.gridview_practices, 
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					void* data = element;
+					ProcState::practice_header* header = (decltype(header))data;
+					ProcState::page new_review_page;
+					switch (header->type) {
+						case decltype(header->type)::writing: new_review_page = decltype	(new_review_page)::review_practice_writing; break;
+						case decltype(header->type)::multiplechoice: new_review_page = decltype (new_review_page)::review_practice_multiplechoice; break;
+						case decltype(header->type)::drawing: new_review_page = decltype	(new_review_page)::review_practice_drawing; break;
+						default: Assert(0);
+					}
+					preload_page(state, new_review_page, element/*pagedata*/);
+					store_previous_page(state, state->current_page);
+					set_current_page(state, new_review_page);
+				}
+			);
 
 			controls.button_continue = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			AWT(controls.button_continue, 451);
 			button::set_theme(controls.button_continue, &base_btn_theme);
+			button::set_user_extra(controls.button_continue, state);
+			button::set_function_on_click(controls.button_continue, 
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::landing);//TODO(fran): this isnt best, it'd be nice if we went back to the practice page but from here it'd require a goto_previous_page and the fact that we know prev page is practice and that we should preload cause it's values have changed
+				}
+			);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -3589,74 +3615,12 @@ namespace べんきょう {
 				} break;
 				case ProcState::page::new_word:
 				{
-					//auto& page = state->controls.new_word;
-					//if (child == page.button_save) {
-					//	if (save_new_word(state)) {
-					//		learnt_word16 empty{0};
-					//		preload_page(state, state->current_page, &empty);//TODO(fran): function restart_page()
-
-					//		notify(state, notification_relevance::success, RS(600).c_str());
-					//	}
-					//	else notify(state, notification_relevance::error, RS(601).c_str());
-					//}
 				} break;
 				case ProcState::page::practice:
 				{
-//					auto& page = state->controls.practice;
-//					if (child == page.button_start) {
-//						
-//						i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
-//						if (word_cnt > 0) {
-//#define TEST_QUICKPRACTICE
-//#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
-//							constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
-//#else
-//							constexpr int practice_cnt = 2 + 1;
-//#endif
-//							state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
-//							store_previous_page(state, state->current_page);
-//
-//							//Clear previous practice data:
-//							clear_practices_vector(state->multipagestate.temp_practices);
-//
-//							next_practice_level(state, false);
-//						}
-//						else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
-//					}
 				} break;
-				//case ProcState::page::search:
-				//{
-					//auto& page = state->controls.search;
-					//NOTE: for now the only thing on this page is the searchbox, which is handled in a decentralized fashion
-				//} break;
 				case ProcState::page::show_word:
 				{
-					//auto& page = state->controls.show_word;
-					//if (child == page.button_modify) {
-					//	if (modify_word(state)) {
-					//		goto_previous_page(state);
-					//		//set_current_page(state, ProcState::page::search);//TODO(fran): this should be a "go back" once we have the back button and a "go back" queue(or similar) set up
-					//	}
-					//}
-					//if (child == page.button_delete) {
-
-					//	int ret = MessageBoxW(state->nc_parent, RCS(280), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL,MBP::center);
-					//	if (ret == IDYES) {
-					//		if (remove_word(state)) {
-					//			goto_previous_page(state);
-					//			//set_current_page(state, ProcState::page::search);//TODO(fran): this should also be go back, we can get to show_word from new_word
-					//		}
-					//	}
-					//}
-					//if (child == page.button_remember) {
-					//	//TODO(fran): change button bk and mouseover color to green
-					//	if (prioritize_word(state)) {
-					//		button::Theme accent_btn_theme;
-					//		accent_btn_theme.brushes.foreground.normal = global::colors.Bk_right_answer;
-					//		accent_btn_theme.brushes.border.normal = global::colors.Bk_right_answer;
-					//		button::set_theme(page.button_remember, &accent_btn_theme);
-					//	}
-					//}
 				} break;
 				case ProcState::page::practice_writing:
 				{
@@ -3758,44 +3722,6 @@ namespace べんきょう {
 				} break;
 				case ProcState::page::review_practice:
 				{
-					auto& page = state->pages.review_practice;
-					if (child == page.button_continue) {
-						store_previous_page(state, state->current_page);
-						set_current_page(state, ProcState::page::landing);//TODO(fran): this isnt best, it'd be nice if we went back to the practice page but from here it'd require a goto_previous_page and the fact that we know prev page is practice and that we should preload cause it's values have changed
-					} 
-					else if (child == page.gridview_practices) {
-						//The user clicked an element
-						void* data = (void*)wparam;
-						ProcState::practice_header* header = (decltype(header))data;
-						switch (header->type) {//TODO(fran): pointless code repetition, why would we do smth different for each case
-						case decltype(header->type)::writing:
-						{
-							ProcState::practice_writing* pagedata = (decltype(pagedata))data;
-							preload_page(state, ProcState::page::review_practice_writing, pagedata);
-							store_previous_page(state, state->current_page);
-							set_current_page(state, ProcState::page::review_practice_writing);
-
-							//IDEA: implement ocarina of time's concept of a scene flag, the same page can be loaded in different scenes, eg on a practice page we'd have the default scene where we'd setup default colors, then the wrong_answer scene where we show a button or smth to allow the user to see the correct answer, also here we no longer accept new keyboard input beyond WM_ENTER, we also have the right_answer scene where we simply change colors and disable all user input since a timer will automatically change page. 
-							//IMPORTANT IDEA: we want individual/independent pages in the case we do reviews and similar things where we simply want to show the data but dont care about user input, eg the user presses an element in the gridview and we create a new wnd, create the corresponding controls, set them up (colors, disabled, etc) and show that window as a separate entity, that's what we want, to call add_controls on a different window and simply give it to the user, whenever the user's done they can close the window, meanwhile they can still interact with the main window, I think this is really good, the user could for example open all the words they got wrong at the same time, instead of having to open one, go back to the grid, open another; the one problem with this is where to show the new window, say we have 5 windows open, how do we choose where to show the sixth
-
-						} break;
-						case decltype(header->type)::multiplechoice:
-						{
-							ProcState::practice_multiplechoice* pagedata = (decltype(pagedata))data;
-							preload_page(state, ProcState::page::review_practice_multiplechoice, pagedata);
-							store_previous_page(state, state->current_page);
-							set_current_page(state, ProcState::page::review_practice_multiplechoice);
-						} break;
-						case decltype(header->type)::drawing:
-						{
-							ProcState::practice_drawing* pagedata = (decltype(pagedata))data;
-							preload_page(state, ProcState::page::review_practice_drawing, pagedata);
-							store_previous_page(state, state->current_page);
-							set_current_page(state, ProcState::page::review_practice_drawing);
-						} break;
-						default: Assert(0);
-						}
-					}
 				} break;
 				case ProcState::page::review_practice_writing:
 				{

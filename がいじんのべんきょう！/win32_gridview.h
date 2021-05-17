@@ -12,7 +12,9 @@
 //gridview::get_dimensions()
 //gridview::set_elements() to remove existing elements and add new ones
 //gridview::add_elements() to add new elements without removing existing ones
-//gridview::set_render_function() to set the function used for rendering an element
+//gridview::set_user_extra() additional data to be sent to all function calls
+//gridview::set_function_render_element() to set the function used for rendering an element
+//gridview::set_function_on_click_element() set function to be called when an element has been clicked
 //gridview::get_row_cnt() get the current number of rows necessary to display all the elements
 //gridview::get_dim_for_...() calculates the required dimensions of the wnd based on different parameters
 //gridview::get_elem_cnt() current number of elements
@@ -30,7 +32,8 @@
 
 namespace gridview {
 	//TODO(fran): we should probably add a user_extra and function ::set_user_extra(), a single user setteable value, in our case for example I'd put the HWND so I can get_state() and check for things like a font or color
-	typedef void(*gridview_func_renderelement)(HDC dc,rect_i32 r,void* element);//NOTE: RECT is stupid better rect_i32
+	typedef void(*func_renderelement)(HDC dc,rect_i32 r,void* element, void* user_extra);
+	typedef void(*func_on_click_element)(void* element, void* user_extra);
 
 	struct ProcState {
 		HWND wnd;
@@ -40,7 +43,8 @@ namespace gridview {
 			HBRUSH bk_dis, border_dis; //disabled
 		}brushes;
 
-		gridview_func_renderelement render_element;
+		func_renderelement render_element;
+		func_on_click_element on_click;
 
 		HBITMAP backbuffer;
 		SIZE backbuffer_dim;
@@ -58,6 +62,7 @@ namespace gridview {
 		f32 scroll_y;//[0,1]
 
 		//size_t clicked_element;//idx of the element that was clicked
+		void* user_extra;
 	};
 	//NOTE: User seteable: border_pad.cy , element_dim , inbetween_pad
 
@@ -148,7 +153,7 @@ namespace gridview {
 				Assert(state->element_placements.size() == state->elements.size());
 				for (size_t i = 0; i < state->element_placements.size(); i++)
 					//TODO(fran): we could apply a transform so the user can render as if from {0,0} and we simply send a SIZE obj and they dont have to bother with offsetting by left and top
-					state->render_element(backbuffer_dc, state->element_placements[i], state->elements[i]);
+					state->render_element(backbuffer_dc, state->element_placements[i], state->elements[i],state->user_extra);
 			}
 		}
 	}
@@ -292,11 +297,26 @@ namespace gridview {
 		}
 	}
 
-	void set_render_function(HWND wnd, gridview_func_renderelement render_func) {
+	void set_user_extra(HWND wnd, void* user_extra) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			state->render_element = render_func;
+			state->user_extra = user_extra;
+			render_backbuffer(state); //re-render with new user_extra which may change the look of elements
+		}
+	}
+
+	void set_function_render_element(HWND wnd, func_renderelement func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->render_element = func;
 			render_backbuffer(state); //re-render with new element rendering function
+		}
+	}
+
+	void set_function_on_click_element(HWND wnd, func_on_click_element func) {
+		ProcState* state = get_state(wnd);
+		if (state) {
+			state->on_click = func;
 		}
 	}
 
@@ -483,7 +503,8 @@ namespace gridview {
 			for (size_t i = 0; i < state->element_placements.size(); i++) {
 				if (test_pt_rc(mouse, state->element_placements[i])) {
 					//state->clicked_element = i;
-					SendMessage(state->parent, WM_COMMAND, (WPARAM)state->elements[i], (LPARAM)state->wnd);//TODO(fran): PostMessage?
+					if (state->on_click) state->on_click(state->elements[i], state->user_extra);
+					else SendMessage(state->parent, WM_COMMAND, (WPARAM)state->elements[i], (LPARAM)state->wnd);//TODO(fran): PostMessage?
 					//TODO(fran): there's no good win32 msg that is a notif that allows you to sent some extra info, you got WM_COMMAND, WM_NOTIFY and WM_PARENTNOTIFY each with its limitations, we may want to make our own msg that could work for all controls
 				}
 			}
