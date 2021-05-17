@@ -1229,7 +1229,9 @@ namespace べんきょう {
 			}
 
 			SendMessageW(controls.static_test_word, WM_SETTEXT, 0, (LPARAM)test_word);
-			static_oneline::set_brushes(controls.static_test_word, TRUE, test_word_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = test_word_br;
+			static_oneline::set_theme(controls.static_test_word, &static_theme);
 			
 			edit_oneline::Theme editoneline_theme;
 			editoneline_theme.dimensions.border_thickness = 1;
@@ -1315,7 +1317,9 @@ namespace べんきょう {
 			}
 			
 			SendMessageW(controls.static_test_word, WM_SETTEXT, 0, (LPARAM)question);
-			static_oneline::set_brushes(controls.static_test_word, TRUE, question_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = question_br;
+			static_oneline::set_theme(controls.static_test_word, &static_theme);
 
 			//TODO(fran): controls.edit_answer should be disabled
 
@@ -1350,8 +1354,9 @@ namespace べんきょう {
 
 
 			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
-			static_oneline::set_brushes(controls.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
-
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = question_txt_br;
+			static_oneline::set_theme(controls.static_question, &static_theme);
 
 			multibutton::set_buttons(controls.multibutton_choices, practice->choices);
 			button::Theme multibutton_button;
@@ -1400,7 +1405,9 @@ namespace べんきょう {
 			}
 
 			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
-			static_oneline::set_brushes(controls.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = question_txt_br;
+			static_oneline::set_theme(controls.static_question, &static_theme);
 			
 			//TODO(fran): borders for the right/wrong button dont seem to match when the button is pressed
 			//TODO(fran): controls.multibutton_choices should be disabled
@@ -1435,7 +1442,9 @@ namespace べんきょう {
 			HBRUSH question_txt_br = brush_for(practice->question_type);
 
 			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)practice->question_str);
-			static_oneline::set_brushes(controls.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = question_txt_br;
+			static_oneline::set_theme(controls.static_question, &static_theme);
 
 			button::Theme button_next_theme;
 			button_next_theme.brushes.bk.normal = global::colors.ControlBk;
@@ -1491,7 +1500,9 @@ namespace べんきょう {
 			}
 
 			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
-			static_oneline::set_brushes(controls.static_question, TRUE, question_txt_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme static_theme;
+			static_theme.brushes.foreground.normal = question_txt_br;
+			static_oneline::set_theme(controls.static_question, &static_theme);
 
 			paint::clear_canvas(controls.paint_answer);
 			paint::set_placeholder(controls.paint_answer, pagedata->user_answer);
@@ -2043,7 +2054,9 @@ namespace べんきょう {
 		case decltype(page)::new_word:
 		{
 			HWND notifier = state->pages.new_word.static_notify;
-			static_oneline::set_brushes(notifier, 0, notif_br, 0, 0, 0, 0, 0);
+			static_oneline::Theme notif_theme;
+			notif_theme.brushes.foreground.normal = notif_br;
+			static_oneline::set_theme(notifier, &notif_theme);
 			SendMessageW(notifier, WM_SETTEXT, 0, (LPARAM)notif);
 		} break;
 		default: Assert(0);
@@ -2179,10 +2192,21 @@ namespace べんきょう {
 		button::Theme img_btn_theme = base_btn_theme;
 		img_btn_theme.brushes.foreground.normal = global::colors.Img;
 
-
 		button::Theme accent_btn_theme = base_btn_theme;
 		accent_btn_theme.brushes.foreground.normal = global::colors.Accent;
 		accent_btn_theme.brushes.border.normal = global::colors.Accent;
+
+		static_oneline::Theme base_static_theme;
+		base_static_theme.brushes.foreground.normal = global::colors.ControlTxt;
+		base_static_theme.brushes.foreground.disabled = global::colors.ControlTxt_Disabled;
+		base_static_theme.brushes.bk.normal = global::colors.ControlBk;
+		base_static_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
+
+		static_oneline::Theme hiragana_static_theme = base_static_theme;
+		hiragana_static_theme.brushes.foreground.normal = brush_for(learnt_word_elem::hiragana);
+
+		static_oneline::Theme kanji_static_theme = base_static_theme;
+		kanji_static_theme.brushes.foreground.normal = brush_for(learnt_word_elem::kanji);
 
 		navbar::Theme nav_theme;
 		nav_theme.brushes.bk.normal = global::colors.ControlBk_Disabled;//TODO(fran): darker color than bk
@@ -2419,25 +2443,25 @@ namespace べんきょう {
 			controls.static_word_cnt_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_word_cnt_title, 351);
-			static_oneline::set_brushes(controls.static_word_cnt_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, 0, 0, 0);
+			static_oneline::set_theme(controls.static_word_cnt_title, &base_static_theme);
 
 			controls.static_word_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_word_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_word_cnt, &base_static_theme);
 
 			controls.static_practice_cnt_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_practice_cnt_title, 352);
-			static_oneline::set_brushes(controls.static_practice_cnt_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, 0, 0, 0);
+			static_oneline::set_theme(controls.static_practice_cnt_title, &base_static_theme);
 
 			controls.static_practice_cnt = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_practice_cnt, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			static_oneline::set_theme(controls.static_practice_cnt, &base_static_theme);
 
 			controls.static_accuracy_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_title, 353);
-			static_oneline::set_brushes(controls.static_accuracy_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_accuracy_title, &base_static_theme);
 
 			controls.score_accuracy = CreateWindowW(score::wndclass, NULL, WS_CHILD
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
@@ -2447,7 +2471,7 @@ namespace べんきょう {
 			controls.static_accuracy_timeline_title = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			AWT(controls.static_accuracy_timeline_title, 354);
-			static_oneline::set_brushes(controls.static_accuracy_timeline_title, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_accuracy_timeline_title, &base_static_theme);
 
 			controls.graph_accuracy_timeline = CreateWindowW(graph::wndclass, NULL, WS_CHILD | GP_CURVE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
@@ -2464,13 +2488,13 @@ namespace べんきょう {
 			controls.page = create_page(state, base_page_theme);
 
 			//TODO(fran): hide primary IME window, the one that shows the composition string, we no longer need it now we show the string straight into the editbox
-			controls.edit_hiragana = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_hiragana = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_hiragana, &hiragana_editoneline_theme);
 			edit_oneline::maintain_placerholder_when_focussed(controls.edit_hiragana, true);
 			AWDT(controls.edit_hiragana, 120);
 
-			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_kanji, &kanji_editoneline_theme);
 			AWDT(controls.edit_kanji, 121);
@@ -2482,22 +2506,22 @@ namespace べんきょう {
 			SendMessage(controls.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.combo_lexical_category, 123);
 
-			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
 			AWDT(controls.edit_meaning, 122);
 
-			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
 
-			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
 			AWDT(controls.edit_example_sentence, 127);
 
-			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
 			AWDT(controls.edit_notes, 126);
@@ -2523,7 +2547,7 @@ namespace べんきょう {
 
 			controls.static_notify = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_RIGHT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_notify, TRUE, 0, global::colors.ControlBk, 0, 0, 0, 0);
+			static_oneline::set_theme(controls.static_notify, &base_static_theme);
 			SetWindowSubclass(controls.static_notify, NotifyProc, 0, 0);
 			Notify_SetTextDuration(controls.static_notify, 2000);
 
@@ -2541,9 +2565,9 @@ namespace べんきょう {
 
 			controls.static_hiragana = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_hiragana, TRUE, brush_for(learnt_word_elem::hiragana), global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+			static_oneline::set_theme(controls.static_hiragana, &hiragana_static_theme);
 
-			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_kanji, &kanji_editoneline_theme);
 			AWDT(controls.edit_kanji, 121);
@@ -2555,37 +2579,37 @@ namespace べんきょう {
 			SendMessage(controls.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.combo_lexical_category, 123);
 
-			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
 			AWDT(controls.edit_meaning, 122);
 
-			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
 
-			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
 			AWDT(controls.edit_example_sentence, 127);
 
-			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, L"", WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
 			AWDT(controls.edit_notes, 126);
 
 			controls.static_creation_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_creation_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+			static_oneline::set_theme(controls.static_creation_date, &base_static_theme);
 
 			controls.static_last_practiced_date = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_last_practiced_date, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+			static_oneline::set_theme(controls.static_last_practiced_date, &base_static_theme);
 
 			controls.static_score = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_score, TRUE, global::colors.ControlTxt, global::colors.ControlBk, global::colors.ControlBk, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, global::colors.ControlBk_Disabled);
+			static_oneline::set_theme(controls.static_score, &base_static_theme);
 
 			controls.button_modify = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
@@ -2688,7 +2712,7 @@ namespace べんきょう {
 
 			controls.static_test_word = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_test_word, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_test_word, &base_static_theme);
 			//NOTE: text color will be set according to the type of word being shown
 
 			controls.edit_answer = CreateWindowW(edit_oneline::wndclass, 0, WS_CHILD | ES_CENTER | WS_TABSTOP | WS_CLIPCHILDREN | ES_ROUNDRECT
@@ -2719,7 +2743,7 @@ namespace べんきょう {
 
 			controls.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_question, &base_static_theme);
 			//NOTE: text color will be set according to the type of word being shown
 
 			//TODO(fran): should I simply use a gridview instead?
@@ -2756,7 +2780,7 @@ namespace べんきょう {
 
 			controls.static_question = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_question, TRUE, 0, global::colors.ControlBk, 0, 0, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_question, &base_static_theme);
 			//NOTE: text color will be set according to the type of word being shown
 
 			controls.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
@@ -2787,7 +2811,7 @@ namespace べんきょう {
 
 			controls.static_correct_answer = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_correct_answer, TRUE, brush_for(learnt_word_elem::kanji), global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);
+			static_oneline::set_theme(controls.static_correct_answer, &kanji_static_theme);
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);//TODO(fran): must be shown on top of all the other wnds
@@ -2804,7 +2828,7 @@ namespace べんきょう {
 
 			controls.static_review = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_brushes(controls.static_review, TRUE, global::colors.ControlTxt, global::colors.ControlBk, 0, global::colors.ControlTxt_Disabled, global::colors.ControlBk_Disabled, 0);//TODO(fran): add border colors
+			static_oneline::set_theme(controls.static_review, &base_static_theme);
 			AWT(controls.static_review, 450);
 
 			controls.gridview_practices = CreateWindowW(gridview::wndclass, NULL, WS_CHILD

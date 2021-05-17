@@ -13,27 +13,28 @@
 //IMPORTANT NOTE: 0x00000020L was the only style bit left unused by windows' static control
 
 //TODO(fran): draw border and bk
-//TODO(fran): we need a better font size calculation, for one it currently doesnt contemplate letters like "g" with go below the usual height and will usually get truncated
-//TODO(fran): use a Theme
+//TODO(fran): we need a better font size calculation, for one it currently doesnt contemplate letters like "g" which go below the usual height and will usually get truncated
 
 namespace static_oneline {
+	constexpr cstr wndclass[] = L"unCap_wndclass_static_oneline";
+
+	struct Theme {
+		struct {
+			brush_group foreground, bk, border;
+		} brushes;
+		struct {
+			u32 border_thickness = U32MAX;
+		}dimensions;
+		HFONT font = 0;
+	};
+
 	struct ProcState {
 		HWND wnd;
 		HWND parent;
-		struct {
-			HBRUSH txt, bk, border;//NOTE: for now we use the border color for the caret
-			HBRUSH txt_dis, bk_dis, border_dis; //disabled
-		}brushes;
-		struct {
-			u32 border_thickness;
-		}dimensions;
-		LOGFONT font;
-		HFONT _font;//simply cause windows msgs ask for it
-		utf16_str txt;
-		//cstr default_text[100]; //NOTE: uses txt_dis brush for rendering
+		Theme theme;
+		LOGFONT logfont;
+		s16 txt;
 	};
-
-	constexpr cstr wndclass[] = L"unCap_wndclass_static_oneline";
 
 	ProcState* get_state(HWND wnd) {
 		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
@@ -46,27 +47,32 @@ namespace static_oneline {
 
 	void ask_for_repaint(ProcState* state){ InvalidateRect(state->wnd, NULL, TRUE); }
 
-	void set_dimensions(HWND wnd, u32 border_thickness) {
-		ProcState* state = get_state(wnd);
-		if (state) {
-			if (border_thickness != state->dimensions.border_thickness) {
-				state->dimensions.border_thickness = border_thickness;
-				ask_for_repaint(state);
-			}
+	bool _copy_theme(ProcState* state, Theme* dst, const Theme* src) {
+		bool repaint = false;
+		repaint |= copy_brush_group(&dst->brushes.foreground, &src->brushes.foreground);
+		repaint |= copy_brush_group(&dst->brushes.bk, &src->brushes.bk);
+		repaint |= copy_brush_group(&dst->brushes.border, &src->brushes.border);
+
+		if (src->dimensions.border_thickness != U32MAX) {
+			dst->dimensions.border_thickness = src->dimensions.border_thickness; repaint = true;
 		}
+
+		if (src->font) { 
+			dst->font = src->font; 
+			int getobjres = GetObject(dst->font, sizeof(state->logfont), &state->logfont); Assert(getobjres == sizeof(state->logfont));//cache logfont
+			repaint = true; 
+		}
+		return repaint;
 	}
 
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	void set_brushes(HWND wnd, BOOL repaint, HBRUSH txt, HBRUSH bk, HBRUSH border, HBRUSH txt_disabled, HBRUSH bk_disabled, HBRUSH border_disabled) {
+	//Set only what you need, what's not set wont be used
+	//NOTE: the caller takes care of destruction of the theme's objects, if any, like the HBRUSHes, needs it
+	void set_theme(HWND wnd, const Theme* t) {
 		ProcState* state = get_state(wnd);
-		if (state) {
-			if (txt)state->brushes.txt = txt;
-			if (bk)state->brushes.bk = bk;
-			if (border)state->brushes.border = border;
-			if (txt_disabled)state->brushes.txt_dis = txt_disabled;
-			if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-			if (border_disabled)state->brushes.border_dis = border_disabled;
-			if (repaint)ask_for_repaint(state);
+		if (state && t) {
+			bool repaint = _copy_theme(state, &state->theme, t);
+
+			if (repaint)  ask_for_repaint(state);
 		}
 	}
 
@@ -142,15 +148,14 @@ namespace static_oneline {
 		case WM_SETFONT:
 		{
 			HFONT font = (HFONT)wparam;
-			BOOL redraw = LOWORD(lparam);
-			int getobjres = GetObject(font, sizeof(state->font), &state->font); Assert(getobjres == sizeof(state->font));
-			state->_font = font;
-			if (redraw) ask_for_repaint(state);
+			Theme new_theme;
+			new_theme.font = font;
+			set_theme(state->wnd, &new_theme);
 			return 0;
 		} break;
 		case WM_GETFONT:
 		{
-			return (LRESULT)state->_font;
+			return (LRESULT)state->theme.font;
 		} break;
 		case WM_DESTROY:
 		{
@@ -176,7 +181,7 @@ namespace static_oneline {
 			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE); //SS_CENTER, SS_RIGHT or default to SS_LEFT
 
 			//TODO(fran): render bk and border, flicker free
-			FillRect(dc, &rc, state->brushes.bk);
+			FillRect(dc, &rc, state->theme.brushes.bk.normal);
 
 			//TODO(fran): this should call urender::draw_text_max_coverage()
 #ifdef UNCAP_GDIPLUS
@@ -184,18 +189,18 @@ namespace static_oneline {
 				Gdiplus::Graphics graphics(dc);
 				graphics.SetTextRenderingHint(Gdiplus::TextRenderingHint::TextRenderingHintAntiAlias);
 
-				Gdiplus::FontFamily   fontFamily(state->font.lfFaceName);
+				Gdiplus::FontFamily   fontFamily(state->logfont.lfFaceName);
 
 				int FontStyle_flags = Gdiplus::FontStyle::FontStyleRegular;
 				//TODO(fran): we need our own font renderer, from starters the font weight has a much finer control with logfont
-				if (state->font.lfWeight >= FW_BOLD)FontStyle_flags |= Gdiplus::FontStyle::FontStyleBold;
-				if (state->font.lfItalic)FontStyle_flags |= Gdiplus::FontStyle::FontStyleItalic;
-				if (state->font.lfUnderline)FontStyle_flags |= Gdiplus::FontStyle::FontStyleUnderline;
-				if (state->font.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
+				if (state->logfont.lfWeight >= FW_BOLD)FontStyle_flags |= Gdiplus::FontStyle::FontStyleBold;
+				if (state->logfont.lfItalic)FontStyle_flags |= Gdiplus::FontStyle::FontStyleItalic;
+				if (state->logfont.lfUnderline)FontStyle_flags |= Gdiplus::FontStyle::FontStyleUnderline;
+				if (state->logfont.lfStrikeOut)FontStyle_flags |= Gdiplus::FontStyle::FontStyleStrikeout;
 
 				f32 fontsize;
 				if (style & SO_AUTOFONTSIZE) fontsize = urender::appropiate_font_h(state->txt, {w,h}, &graphics, &fontFamily, FontStyle_flags, Gdiplus::UnitPixel);
-				else fontsize = (f32)abs(state->font.lfHeight);//TODO(fran): this isnt correct, this are device units https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta
+				else fontsize = (f32)abs(state->logfont.lfHeight);//TODO(fran): this isnt correct, this are device units https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta
 				//TODO(fran): use this guy to make sure our fontsize fits horizontally too
 				//graphics.MeasureString(state->txt.str, (INT)(state->txt.sz_char() - 1),...);
 
@@ -221,7 +226,7 @@ namespace static_oneline {
 
 				stringFormat.SetAlignment(str_alignment);
 
-				COLORREF txt_color = ColorFromBrush(state->brushes.txt);
+				COLORREF txt_color = ColorFromBrush(state->theme.brushes.foreground.normal);
 				Gdiplus::SolidBrush   solidBrush(Gdiplus::Color(/*GetAValue(txt_color)*/255, GetRValue(txt_color), GetGValue(txt_color), GetBValue(txt_color)));
 				graphics.DrawString(state->txt.str, (INT)(state->txt.sz_char() - 1), &font, pointF, &stringFormat, &solidBrush);
 				//TODO(fran): do _not_ use gdiplus when SO_AUTOFONTSIZE isnt set, use instead gdi's TextOut which looks much better

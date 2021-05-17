@@ -42,10 +42,14 @@ namespace embedded {
 		void set_state(HWND wnd, ProcState* state) { SetWindowLongPtr(wnd, 0, (LONG_PTR)state); }
 		void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
 		void update_controls_theme(ProcState* state) {
+			static_oneline::Theme theme;
+			theme.brushes.foreground = state->theme.brushes.txt;
+			theme.brushes.bk = state->theme.brushes.bk;
+			theme.brushes.border = state->theme.brushes.border;
+			theme.dimensions.border_thickness = state->theme.dimensions.border_thickness;
+			theme.font = state->theme.font;
 			for (auto& c : state->controls.all) {
-				static_oneline::set_brushes(c, true, state->theme.brushes.txt.normal, state->theme.brushes.bk.normal, state->theme.brushes.border.normal, state->theme.brushes.txt.disabled, state->theme.brushes.bk.disabled, state->theme.brushes.border.disabled);
-				static_oneline::set_dimensions(c, state->theme.dimensions.border_thickness);
-				SendMessage(c, WM_SETFONT, (WPARAM)state->theme.font, TRUE);
+				static_oneline::set_theme(c, &theme);
 			}
 		}
 		//Set only what you need, what's not set wont be used
