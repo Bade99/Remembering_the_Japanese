@@ -193,6 +193,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
     べんきょう::startup(db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
+    //if(MessageBoxW(0,L"Saturate DB?",L"",MB_YESNOCANCEL) == IDYES) べんきょう::test::saturate_db(db);
 
     defer{ 
         int close_res = sqlite3_close(db); sqliteok_runtime_check(close_res,db); 

@@ -8,7 +8,7 @@
 #include <string>
 //All interactions with the がいしんのべんきょう db are in here:
 
-//TODO(fran): maybe we should use stored procs, that way we get sintax checking on startup for everything, otherwise something might slip up, still we may also want to add tests for each thing too
+//TODO(fran): maybe we should use stored procs, that way we get sintax checking on startup for everything, otherwise something might slip up, still we may also want to add tests for each thing too. One problem with stored procedures would be when we went for optimization, by generating the request on real time we can only add specific columns in each case, with stored procs that wont be possible
 
 //-------------------------Types-----------------------------: //TODO(fran): should the types be inside the namespace?
 
@@ -1120,6 +1120,71 @@ namespace べんきょう {
 		}
 #endif
 
+	}
+
+	namespace test {
+
+		void saturate_db(sqlite3* db, int entry_cnt = 3500) {
+			//Fills the db with lots of entries, simulating a very advanced student's db
+
+			//What I learnt from this test: 
+				//I thought the db size would go into the MBs, idk how the hell I made the calculation cause it barely reaches half a megabyte with 3500 words. Which is great, sharing even a full db is very easy and will take almost no bandwidth
+				//Computers are crazy fast, there's basically no delay even running on _debug_, inserting the 3500 words takes around 20 seconds (could do better) and the rest of the program runs fine, searching for a specific word is still really fast, insertion, deletion, everything works more or less the same, the only thing that gets broken & slow is the landing page and that's only cause it's listbox is trying to show 3500 elements and simply goes out of the page, or something, TODO(fran): I should investigate further about what's happening. TODO(fran): test this again once we add some page that presents all the words at once on the UI
+				//Final conclusion: we seem to be still way away of the performance limit of either the db or my code, and it kinda looks like we may never get there
+
+			auto write_str = [](s16& s, int cnt, utf16(*char_generator)()){
+				s[cnt] = 0;//null terminate
+				for (int i = 0; i < cnt; i++) s[i] = char_generator();
+			};
+
+			auto kanji_gen = []()->utf16 {
+				struct range { u16 min, max; };
+				range ranges[]{ {0x2E80, 0x2FD5}, {0x3400, 0x4DB5}, {0x4E00, 0x9FCB}, {0xF900, 0xFA6A} };
+				auto r = ranges[random_between((size_t)0, ARRAYSIZE(ranges) - 1)];
+				return random_between(r.min, r.max);
+			};
+
+			auto hiragana_gen = []()->utf16 {
+				return random_between(0x3041, 0x30A0);
+			};
+
+			auto roman_gen = []()->utf16 {
+				struct range { u16 min, max; };
+				range ranges[]{ {L'a', L'z'}, {L'A', L'Z'} };
+				auto r = ranges[random_between((size_t)0, ARRAYSIZE(ranges) - 1)];
+				return random_between(r.min, r.max);
+			};
+
+			learnt_word16 word; 
+			word.attributes.hiragana = alloc_s16(10);
+			word.attributes.kanji = alloc_s16(7);
+			word.attributes.meaning = alloc_s16(10);
+			word.attributes.mnemonic = alloc_s16(30);
+			word.attributes.lexical_category = alloc_s16(2);
+			word.attributes.notes = alloc_s16(80);
+			word.attributes.example_sentence = alloc_s16(50);
+			defer{ for (int i = word.pk_count; i < ARRAYSIZE(word.all); i++) free_any_str(word.all[i]); };
+
+			for (int i = 0; i < entry_cnt; i++) {
+				using namespace std::string_literals;
+				write_str(word.attributes.hiragana, 
+					random_between(1, (int)word.attributes.hiragana.cnt()), hiragana_gen);
+				write_str(word.attributes.kanji,
+					random_between(0, (int)word.attributes.kanji.cnt()), kanji_gen);
+				write_str(word.attributes.meaning,
+					random_between(1, (int)word.attributes.meaning.cnt()), roman_gen);
+				write_str(word.attributes.mnemonic,
+					random_between(0, (int)word.attributes.mnemonic.cnt()), roman_gen);
+				auto lex = std::to_wstring(random_between(-1/*::dont_care*/,8 /*::particle*/));
+				memcpy(word.attributes.lexical_category, lex.c_str(), (lex.size() + 1) * sizeof(lex[0]));
+				write_str(word.attributes.notes,
+					random_between(0, (int)word.attributes.notes.cnt()), roman_gen);
+				write_str(word.attributes.example_sentence, 
+					random_between(0, (int)word.attributes.example_sentence.cnt()), roman_gen);
+
+				insert_word(db, word);
+			}
+		}
 	}
 
 }

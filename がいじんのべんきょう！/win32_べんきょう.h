@@ -35,7 +35,6 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori bird(talk to bren)
-//TODO(fran): test suite: test whole application performance when db is really full, say for example 3500 word entries with every column filled with data
 //TODO(fran): all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
 	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): all pages: sanitize input where needed, make sure the user cant execute SQL code -> solution: use prepared statements with parameterized values, aka sqlite3_prepare() + sqlite3_bind()
@@ -49,6 +48,7 @@
 //TODO(fran): page review_practice: add visual feedback of the fact the words on the grid can be clicked (change color as buttons do on mouseover, or simply use buttons)
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
+//TODO(fran):BUG searchbox: caret on the searchbox gets misplaced. howto reproduce: search for a word, then using the down arrow go to some option and then press enter, now the searchbox caret will be misplaced
 
 
 //Leftover IDEAs:
@@ -877,8 +877,6 @@ namespace べんきょう {
 		urender::draw_text(dc, meaning_rc, txt->attributes.meaning, font, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
 	}
 
-	void listbox_recents_func_on_click(void* element, void* user_extra);
-	
 	void button_recents_func_render(HWND wnd, HDC dc, rect_i32 r, button::render_flags flags, void* element, void* user_extra) {
 		//TODO(fran): join with langbox_func_render_combobox to create a rendering function that generates combobox looking wnds
 		HFONT font = global::fonts.General;
@@ -1721,19 +1719,6 @@ namespace べんきょう {
 		}
 	}
 
-	void listbox_recents_func_on_click(void* element, void* user_extra) {
-		ProcState* state = (decltype(state))user_extra;
-		learnt_word16* txt = (decltype(txt))element;
-
-		stored_word16_res res = get_stored_word(state->settings->db, *txt/*TODO(fran): make sure this isnt a copy*/);  defer{ if (res.found) free_stored_word(res.word); };
-		if (res.found) {
-			preload_page(state, ProcState::page::show_word, &res.word);
-			store_previous_page(state, state->current_page);
-			set_current_page(state, ProcState::page::show_word);
-		}
-		//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
-	}
-
 	bool modify_word(ProcState* state) {
 		bool res = false;
 		if (check_show_word(state)) {
@@ -1754,7 +1739,7 @@ namespace べんきょう {
 		return res;
 	}
 
-	learnt_word8 show_word_getPks(ProcState* state) {
+	learnt_word8 show_word_getPks(ProcState* state) {//TODO(fran): do not convert to utf8, let the db decide what to do with our utf16
 		auto& page = state->pages.show_word;
 
 		learnt_word16 word16;
@@ -2420,7 +2405,19 @@ namespace べんきょう {
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			listbox::set_function_render(controls.listbox_recents, listbox_recents_func_render);
 			listbox::set_user_extra(controls.listbox_recents, state);
-			listbox::set_function_on_click(controls.listbox_recents, listbox_recents_func_on_click);
+			listbox::set_function_on_click(controls.listbox_recents, [](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					learnt_word16* txt = (decltype(txt))element;
+
+					stored_word16_res res = get_stored_word(state->settings->db, *txt/*TODO(fran): make sure this isnt a copy*/);  defer{ if (res.found) free_stored_word(res.word); };
+					if (res.found) {
+						preload_page(state, ProcState::page::show_word, &res.word);
+						store_previous_page(state, state->current_page);
+						set_current_page(state, ProcState::page::show_word);
+					}
+					//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
+				}
+			);
 
 			controls.button_recents = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, page, 0, NULL, NULL);

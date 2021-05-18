@@ -104,6 +104,10 @@ static s16 alloc_s16(std::u16string_view s) {
 	memcpy(res, s.data(), sz);
 	return res;
 }
+//NOTE: should only be used for testing
+s16 alloc_s16(size_t cnt) {//cnt + 1 (for the null terminator) utf16 characteres are allocated
+	return alloc_any_str((cnt + 1) * 2);
+}
 static void free_any_str(void* str) { free(str); };
 
 //TODO(fran):
