@@ -407,6 +407,18 @@ SQLITE_API int sqlite3_exec(
   char **errmsg                              /* Error msg written here */
 );
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////FRAN///////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+typedef struct sqlite3_stmt sqlite3_stmt;//HACK
+SQLITE_API int sqlite3_exec_stmt(
+    sqlite3*,                                  /* An open database */
+    sqlite3_stmt* stmt,                        /* SQL to be evaluated */
+    int (*callback)(void*, int, char**, char**),  /* Callback function */
+    void*,                                    /* 1st argument to callback */
+    char** errmsg                              /* Error msg written here */
+);
+
 /*
 ** CAPI3REF: Result Codes
 ** KEYWORDS: {result code definitions}
@@ -3794,7 +3806,7 @@ SQLITE_API const char *sqlite3_errstr(int);
 ** <li> Destroy the object using [sqlite3_finalize()].
 ** </ol>
 */
-typedef struct sqlite3_stmt sqlite3_stmt;
+//typedef struct sqlite3_stmt sqlite3_stmt;
 
 /*
 ** CAPI3REF: Run-time Limits

@@ -388,7 +388,7 @@ namespace べんきょう {
 					type page;
 
 					type static_id;//HACK?: probably nicer solution would be for the page to have a pagestate where it saves it's current word id
-					type static_hiragana;
+					type edit_hiragana;
 					type edit_kanji;
 					type edit_meaning;
 					type combo_lexical_category;
@@ -1128,7 +1128,7 @@ namespace べんきょう {
 			//IDEA: in this page we could reuse the controls from new_word, that way we first call preload_page(new_word) with word_to_show.user_defined and then do our thing (this idea doesnt quite work)
 
 			SendMessageW(controls.static_id, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.id.str);
-			SendMessageW(controls.static_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
+			SendMessageW(controls.edit_hiragana, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.hiragana.str);
 			SendMessageW(controls.edit_kanji, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.kanji.str);
 			SendMessageW(controls.edit_meaning, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.meaning.str);
 			SendMessageW(controls.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.mnemonic.str);
@@ -1726,7 +1726,7 @@ namespace べんきょう {
 			auto& page = state->pages.show_word;
 
 			_get_edit_str(page.static_id, w16.attributes.id);
-			_get_edit_str(page.static_hiragana, w16.attributes.hiragana);
+			_get_edit_str(page.edit_hiragana, w16.attributes.hiragana);
 			_get_edit_str(page.edit_kanji, w16.attributes.kanji);
 			_get_edit_str(page.edit_meaning, w16.attributes.meaning);
 			_get_edit_str(page.edit_mnemonic, w16.attributes.mnemonic);
@@ -2187,9 +2187,6 @@ namespace べんきょう {
 		base_static_theme.brushes.bk.normal = global::colors.ControlBk;
 		base_static_theme.brushes.bk.disabled = global::colors.ControlBk_Disabled;
 
-		static_oneline::Theme hiragana_static_theme = base_static_theme;
-		hiragana_static_theme.brushes.foreground.normal = brush_for(learnt_word_elem::hiragana);
-
 		static_oneline::Theme kanji_static_theme = base_static_theme;
 		kanji_static_theme.brushes.foreground.normal = brush_for(learnt_word_elem::kanji);
 
@@ -2560,9 +2557,10 @@ namespace べんきょう {
 			controls.static_id = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 
-			controls.static_hiragana = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SO_AUTOFONTSIZE
+			controls.edit_hiragana = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			static_oneline::set_theme(controls.static_hiragana, &hiragana_static_theme);
+			AWDT(controls.edit_hiragana, 120);
+			edit_oneline::set_theme(controls.edit_hiragana, &hiragana_editoneline_theme);
 
 			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
@@ -3386,10 +3384,10 @@ namespace べんきょう {
 			hpsizer lhpad{};
 			vpsizer lvpad{};
 
-			ssizer static_hiragana{ controls.static_hiragana };
+			ssizer edit_hiragana{ controls.edit_hiragana };
 			ssizer edit_kanji{ controls.edit_kanji };
 			vsizer jp_sizer{
-				{&static_hiragana,bigwnd_h},
+				{&edit_hiragana,bigwnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_kanji,bigwnd_h}, //TODO(fran): text editor needs to adapt to font size changing
 			};

@@ -186,8 +186,38 @@ struct stored_word16 {
 
 //-----------------------Functions--------------------------:
 
+//IMPORTANT: we'll use named parameters with sqlite format ?NNN where NNN represents some number to identify the parameter. Use sqlParam() to add your parameter to your query string, and sqlIdx() in sqlite3_bind(), previously #define a fixed unique index for the parameter to be used for all queries
+#define _table 1
+#define _match_str 2
+
+#define __sqlParamS(p) #p
+#define _sqlParamS(p) __sqlParamS(?##p)
+#define sqlParamS(p) _sqlParamS(p)
+
+#define sqlParam(p) ?##p
+#define sqlIdx(p) p
+
+//INFO IMPORTANT: when using sqlite bind you no longer need to use '' around text values, eg '?1' is incorrect, you want ?1 to bind a string
+//INFO IMPORTANT: sqlite bind can _not_ be used for table or column names 
 
 namespace べんきょう {
+
+	int sqlite3_bind(sqlite3_stmt* stmt, int index, const s8& txt, void (*destructor)(void*) = SQLITE_STATIC) {
+		Assert(stmt);
+		Assert(index);
+		Assert(txt.str && txt.sz);
+		int res = sqlite3_bind_text(stmt, index, txt.str, (int)txt.sz, destructor);
+		Assert(res == SQLITE_OK);
+		return res;
+	}
+
+	int sqlite3_bind(sqlite3_stmt* stmt, int index, const std::string& txt, void (*destructor)(void*) = SQLITE_STATIC) {
+		Assert(stmt);
+		Assert(index);
+		int res = sqlite3_bind_text(stmt, index, txt.c_str(), (int)((txt.size() + 1) * sizeof(txt[0])), destructor);
+		Assert(res == SQLITE_OK);
+		return res;
+	}
 
 	i64 get_table_rowcount(sqlite3* db, const std::string& table) {
 		i64 res;
@@ -206,6 +236,7 @@ namespace べんきょう {
 
 		return res;
 	}
+
 
 
 	//returns the basic user stats, this values dont need to be freed
@@ -325,9 +356,8 @@ namespace べんきょう {
 	};
 
 	stored_word16_res get_word(sqlite3* db, learnt_word_elem match_type, const s16 match) {
-		using namespace std::string_literals;
 		stored_word16_res res{ 0 };
-		auto match_str = s16_to_s8(match); defer{ free_any_str(match_str); };
+		s8 match_str = s16_to_s8(match); defer{ free_any_str(match_str); };
 
 		//TODO(fran): this should be a function that returns ptr to static strings of the columns
 		const char* filter_col = 0;
@@ -340,15 +370,29 @@ namespace べんきょう {
 
 		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns) _foreach_extra_word_member(_sqlite3_generate_columns);
 		columns.pop_back();//remove trailing comma
-
+		char a[] = sqlParamS(_match_str);
 		std::string select_word = 
 			" SELECT " + columns + 
 			" FROM " べんきょう_table_words
-			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "'" "LIMIT 1" ";";
+			" WHERE " + filter_col + " LIKE " sqlParamS(_match_str) " LIMIT 1 " ";";
 
+		sqlite3_stmt* stmt;
+		int errcode;
+		errcode = sqlite3_prepare_v2(db, select_word.c_str(), (int)(select_word.length()+1) * sizeof(select_word[0]), &stmt, nullptr);
+		sqliteok_runtime_assert(errcode, db);
+
+		errcode = sqlite3_bind(stmt, sqlIdx(_match_str), match_str);
+		sqliteok_runtime_assert(errcode, db);
+
+#if 0
 		char* select_errmsg;
 		sqlite3_exec(db, select_word.c_str(), parse_select_stored_word, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);
+#else
+		char* select_errmsg;
+		sqlite3_exec_stmt(db, stmt, parse_select_stored_word, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+#endif
 		return res;
 	}
 
@@ -1129,7 +1173,7 @@ namespace べんきょう {
 
 			//What I learnt from this test: 
 				//I thought the db size would go into the MBs, idk how the hell I made the calculation cause it barely reaches half a megabyte with 3500 words. Which is great, sharing even a full db is very easy and will take almost no bandwidth
-				//Computers are crazy fast, there's basically no delay even running on _debug_, inserting the 3500 words takes around 20 seconds (could do better) and the rest of the program runs fine, searching for a specific word is still really fast, insertion, deletion, everything works more or less the same, the only thing that gets broken & slow is the landing page and that's only cause it's listbox is trying to show 3500 elements and simply goes out of the page, or something, TODO(fran): I should investigate further about what's happening. TODO(fran): test this again once we add some page that presents all the words at once on the UI
+				//Computers are crazy fast, there's basically no delay even running on _debug_, inserting the 3500 words takes around 20 seconds (could do better, try wrapping in transaction) and the rest of the program runs fine, searching for a specific word is still really fast, insertion, deletion, everything works more or less the same, the only thing that gets broken & slow is the landing page and that's only cause it's listbox is trying to show 3500 elements and simply goes out of the page, or something, TODO(fran): I should investigate further about what's happening. TODO(fran): test this again once we add some page that presents all the words at once on the UI
 				//Final conclusion: we seem to be still way away of the performance limit of either the db or my code, and it kinda looks like we may never get there
 
 			auto write_str = [](s16& s, int cnt, utf16(*char_generator)()){
