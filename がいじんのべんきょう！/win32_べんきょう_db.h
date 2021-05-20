@@ -116,6 +116,11 @@ struct stored_word16 {
 
 #define _sqlite3_generate_values_array(type,name,...) std::string("'") + word->attributes.name.str + "'",
 
+#define _sqlite3_generate_indexes(type,name,...) sqlParamS(sqlMakeIdx(name))","
+
+#define _sqlite3_generate_indexes_str_array(type,name,...) sqlParamS(sqlMakeIdx(name)),
+
+#define _sqlite3_generate_indexes_int_array(type,name,...) sqlMakeIdx(name),
 
 //----------------------DB Structure-------------------------:
 
@@ -190,12 +195,27 @@ struct stored_word16 {
 #define _table 1
 #define _match_str 2
 
+#define _id 3
+#define _hiragana 4
+#define _kanji 5
+#define _meaning 6
+#define _mnemonic 7
+#define _lexical_category 8
+#define _notes 9
+#define _example_sentence 10
+
 #define __sqlParamS(p) #p
 #define _sqlParamS(p) __sqlParamS(?##p)
 #define sqlParamS(p) _sqlParamS(p)
 
 #define sqlParam(p) ?##p
 #define sqlIdx(p) p
+
+#define transformval(v) v
+#define _joinval(v) transformval(_##v)
+#define sqlMakeIdx(v) _joinval(v)
+//#define _makestring(v) #v
+//#define makestring(v) _makestring(v)
 
 //INFO IMPORTANT: when using sqlite bind you no longer need to use '' around text values, eg '?1' is incorrect, you want ?1 to bind a string
 //INFO IMPORTANT: sqlite bind can _not_ be used for table or column names 
@@ -222,7 +242,7 @@ namespace べんきょう {
 	i64 get_table_rowcount(sqlite3* db, const std::string& table) {
 		i64 res;
 		std::string count = "SELECT COUNT(*) FROM " + table + ";";
-		sqlite3_stmt* stmt;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 		int errcode;
 		errcode = sqlite3_prepare_v2(db, count.c_str(), (int)((count.length() + 1) * sizeof(decltype(count)::value_type)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
 		sqliteok_runtime_assert(errcode, db);
@@ -231,8 +251,6 @@ namespace べんきょう {
 		sqlite_runtime_assert(errcode == SQLITE_ROW, db);
 
 		res = sqlite3_column_int64(stmt, 0);
-
-		sqlite3_finalize(stmt);
 
 		return res;
 	}
@@ -247,7 +265,7 @@ namespace べんきょう {
 			FROM _べんきょう_table_user;
 		);
 
-		sqlite3_stmt* stmt;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 		int errcode;
 		errcode = sqlite3_prepare_v2(db, stats, (int)(ARRAYSIZE(stats)) * sizeof(decltype(*stats)), &stmt, nullptr); //INFO: there's a prepare with utf16 that we can use!, everything utf16 would be a blessing
 		sqliteok_runtime_assert(errcode, db);
@@ -259,8 +277,6 @@ namespace べんきょう {
 		res.times_practiced = sqlite3_column_int64(stmt, 1);
 		res.times_shown = sqlite3_column_int64(stmt, 2);
 		res.times_right = sqlite3_column_int64(stmt, 3);
-
-		sqlite3_finalize(stmt);
 
 		return res;
 	}
@@ -278,7 +294,7 @@ namespace べんきょう {
 			+ ")" +
 			SQL(ORDER BY creation_date ASC;);
 
-		sqlite3_stmt* stmt;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 		int errcode;
 		errcode = sqlite3_prepare_v2(db, timeline.c_str(), (int)(timeline.size() + 1) * sizeof(decltype(timeline)::value_type), &stmt, nullptr);
 		sqliteok_runtime_assert(errcode, db);
@@ -291,8 +307,6 @@ namespace べんきょう {
 			i++;
 		}
 		stats->accuracy_timeline.cnt = i;
-
-		sqlite3_finalize(stmt);
 	}
 
 	void user_stats_increment_times_practiced(sqlite3* db) {
@@ -355,6 +369,7 @@ namespace べんきょう {
 		return 0;
 	};
 
+	//Looks for an exact match
 	stored_word16_res get_word(sqlite3* db, learnt_word_elem match_type, const s16 match) {
 		stored_word16_res res{ 0 };
 		s8 match_str = s16_to_s8(match); defer{ free_any_str(match_str); };
@@ -370,13 +385,13 @@ namespace べんきょう {
 
 		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns) _foreach_extra_word_member(_sqlite3_generate_columns);
 		columns.pop_back();//remove trailing comma
-		char a[] = sqlParamS(_match_str);
+		
 		std::string select_word = 
 			" SELECT " + columns + 
 			" FROM " べんきょう_table_words
 			" WHERE " + filter_col + " LIKE " sqlParamS(_match_str) " LIMIT 1 " ";";
 
-		sqlite3_stmt* stmt;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 		int errcode;
 		errcode = sqlite3_prepare_v2(db, select_word.c_str(), (int)(select_word.length()+1) * sizeof(select_word[0]), &stmt, nullptr);
 		sqliteok_runtime_assert(errcode, db);
@@ -397,6 +412,10 @@ namespace べんきょう {
 	}
 
 	static const std::string learnt_word_columns_array[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
+
+	constexpr int learnt_word_indexes_int_array[] = { _foreach_learnt_word_member(_sqlite3_generate_indexes_int_array) };
+
+	static const std::string learnt_word_indexes_str_array[] = { _foreach_learnt_word_member(_sqlite3_generate_indexes_str_array) };
 
 	static std::string generate_key_match(const learnt_word8& _key) {
 		using namespace std::string_literals;
@@ -436,6 +455,7 @@ namespace べんきょう {
 			" SELECT " + columns +
 			" FROM " べんきょう_table_words
 			" WHERE " + key_match + ";";
+		//IMPORTANT NOTE: there's no need to use prepared statements here since we know all primary keys in key_match are not based on input from the user, but that could change in the future (one problem would be if the user can actually input a string into the key column from an external editor, I kinda think sql actually allows that for integer columns, so that'd be a reason to do prep stmts now: TODO(fran))
 
 		char* select_errmsg;
 		sqlite3_exec(db, select_word.c_str(), parse_select_stored_word, &res, &select_errmsg);
@@ -460,7 +480,7 @@ namespace べんきょう {
 		
 		i64 cnt;
 		{
-			sqlite3_stmt* stmt;
+			sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 			int errcode;
 			errcode = sqlite3_prepare_v2(db, count_words.c_str(), (int)(count_words.length()+1)*sizeof(count_words[0]), &stmt, nullptr);
 
@@ -470,8 +490,6 @@ namespace べんきょう {
 				else cnt = 0;
 			}
 			else cnt = 0;
-
-			sqlite3_finalize(stmt);
 		}
 
 		res.alloc(cnt);//TODO(fran): I think allocating zero size (cnt=0) works just as well but im not sure
@@ -508,7 +526,7 @@ namespace べんきょう {
 		);
 
 		{
-			sqlite3_stmt* stmt;
+			sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
 			int errcode;
 			errcode = sqlite3_prepare_v2(db, select_last_creation_date, sizeof(select_last_creation_date), &stmt, nullptr);
 
@@ -518,8 +536,6 @@ namespace べんきょう {
 				else res = 0;
 			}
 			else res = 0;
-
-			sqlite3_finalize(stmt);
 		}
 
 		return res;
@@ -551,6 +567,35 @@ namespace べんきょう {
 		return res;
 	}
 
+	void bind_non_primary_keys(sqlite3_stmt* stmt, const learnt_word8& word) {
+		//TODO(fran): making this with some macro generation function that gets values out of the word struct would probably be safer (this depends on nobody inserting extra members in the middle of the word and thus breaking indexing)
+		for (int i = word.pk_count; i < ARRAYSIZE(learnt_word_indexes_int_array); i++)
+			sqlite3_bind(stmt, learnt_word_indexes_int_array[i], word.all[i]);
+	}
+
+	//returns a string of the form "?3,?4,?5" etc, where each number uniquely identifies a non primary key member of the struct
+	std::string get_non_primary_key_indexes_str(const learnt_word8& _/*used only for type matching*/) {
+		static std::string values;//TODO(fran): constepxr somehow
+		if (values.empty()) {
+			std::string indexes_str[]{ _foreach_learnt_word_member(_sqlite3_generate_indexes_str_array) };
+			for (int i = _.pk_count; i < ARRAYSIZE(indexes_str); i++) values += indexes_str[i] + ",";
+			values.pop_back(); //remove the trailing comma
+		}
+		return values;
+	}
+
+	//returns a string of the form "hiragana,kanji,meaning" etc
+	std::string get_non_primary_key_columns_str(const learnt_word8& _/*used only for type matching*/) {
+		static std::string columns;//TODO(fran): constepxr somehow
+		if (columns.empty()) {
+			for (int i = _.pk_count; i < ARRAYSIZE(learnt_word_columns_array); i++) {
+				columns += learnt_word_columns_array[i] + ",";
+			}
+			columns.pop_back(); //remove the trailing comma
+		}
+		return columns;
+	}
+
 	//returns sqlite error codes, SQLITE_OK,...
 	int insert_word(sqlite3* db, const learnt_word8& word) {
 		using namespace std::string_literals;
@@ -558,24 +603,26 @@ namespace べんきょう {
 		//TODO(fran): we are inserting everything with '' which is not right for numbers
 		//NOTE: here I have an idea, if I store the desired type I can do type==number? string : 'string'
 
-		std::string columns;
-		std::string values;
-		for (int i = word.pk_count; i < ARRAYSIZE(learnt_word_columns_array); i++) {
-			columns += learnt_word_columns_array[i] + ",";
-			values += "'"s + word.all[i].str + "'" + ",";
-		}
-		columns.pop_back(); //remove the trailing comma
-		values.pop_back(); //remove the trailing comma
+		static std::string insert_word;//TODO(fran): constepxr somehow
+		if (insert_word.empty()) {
+			std::string columns = get_non_primary_key_columns_str(word);
+			std::string values = get_non_primary_key_indexes_str(word);
 
-		std::string insert_word = 
-			" INSERT INTO " べんきょう_table_words "(" + columns + ")" +
-			" VALUES(" + values + ");";
+			insert_word =
+				" INSERT INTO " べんきょう_table_words "(" + columns + ")" +
+				" VALUES(" + values + ");";
+		}
+
+		int errcode;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };//TODO(fran): should only be prepared/compiled once
+		errcode = sqlite3_prepare_v2(db, insert_word.c_str(), (int)((insert_word.length() + 1) * sizeof(insert_word[0])), &stmt, nullptr);
+		sqliteok_runtime_assert(errcode, db);
+
+		bind_non_primary_keys(stmt, word);
 
 		//char* insert_errmsg;
-		res = sqlite3_exec(db, insert_word.c_str(), 0, 0, 0/*&insert_errmsg*/) /*== SQLITE_OK*/;
+		res = sqlite3_exec_stmt(db, stmt, 0, 0, 0/*&insert_errmsg*/)/* == SQLITE_OK*/;
 		//sqlite_exec_runtime_check(insert_errmsg);
-
-		//TODO(fran): handle if the word already exists, maybe show the old word and ask if they want to override that content, NOTE: the handling code shouldnt be here, this function should be as isolated as possible, if we start heavily interacting with the user this will be ugly
 
 		return res;
 	}
@@ -597,23 +644,28 @@ namespace べんきょう {
 
 		//std::string columns[] = { _foreach_learnt_word_member(_sqlite3_generate_columns_array) };
 
-		std::string values[] = { _foreach_learnt_word_member(_sqlite3_generate_values_array) };
-
 		std::string key_match = generate_key_match(*word);
 
 		std::string new_values;
-		for (int i = word->pk_count/*dont update pk columns*/; i < ARRAYSIZE(learnt_word_columns_array); i++)
-			new_values += learnt_word_columns_array[i] + "=" + values[i] + ",";
-		new_values.pop_back();//you probably need to remove the trailing comma as always
+		for (int i = word->pk_count; i < ARRAYSIZE(learnt_word_columns_array); i++)
+			new_values += learnt_word_columns_array[i] + "=" + learnt_word_indexes_str_array[i] + ",";
+		new_values.pop_back();//remove the trailing comma
 
 		std::string update_word = 
 			" UPDATE " べんきょう_table_words 
 			" SET " + new_values + 
 			" WHERE " + key_match + ";";
+		
+		int errcode;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };//TODO(fran): should only be prepared/compiled once
+		errcode = sqlite3_prepare_v2(db, update_word.c_str(), (int)((update_word.length() + 1) * sizeof(update_word[0])), &stmt, nullptr);
+		sqliteok_runtime_assert(errcode, db);
 
-		char* update_errmsg;
-		res = sqlite3_exec(db, update_word.c_str(), 0, 0, &update_errmsg) == SQLITE_OK;
-		sqlite_exec_runtime_check(update_errmsg);
+		bind_non_primary_keys(stmt, *word);
+
+		char* errmsg;
+		res = sqlite3_exec_stmt(db, stmt, 0, 0, &errmsg) == SQLITE_OK;
+		sqlite_exec_runtime_check(errmsg);
 
 		return res;
 	}
@@ -723,12 +775,21 @@ namespace べんきょう {
 		default: Assert(0);
 		}
 
-		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();//remove trailing comma
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
 		std::string select_matches =
-			" SELECT "s + columns + /*TODO(fran): column names should be stored somewhere*/
-			" FROM " べんきょう_table_words +
-			" WHERE " + filter_col + " LIKE " "'" + match_str.str + "%" "'" +
+			" SELECT "s + columns +
+			" FROM " べんきょう_table_words 
+			" WHERE " + filter_col + " LIKE " sqlParamS(_match_str) "||" "'%'" 
 			" LIMIT " + std::to_string(max_cnt_results) + ";";
+
+
+		int errcode;
+		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
+		errcode = sqlite3_prepare_v2(db, select_matches.c_str(), (int)((select_matches.length() + 1) * sizeof(select_matches[0])), &stmt, nullptr);
+		sqliteok_runtime_assert(errcode, db);
+
+		match_str.sz -= sizeof(match_str[0]);//IMPORTANT: for some reason sql decided that it wont "remove" the null terminator from your string (cant really blame it since it shouldnt exist in the first place) which means that if you want to do string matching you must send strings _without_ the null terminator
+		sqlite3_bind(stmt, sqlIdx(_match_str), match_str);
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
 			//NOTE: everything comes in utf8
@@ -747,7 +808,7 @@ namespace べんきょう {
 		};
 
 		char* errmsg;
-		sqlite3_exec(db, select_matches.c_str(), parse_match_result, &res, &errmsg);
+		sqlite3_exec_stmt(db, stmt, parse_match_result, &res, &errmsg);
 		sqlite_exec_runtime_check(errmsg);//TODO(fran): should I free the result and return an empty?
 		return res;
 	}
