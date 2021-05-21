@@ -46,37 +46,37 @@ struct text { //A _non_ null terminated cstring
 	size_t sz_chars; //TODO(fran): better is probably size in bytes
 };
 
-
-//TODO(fran): use this guys, if we use pointers utf8_str* we can cast easily to different types: (utf16_str*)&any_str
-struct utf8_str {
-	utf8* str;
+template<typename T>
+struct _str {
+	using type = T;
+	using value_type = T;
+	type* str;
 	size_t sz;/*bytes*/
 
-	operator utf8* () { return str; }
-};
-
-struct utf16_str {
-	utf16* str;
-	size_t sz;/*bytes*/
-
-	operator utf16* () { return str; }//NOTE: I dont yet know whether this will be dangerous/confusing
+	operator type* () const { return str; }
 
 	//Includes null terminator
-	size_t sz_char() { return sz / sizeof(*str); }//TODO(fran): it's probably better to not include the null terminator, or give two functions
+	size_t sz_char() const { return sz / sizeof(*str); }//TODO(fran): it's probably better to not include the null terminator, or give two functions
 
 	//Does _not_ include null terminator
-	size_t cnt() { return (sz ? sz - 1 * sizeof(*str) : sz) / sizeof(*str); }
+	size_t cnt() const { return (sz ? sz - 1 * sizeof(*str) : sz) / sizeof(*str); }
+
+	type last() const { return str[cnt()]; }
 
 	//Includes null terminator
-	size_t cntn() { return sz / sizeof(*str); }
+	size_t cntn() const { return sz / sizeof(*str); }
 
-	utf16& operator[](size_t i) { return str[i]; }
+	type& operator[](size_t i) const { return str[i]; }
 
-	utf16* begin() { return this->sz ? &(*this)[0] : nullptr; }
+	type* begin() const { return this->sz ? &(*this)[0] : nullptr; }
 
 	//TODO(fran): does this include the null terminator? if so we gotta fix it, null terminator shouldnt appear
-	utf16* end() { return this->sz ? (utf16*)((u8*)&(*this)[0] + this->sz) : nullptr; /*ptr one past the last element*/ }
+	type* end() const { return this->sz ? (type*)((u8*)&(*this)[0] + this->sz) : nullptr; /*ptr one past the last element*/ }
 };
+
+typedef _str<utf8> utf8_str;
+typedef _str<utf16> utf16_str;
+
 
 typedef utf16_str s16;
 typedef utf8_str s8;

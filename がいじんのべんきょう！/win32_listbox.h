@@ -731,6 +731,14 @@ namespace listbox {
 
 		default:
 #ifdef _DEBUG
+			printf("LISTBOX UNHANDLED:%s\n",msgToString(msg));
+			if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
+				TCHAR arr[256];
+				int res = GetClipboardFormatName(msg, arr, 256);
+				cstr_printf(arr); printf("\n");
+				//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
+				return DefWindowProc(hwnd, msg, wparam, lparam);
+			}
 			Assert(0);
 #else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);

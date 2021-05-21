@@ -10,6 +10,10 @@
 
 //TODO(fran): maybe we should use stored procs, that way we get sintax checking on startup for everything, otherwise something might slip up, still we may also want to add tests for each thing too. One problem with stored procedures would be when we went for optimization, by generating the request on real time we can only add specific columns in each case, with stored procs that wont be possible
 
+//Stuff I learnt:
+//SUPER IMPORTANT: when using parameterized queries if you are binding text you _must_ remove the null terminator, otherwise it will be interpreted as a BLOB, when retrieving the text sql will automatically append a null terminator
+
+
 //-------------------------Types-----------------------------: //TODO(fran): should the types be inside the namespace?
 
 struct user_stats {
@@ -226,7 +230,8 @@ namespace べんきょう {
 		Assert(stmt);
 		Assert(index);
 		Assert(txt.str && txt.sz);
-		int res = sqlite3_bind_text(stmt, index, txt.str, (int)txt.sz, destructor);
+		Assert(txt[txt.last() == 0]);//check for null termination (some day we wont have it, but not today)
+		int res = sqlite3_bind_text(stmt, index, txt.str, (int)(txt.cnt()*sizeof(txt[0])), destructor);
 		Assert(res == SQLITE_OK);
 		return res;
 	}
@@ -234,7 +239,7 @@ namespace べんきょう {
 	int sqlite3_bind(sqlite3_stmt* stmt, int index, const std::string& txt, void (*destructor)(void*) = SQLITE_STATIC) {
 		Assert(stmt);
 		Assert(index);
-		int res = sqlite3_bind_text(stmt, index, txt.c_str(), (int)((txt.size() + 1) * sizeof(txt[0])), destructor);
+		int res = sqlite3_bind_text(stmt, index, txt.c_str(), (int)(txt.size() * sizeof(txt[0])), destructor);
 		Assert(res == SQLITE_OK);
 		return res;
 	}

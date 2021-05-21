@@ -6,6 +6,8 @@
 #include "unCap_Math.h"
 #include <vector>
 
+//TODO(fran): this should simply be a custom resizer (win32_Sizer.h), it's completely pointless for this to be an entire unique wnd
+
 //------------------"API"------------------:
 //gridview::set_brushes() to set the background and border brushes
 //gridview::set_dimensions() to set all values related to element placement and size
@@ -32,7 +34,8 @@
 
 namespace gridview {
 	//TODO(fran): we should probably add a user_extra and function ::set_user_extra(), a single user setteable value, in our case for example I'd put the HWND so I can get_state() and check for things like a font or color
-	typedef void(*func_renderelement)(HDC dc,rect_i32 r,void* element, void* user_extra);
+
+	typedef void(*func_renderelement)(HDC dc,rect_i32 r, void* element, void* user_extra);
 	typedef void(*func_on_click_element)(void* element, void* user_extra);
 
 	struct ProcState {

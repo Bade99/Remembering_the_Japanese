@@ -825,3 +825,13 @@ std::array<std::array<rect_i32, 2>, 2> create_grid_2x2(i32 cell_h, i32 cell_w, i
 	}
 	return res;
 }
+
+//----------------------UINT (msg)-----------------------:
+void print_string_msg(UINT msg) {
+	if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
+		TCHAR arr[256];
+		int res = GetClipboardFormatName(msg, arr, 256);
+		cstr_printf(arr); printf("\n");
+		//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
+	}
+}

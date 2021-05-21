@@ -345,6 +345,11 @@ namespace static_oneline {
 			//no reason for needing mousewheel input
 			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
 		} break;
+		case WM_XBUTTONDOWN:
+		case WM_XBUTTONUP:
+		{
+			return SendMessage(state->parent,msg,wparam,lparam);
+		} break;
 
 		default:
 #ifdef _DEBUG
