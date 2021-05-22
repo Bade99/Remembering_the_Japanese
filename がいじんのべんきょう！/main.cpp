@@ -3,7 +3,6 @@
 //TODO(fran): it may be a good idea to give the user the option to allow the application to open itself to make you perform a quick practice, maybe not open itself but show a toast msg
 //TODO(fran): batch file for compiling that way too
 //TODO(fran): go straight to utf8 db since there's basically no utf16 support in sqlite. NOTE: im not to sure of this, there are ways to get utf16, so there's support for getting stuff in utf16 but no for sending it, unfortunate but ok at least it's half the work
-//TODO(fran): should I stop giving suggestions through the IME window? so the user isnt dependent on the correct writing of the IME suggestions, at least for something like the searchbar
 //TODO(fran): we probably also want a "forward" button
 //TODO(fran): dpi awareness https://docs.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows https://github.com/tringi/win32-dpi
 //TODO(fran): add a header for all ProcStates with a unique key for each proc that way it can later identify the state is the corresponding one to that wnd, eg:
@@ -13,7 +12,7 @@
 //                                          u32 id;//or some other name
 //                                      };
  //TODO(fran): font info should be saved and be end user editable
-//TODO(fran): IDEA: if the user holds shift while moving the window we scroll in a fixed x or y axis depending on which direction the mouse is moving
+//TODO(fran): IDEA: if the user holds shift while moving the window from its border we scroll in a fixed x or y axis depending on which direction the mouse is moving
 //BIG TODO(fran): we can actually pre allocate the sizes for everything, and assign "static" structures to sections of the code for reuse, going back to the handmade hero mentality that'd help a lot, no need for mallocs all over the place, at most we should implement re allocation, but even that's not necessary if we fixed every size, I was thinking about differentiating current size and allocated size for things like strings, but that's also not needed, with fixed sizes we can have everything allocated on the correct size from the start, the content on the pages of this program is very much fixed and controllable
 //BIG TODO(fran): db configuration, pragmas and the like (eg the page size is important to be at least 4KB)
 

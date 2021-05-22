@@ -39,12 +39,14 @@
 //TODO(fran): page landing (or new page): list words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
-//TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
-//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
+//TODO(fran): landing page?: track user "dedication", for example number of consecutive days the app has been opened, number of days of inactivity (that one would be quite useful for me)
+
+//TODO(fran): IDEA: navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): IDEA: all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
 	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
+
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran):BUG searchbox: caret on the searchbox gets misplaced. howto reproduce: search for a word, then using the down arrow go to some option and then press enter, now the searchbox caret will be misplaced
 
@@ -239,6 +241,7 @@ namespace べんきょう {
 			practice_drawing,//drawing kanji
 			review_practice,
 			show_word,
+			wordbook,
 
 			//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
 			review_practice_writing,
@@ -411,6 +414,16 @@ namespace べんきょう {
 				type all[15];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			} show_word;
+
+			union wordbook_controls {
+				struct {
+					type page;
+					//TODO(fran): sorting options
+					type listbox_words;
+				};
+				type all[2];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} wordbook;
 
 		}pages;
 
@@ -1598,6 +1611,10 @@ namespace べんきょう {
 		case decltype(p)::review_practice_drawing: 
 			show_page(state, ProcState::page::practice_drawing, ShowWindow_cmd); 
 			break;
+		case decltype(p)::wordbook:
+			for (auto ctl : state->pages.wordbook.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->pages.wordbook.page, ShowWindow_cmd);//#pointless duplicate of above
+			break;
 		default:Assert(0);
 		}
 	}
@@ -1654,7 +1671,7 @@ namespace べんきょう {
 
 			user_stats stats = get_user_stats(state->settings->db);
 			get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
-			preload_page(state, ProcState::page::landing, &stats);
+			preload_page(state, ProcState::page::landing, &stats);//TODO(fran): this seems dumb, I either initialize everything here or on preload_page, but not in both
 
 		} break;
 		case decltype(new_page)::practice:
@@ -1675,7 +1692,24 @@ namespace べんきょう {
 			}
 
 			listbox::set_elements(controls.listbox_words_practiced, elems.mem, elems.cnt);
+		} break;
+		case decltype(new_page)::wordbook:
+		{
+			auto& controls = state->pages.wordbook;
 
+			ptr<learnt_word16> words = get_learnt_word_by_date(state->settings->db, 0, I64MAX); //TODO(fran): replace with faster query get_all_words
+			//TODO(fran): new struct reduced_word (or smth like that) that only contains hira,kanji,meaning
+
+			ptr<void*> elems{ 0 }; elems.alloc(words.cnt); defer{ elems.free(); };
+			for (size_t i = 0; i < words.cnt; i++) elems[i] = &words[i];
+
+			{//Free previous elements
+				ptr<void*> elements = listbox::get_all_elements(controls.listbox_words);//HACK
+				for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
+				if (elements.cnt)free(elements[0]);
+			}
+
+			listbox::set_elements(controls.listbox_words, elems.mem, elems.cnt);
 		} break;
 		}
 		//state->scroll = 0;
@@ -2405,6 +2439,22 @@ namespace べんきょう {
 			navbar::attach(sidebar, button_practice, navbar::attach_point::left, -1);
 			SendMessage(button_practice, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 
+			HWND button_wordbook = CreateWindowW(button::wndclass, NULL, style_button_txt | WS_VISIBLE
+				, 0, 0, 0, 0, sidebar, 0, NULL, NULL);
+			AWT(button_wordbook, 104);
+			button::set_theme(button_wordbook, &navbar_btn_theme);
+			button::set_user_extra(button_wordbook, state);
+			button::set_function_on_click(button_wordbook,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::wordbook);
+				}
+			);
+			navbar::attach(sidebar, button_wordbook, navbar::attach_point::left, -1);
+			SendMessage(button_wordbook, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+
 			//TODO(fran): add separator before options
 
 			HWND combo_lang = CreateWindowW(combobox::wndclass, NULL, WS_CHILD | WS_VISIBLE
@@ -2788,6 +2838,8 @@ namespace べんきょう {
 						//Clear previous practice data:
 						clear_practices_vector(state->multipagestate.temp_practices);
 
+						//NOTE: there's the possibility of precalculating the entire array of practice levels from the start which "guarantees" to avoid duplicates (same word shown twice), also simplifies the code a bit since there's only one place where we'd allocate and store. But the good thing about not precalculating the array is increased randomness, each time we get a word we get a random choice, therefore say 15 random choices is more random than 1 random choice for 15 words (based on how bad I think sql's random is)
+
 						next_practice_level(state, false);
 					}
 					else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
@@ -2966,6 +3018,33 @@ namespace べんきょう {
 			);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Wordbook----------------------:
+		{
+			auto& controls = state->pages.wordbook;
+
+			controls.page = create_page(state, base_page_theme);
+
+			auto page = controls.page;
+
+			controls.listbox_words = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			listbox::set_function_render(controls.listbox_words, listbox_recents_func_render);
+			listbox::set_user_extra(controls.listbox_words, state);
+			listbox::set_function_on_click(controls.listbox_words, [](void* element, void* user_extra) {
+				ProcState* state = (decltype(state))user_extra;
+				learnt_word16* txt = (decltype(txt))element;
+
+				stored_word16_res res = get_stored_word(state->settings->db, *txt/*TODO(fran): make sure this isnt a copy*/);  defer{ if (res.found) free_stored_word(res.word); };
+				if (res.found) {
+					preload_page(state, ProcState::page::show_word, &res.word);
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::show_word);
+				}
+				//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
+				}
+			);
 		}
 	}
 
@@ -3596,6 +3675,36 @@ namespace べんきょう {
 			//TODO(fran): different layout?
 			resize_controls(state, ProcState::page::practice_drawing);
 		} break;
+		case ProcState::page::wordbook:
+		{
+			auto& controls = state->pages.wordbook;
+
+			listbox::set_dimensions(controls.listbox_words, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
+			HFONT font = GetWindowFont(controls.listbox_words);//TODO(fran): listboxes dont store fonts, change to a different control
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
+
+			vpsizer lvpad{};
+
+			ssizer listbox_words{ controls.listbox_words };
+			vsizer layout{
+				{&lvpad,wnd_h},
+				{&listbox_words, wnd_h * (int)listbox::get_element_cnt(controls.listbox_words)},
+			};
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.h = layout.get_bottom(layout_rc).y;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
+
+		} break;
 		default:Assert(0);
 		}
 	}
@@ -3753,6 +3862,7 @@ namespace べんきょう {
 				case ProcState::page::practice:
 				case ProcState::page::show_word:
 				case ProcState::page::review_practice:
+				case ProcState::page::wordbook:
 				{
 				} break;
 				case ProcState::page::practice_writing:

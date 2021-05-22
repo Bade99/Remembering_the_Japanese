@@ -1430,6 +1430,11 @@ namespace nonclient {
 			return 0;
 		} break;
 
+		case WM_MOUSEWHEEL:
+		{
+			return 0;
+		} break;
+
 		default:
 			if (msg >= 0xC000 && msg <= 0xFFFF) {//String messages for use by applications  
 				//IMPORTANT: a way to find out the name of 0xC000 through 0xFFFF messages

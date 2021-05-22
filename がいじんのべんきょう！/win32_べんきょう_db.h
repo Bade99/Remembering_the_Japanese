@@ -1363,6 +1363,7 @@ namespace べんきょう {
 			defer{ for (int i = word.pk_count; i < ARRAYSIZE(word.all); i++) free_any_str(word.all[i]); };
 
 			for (int i = 0; i < entry_cnt; i++) {
+				//IMPORTANT: because I dont update the sz component of the strings each time through the loop a lot of extra garbage will continue its way through the whole pipeline, meaning the sz component will be wrong, though the string will still be correctly null terminated. Bottom line is if you want to run this test you have to comment out the null terminator check in my sqlite3_bind(), specifically Assert(txt.last_char() == 0); since last_char will, mostly, not be were the null terminator will be
 				using namespace std::string_literals;
 				write_str(word.attributes.hiragana, 
 					random_between(1, (int)word.attributes.hiragana.cnt()), hiragana_gen);

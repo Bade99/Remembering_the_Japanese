@@ -60,6 +60,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(101,"Practice")
 	lang_entry(102,"Search")
 	lang_entry(103,"Recently Added")
+	lang_entry(104,"Wordbook") //TODO(fran): better name
 
 	lang_entry(120,"Hiragana/Katakana")
 	lang_entry(121,"Kanji")
