@@ -35,7 +35,14 @@
 namespace gridview {
 	//TODO(fran): we should probably add a user_extra and function ::set_user_extra(), a single user setteable value, in our case for example I'd put the HWND so I can get_state() and check for things like a font or color
 
-	typedef void(*func_renderelement)(HDC dc,rect_i32 r, void* element, void* user_extra);
+	struct render_flags {
+		bool isEnabled;//buttons can be enabled (accept input) or disabled (doesnt)
+		bool onMouseover;//the mouse is over the button
+		bool onClicked;//the button is being pushed
+		//INFO: additional hidden state, the user could have pressed the button and while still holding it pressed have moved the mouse outside it, in this case onMouseover==false and onClicked==true
+	};
+
+	typedef void(*func_renderelement)(HDC dc,rect_i32 r, render_flags flags, void* element, void* user_extra);
 	typedef void(*func_on_click_element)(void* element, void* user_extra);
 
 	struct ProcState {
@@ -66,6 +73,8 @@ namespace gridview {
 
 		//size_t clicked_element;//idx of the element that was clicked
 		void* user_extra;
+
+		size_t mouseover_elem_idx;
 	};
 	//NOTE: User seteable: border_pad.cy , element_dim , inbetween_pad
 
@@ -154,9 +163,14 @@ namespace gridview {
 			//Render the elements
 			if (state->render_element) {
 				Assert(state->element_placements.size() == state->elements.size());
-				for (size_t i = 0; i < state->element_placements.size(); i++)
+				for (size_t i = 0; i < state->element_placements.size(); i++) {
 					//TODO(fran): we could apply a transform so the user can render as if from {0,0} and we simply send a SIZE obj and they dont have to bother with offsetting by left and top
-					state->render_element(backbuffer_dc, state->element_placements[i], state->elements[i],state->user_extra);
+					render_flags flags;
+					flags.isEnabled = true;
+					flags.onMouseover = i == state->mouseover_elem_idx;
+					flags.onClicked = false;//TODO(fran)
+					state->render_element(backbuffer_dc, state->element_placements[i], flags, state->elements[i], state->user_extra);
+				}
 			}
 		}
 	}
@@ -264,6 +278,8 @@ namespace gridview {
 		return res;
 	}
 
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+
 	//NOTE: the caller takes care of deleting the brushes, we dont do it
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
 		ProcState* state = get_state(wnd);
@@ -274,7 +290,7 @@ namespace gridview {
 			if (border_disabled)state->brushes.border_dis = border_disabled;
 			if (repaint) {
 				render_backbuffer(state); //re-render with new colors
-				InvalidateRect(state->wnd, NULL, TRUE); //ask for WW_PAINT
+				ask_for_repaint(state);
 			}
 		}
 	}
@@ -286,7 +302,7 @@ namespace gridview {
 			state->elements.clear();//delete old points
 			for (int i = 0; i < count; i++) state->elements.push_back(values[i]);
 			full_backbuffer_redo(state); //render new elements
-			InvalidateRect(state->wnd, NULL, TRUE);//ask for WW_PAINT
+			ask_for_repaint(state);
 		}
 	}
 
@@ -296,7 +312,7 @@ namespace gridview {
 		if (state) {
 			for (int i = 0; i < count; i++) state->elements.push_back(values + i);
 			full_backbuffer_redo(state); //render new elements
-			InvalidateRect(state->wnd, NULL, TRUE);//ask for WW_PAINT
+			ask_for_repaint(state);
 		}
 	}
 
@@ -339,6 +355,7 @@ namespace gridview {
 			st->inbetween_pad = { 3,3 };
 			st->elements = decltype(st->elements)();
 			st->element_placements = decltype(st->element_placements)();
+			st->mouseover_elem_idx = (size_t)-1;
 			return TRUE; //continue creation
 		} break;
 		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
@@ -484,10 +501,46 @@ namespace gridview {
 		} break;
 		case WM_MOUSEMOVE /*WM_MOUSEFIRST*/://When the mouse goes over us this is 3rd msg received
 		{
-			//TODO(fran): for now we wont have a responsible layout when the mouse goes over an element, we may want to add that
+			//TODO(fran): for now we wont have a responsive layout when the mouse goes over an element, we may want to add that
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
+
+			bool found = false;
+			for (size_t i = 0; i < state->element_placements.size();i++) {
+				auto& rc = state->element_placements[i];
+				if (test_pt_rc(mouse, rc)) {
+					found = true;
+					if (state->mouseover_elem_idx != i) {
+						state->mouseover_elem_idx = i;
+						render_backbuffer(state);//TODO(fran): only re-render this new element and the previous one
+						ask_for_repaint(state);
+					}
+				}
+			}
+
+			if (!found && state->mouseover_elem_idx != (size_t)-1) {
+				state->mouseover_elem_idx = (size_t)-1;
+				render_backbuffer(state);//TODO(fran): only re-render the old element
+				ask_for_repaint(state);
+			}
+
+			TRACKMOUSEEVENT track;
+			track.cbSize = sizeof(track);
+			track.hwndTrack = state->wnd;
+			track.dwFlags = TME_LEAVE;
+			TrackMouseEvent(&track);
+
 			return DefWindowProc(hwnd, msg, wparam, lparam);
+		} break;
+		case WM_MOUSELEAVE:
+		{
+			//we asked TrackMouseEvent for this so we can update when the mouse leaves our client area, which we dont get notified about otherwise and is needed, for example when the user hovers on top the button and then hovers outside the client area
+			if (state->mouseover_elem_idx != (size_t)-1) {
+				state->mouseover_elem_idx = (size_t)-1;
+				render_backbuffer(state);//TODO(fran): only re-render the old element
+				ask_for_repaint(state);
+			}
+			return 0;
 		} break;
 		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
 		{

@@ -41,9 +41,8 @@
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
 //TODO(fran): page practice_drawing: kanji detection via OCR
-//TODO(fran): page review_practice: add visual feedback of the fact the words on the grid can be clicked (change color as buttons do on mouseover, or simply use buttons)
-//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
+//TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): IDEA: all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
 	//TODO(fran): all controls: check for a valid brush and if it's invalid dont draw, that way we give the user the possibility to create transparent controls (gotta check that that works though)
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
@@ -252,7 +251,7 @@ namespace べんきょう {
 			u32 cnt;
 		}previous_pages;
 
-		u32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
+		i32 practice_cnt;//counter for current completed stages/levels while on a pratice run, gets set to eg 10 and is decremented by -1 with each completed stage, when practice_cnt == 0  the practice ends
 
 		struct {
 			using type = HWND;
@@ -551,7 +550,7 @@ namespace べんきょう {
 	}
 
 	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
-	void gridview_practices_renderfunc(HDC dc, rect_i32 r, void* element, void* user_extra) {
+	void gridview_practices_renderfunc(HDC dc, rect_i32 r, gridview::render_flags flags, void* element, void* user_extra) {
 		ProcState::practice_header* header = (decltype(header))element;
 
 		//------Render Setup------:
@@ -559,11 +558,12 @@ namespace べんきょう {
 		utf16_str txt{ 0 };
 
 		//TODO(fran): we can bake this switch into the header by adding the params answered_correctly and question_str there
+		bool answered_correctly = false;
 		switch (header->type) {
 		case decltype(header->type)::writing:
 		{
 			ProcState::practice_writing* data = (decltype(data))header;
-			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			answered_correctly = data->answered_correctly;
 #if 1 //TODO(fran): idk which is better
 			txt = *data->question;
 #else
@@ -573,7 +573,7 @@ namespace べんきょう {
 		case decltype(header->type)::multiplechoice:
 		{
 			ProcState::practice_multiplechoice* data = (decltype(data))header;
-			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			answered_correctly = data->answered_correctly;
 #if 1
 			txt.str = data->practice->question_str;
 			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
@@ -585,12 +585,19 @@ namespace べんきょう {
 		case decltype(header->type)::drawing:
 		{
 			ProcState::practice_drawing* data = (decltype(data))header;
-			border_br = data->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+			answered_correctly = data->answered_correctly;
 			txt.str = data->practice->question_str;
 			txt.sz = (cstr_len(txt.str) + 1) * sizeof(*txt.str);
 		} break;
 		default: Assert(0);
 		}
+
+		if (flags.onMouseover)
+			border_br = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
+		else if (flags.onClicked)
+			border_br = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
+		else 
+			border_br = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
 
 		//------Rendering------:
 		int w = r.w, h = r.h;
@@ -2032,8 +2039,7 @@ namespace べんきょう {
 		ProcState* state = get_state(hwnd);
 		KillTimer(state->wnd, anim_id);
 
-		state->practice_cnt--;
-		if (state->practice_cnt > 0) {
+		if (state->practice_cnt-- > 0) {
 			practice_data practice = prepare_practice(state);//get a random practice
 			reset_page(state, practice.page);
 			preload_page(state, practice.page, practice.data);//load the practice
@@ -2772,9 +2778,9 @@ namespace べんきょう {
 					if (word_cnt > 0) {
 #define TEST_QUICKPRACTICE
 #if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
-						constexpr int practice_cnt = 15 + 1;//TODO(fran): I dont like this +1
+						constexpr int practice_cnt = 15;
 #else
-						constexpr int practice_cnt = 2 + 1;
+						constexpr int practice_cnt = 2;
 #endif
 						state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 						store_previous_page(state, state->current_page);
