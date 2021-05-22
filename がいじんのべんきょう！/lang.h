@@ -108,6 +108,9 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(380,"Answer")
 
+	lang_entry(400, "Recently Practiced")
+
+	lang_entry(401, "Sorry, the word you're looking for no longer exists")
 
 	lang_entry(450,"Review")
 	lang_entry(451,"Continue")

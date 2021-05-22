@@ -40,7 +40,6 @@
 	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page practice: precalculate the entire array of practice levels from the start (avoids duplicates)
-//TODO(fran): page practice: add list of last words practiced and their results, green for correct and red for incorrect
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): page review_practice: add visual feedback of the fact the words on the grid can be clicked (change color as buttons do on mouseover, or simply use buttons)
 //TODO(fran): navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
@@ -309,8 +308,11 @@ namespace べんきょう {
 				struct {
 					type page;
 					type button_start;
+
+					type button_words_practiced;//TODO(fran): should simply be a static control
+					type listbox_words_practiced;
 				};
-				type all[2];
+				type all[4];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			} practice;
 
@@ -829,17 +831,10 @@ namespace べんきょう {
 
 	void button_practice_func_on_click(void* element, void* user_extra);
 
-
-	void listbox_recents_func_render(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
-		//TODO(fran): make common function between this and the searchbox's listbox rendering func
+	void render_hiragana_kanji_meaning(HDC dc, rect_i32 r,HBRUSH bk_br, HBRUSH hira_br, HBRUSH kanji_br, HBRUSH meaning_br, learnt_word16* word) {
 		int w = r.w, h = r.h;
-		learnt_word16* txt = (decltype(txt))element;
-
+		
 		//Draw bk
-		HBRUSH bk_br = global::colors.ControlBk_Light;
-		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
-		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
-
 		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
 		FillRect(dc, &bk_rc, bk_br);
 
@@ -858,9 +853,10 @@ namespace べんきょう {
 
 		RECT meaning_rc = to_RECT(tempr);
 
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, font, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, avg_str_dim(font,1).cx);
+		
+		urender::draw_text(dc, hira_rc, word->attributes.hiragana, font, hira_br, bk_br, urender::txt_align::left, avg_str_dim(font, 1).cx);
 		//if(*txt->attributes.kanji.str)
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, font, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, kanji_rc, word->attributes.kanji, font, kanji_br, bk_br, urender::txt_align::left, 3);
 		//else {
 		//	rect_i32 kanji_placeholder_rc;
 		//	kanji_placeholder_rc.x = kanji_rc.left;
@@ -876,36 +872,52 @@ namespace べんきょう {
 		//	i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
 		//	RoundRect(dc, kanji_placeholder_rc.x, kanji_placeholder_rc.y, kanji_placeholder_rc.right(), kanji_placeholder_rc.bottom(), roundedness, roundedness);
 		//}
-		urender::draw_text(dc, meaning_rc, txt->attributes.meaning, font, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
+		urender::draw_text(dc, meaning_rc, word->attributes.meaning, font, meaning_br, bk_br, urender::txt_align::left, 3);
 	}
 
-	void button_recents_func_render(HWND wnd, HDC dc, rect_i32 r, button::render_flags flags, void* element, void* user_extra) {
+	void listbox_recents_func_render(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+		//TODO(fran): make common function between this and the searchbox's listbox rendering func
+		int w = r.w, h = r.h;
+		learnt_word16* word = (decltype(word))element;
+
+		//Draw bk
+		HBRUSH bk_br = global::colors.ControlBk_Light;
+		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
+
+		HBRUSH hira_br = brush_for(learnt_word_elem::hiragana);
+		HBRUSH kanji_br = brush_for(learnt_word_elem::kanji);
+		HBRUSH meaning_br = brush_for(learnt_word_elem::meaning);
+
+		render_hiragana_kanji_meaning(dc, r, bk_br, hira_br, kanji_br, meaning_br, word);
+	}
+
+	void button_recents_func_render(HWND wnd, HDC dc, rect_i32 r, button::render_flags flags, const button::Theme* theme, void* element, void* user_extra) {
 		//TODO(fran): join with langbox_func_render_combobox to create a rendering function that generates combobox looking wnds
-		HFONT font = global::fonts.General;
-		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br, icon_br = global::colors.Img;//TODO(fran): use the button Theme
+		HFONT font = theme->font;// global::fonts.General;
+		HBRUSH bk_br, txt_br = theme->brushes.foreground.normal /*global::colors.ControlTxt*/, border_br, icon_br = global::colors.Img;//TODO(fran): use the button Theme
 		/*if (flags.isListboxOpen) {
 			bk_br = global::colors.ControlBk;
 		}
 		else*/
 		if (!flags.isEnabled) {
-			bk_br = global::colors.ControlBk_Disabled;
-			txt_br = global::colors.ControlTxt_Disabled;
+			bk_br = theme->brushes.bk.disabled; // global::colors.ControlBk_Disabled;
+			txt_br = theme->brushes.foreground.disabled; // global::colors.ControlTxt_Disabled;
 			icon_br = global::colors.Img_Disabled;
 		}
 		else if (flags.onClicked) {
-			bk_br = global::colors.ControlBkPush;
+			bk_br = theme->brushes.bk.clicked; // global::colors.ControlBkPush;
 		}
 		else if (flags.onMouseover) {
-			bk_br = global::colors.ControlBkMouseOver;
+			bk_br = theme->brushes.bk.mouseover; // global::colors.ControlBkMouseOver;
 		}
 		else {
-			bk_br = global::colors.ControlBk_Dark;//TODO(fran): still not completely sold on the color, maybe if I also tint the bk of the listbox a little blue it will fit better
+			bk_br = theme->brushes.bk.normal; // global::colors.ControlBk_Dark;//TODO(fran): still not completely sold on the color, maybe if I also tint the bk of the listbox a little blue it will fit better
 		}
 		border_br = bk_br;
 
 
-		int border_thickness_pen = 0;//means 1px when creating pens
-		int border_thickness = 1;
+		int border_thickness_pen = theme->dimensions.border_thickness;//NOTE: 0 means 1px when creating pens
 		int x_pad = avg_str_dim(font, 1).cx;
 
 		//Border an Bk
@@ -1624,7 +1636,7 @@ namespace べんきょう {
 
 			{//Free previous elements
 				ptr<void*> elements = listbox::get_all_elements(controls.listbox_recents);//HACK
-				for (auto e : elements) for (auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
+				for (auto e : elements) for (auto& m : ((decltype(recents.mem))e)->all) free_any_str(m.str);
 				if (elements.cnt)free(elements[0]);
 			}
 
@@ -1636,6 +1648,26 @@ namespace べんきょう {
 			user_stats stats = get_user_stats(state->settings->db);
 			get_user_stats_accuracy_timeline(state->settings->db, &stats, 30); defer{ stats.accuracy_timeline.free(); };
 			preload_page(state, ProcState::page::landing, &stats);
+
+		} break;
+		case decltype(new_page)::practice:
+		{
+			auto& controls = state->pages.practice;
+
+			//TODO(fran): only ask for new values if we know something changed
+			//TODO(fran): I dont think we're freeing this if the app is closed, not that it matters in that case though
+			ptr<practiced_word16> practiced = get_previously_practiced_words(state->settings->db, 15);
+
+			ptr<void*> elems{ 0 }; elems.alloc(practiced.cnt); defer{ elems.free(); };
+			for (size_t i = 0; i < practiced.cnt; i++) elems[i] = &practiced[i];
+
+			{//Free previous elements
+				ptr<void*> elements = listbox::get_all_elements(controls.listbox_words_practiced);//HACK
+				for (auto e : elements) for (auto& m : ((decltype(practiced.mem))e)->word.all) free_any_str(m.str);
+				if (elements.cnt)free(elements[0]);
+			}
+
+			listbox::set_elements(controls.listbox_words_practiced, elems.mem, elems.cnt);
 
 		} break;
 		}
@@ -2210,7 +2242,11 @@ namespace べんきょう {
 		navbar_img_btn_theme.brushes.border = navbar_img_btn_theme.brushes.bk;
 
 		button::Theme dark_btn_theme = base_btn_theme;
-		dark_btn_theme.brushes.bk.normal = global::colors.CaptionBk;
+		dark_btn_theme.brushes.bk.normal = global::colors.ControlBk_Dark;
+
+		button::Theme dark_nonclickable_btn_theme = dark_btn_theme;
+		for (auto& b : dark_nonclickable_btn_theme.brushes.bk.all) b = dark_nonclickable_btn_theme.brushes.bk.normal;
+		for (auto& b : dark_nonclickable_btn_theme.brushes.border.all) b = dark_nonclickable_btn_theme.brushes.border.normal;
 
 		embedded::show_word_reduced::Theme eswr_theme;
 		brush_group eswr_bk, eswr_txt, eswr_border;
@@ -2670,6 +2706,60 @@ namespace べんきょう {
 
 			controls.page = create_page(state, base_page_theme);
 
+			auto page = controls.page;
+
+			controls.listbox_words_practiced = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			listbox::set_user_extra(controls.listbox_words_practiced, state);
+			listbox::set_function_render(controls.listbox_words_practiced, 
+				[](HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+					int w = r.w, h = r.h;
+					practiced_word16* practiced = (decltype(practiced))element;
+
+					//Draw bk
+					HBRUSH bk_br = practiced->answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
+					if (flags.onSelected || flags.onMouseover)
+						bk_br = practiced->answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
+					if (flags.onClicked) 
+						bk_br = practiced->answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
+
+					HBRUSH hira_br = global::colors.ControlTxt;
+					HBRUSH kanji_br = global::colors.ControlTxt;
+					HBRUSH meaning_br = global::colors.ControlTxt;
+
+					render_hiragana_kanji_meaning(dc, r, bk_br, hira_br, kanji_br, meaning_br, &practiced->word);
+				}
+			);
+			listbox::set_function_on_click(controls.listbox_words_practiced, 
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					practiced_word16* practiced = (decltype(practiced))element;
+
+					stored_word16_res res = get_stored_word(state->settings->db, practiced->word);  defer{ if (res.found) free_stored_word(res.word); };
+					if (res.found) {
+						preload_page(state, ProcState::page::show_word, &res.word);
+						store_previous_page(state, state->current_page);
+						set_current_page(state, ProcState::page::show_word);
+					}
+					else {
+						MessageBoxW(state->wnd, RCS(401), 0, MB_OK, MBP::center);
+					}
+				}
+			);
+
+			controls.button_words_practiced = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			AWT(controls.button_words_practiced, 400);
+			button::set_theme(controls.button_words_practiced, &dark_nonclickable_btn_theme);
+			button::set_user_extra(controls.button_words_practiced, state);
+			button::set_function_render(controls.button_words_practiced, button_recents_func_render);
+			button::set_function_on_click(controls.button_words_practiced,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					//do nothing, we're here just for looks
+				}
+			);
+
 			controls.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			AWT(controls.button_start, 350);
@@ -3113,22 +3203,40 @@ namespace べんきょう {
 		{
 			auto& controls = state->pages.practice;
 
-			int start_y = 0;//We start from 0 and offset once we know the sizes and positions for everything
+			listbox::set_dimensions(controls.listbox_words_practiced, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
 
-			rect_i32 button_start;
-			button_start.y = start_y + h_pad;
-			button_start.w = 70;
-			button_start.h = wnd_h;
-			button_start.x = (w - button_start.w) / 2;
+			HFONT font = GetWindowFont(controls.button_start);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			rect_i32 bottom_most_control = button_start;
+			hpsizer lhpad{};
 
-			int used_h = bottom_most_control.bottom();// minus start_y which is always 0
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			ssizer button_words_practiced{ controls.button_words_practiced};
+			ssizer listbox_words_practiced{ controls.listbox_words_practiced};
+			vsizer practiced_column{
+				{&button_words_practiced,wnd_h},
+				{&listbox_words_practiced, wnd_h * (int)listbox::get_element_cnt(controls.listbox_words_practiced)}, };
 
-			べんきょう_page_scroll(used_h);
+			ssizer button_start{ controls.button_start };
+			hcsizer start{ {&button_start,avg_str_dim(font, 10).cx} };
+			vsizer practice_column{
+				{&start,wnd_h}, };
 
-			MyMoveWindow_offset(controls.button_start, button_start, FALSE);
+			hsizer layout{
+				{&practiced_column,(int)(.4f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{&practice_column,(int)(.55f * (f32)layout_bounds.cx)} };
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
 
 		} break;
 		case ProcState::page::practice_writing:

@@ -38,11 +38,6 @@ namespace button {
 		//INFO: additional hidden state, the user could have pressed the button and while still holding it pressed have moved the mouse outside it, in this case onMouseover==false and onClicked==true
 	};
 
-	//TODO(fran): should I pass the Theme as a param?
-	typedef void(*func_render)(HWND wnd, HDC dc, rect_i32 r, render_flags flags, void* element, void* user_extra);
-	typedef void(*func_free_element)(void* element, void* user_extra);
-	typedef void(*func_on_click)(void* element, void* user_extra);//action to perform once the button has been clicked
-
 	struct Theme {
 		struct {
 			brush_group foreground, bk, border;
@@ -52,6 +47,12 @@ namespace button {
 		}dimensions;
 		HFONT font = 0;
 	};
+
+	//TODO(fran): should I pass the Theme as a param?
+	typedef void(*func_render)(HWND wnd, HDC dc, rect_i32 r, render_flags flags, const Theme* theme, void* element, void* user_extra);
+	typedef void(*func_free_element)(void* element, void* user_extra);
+	typedef void(*func_on_click)(void* element, void* user_extra);//action to perform once the button has been clicked
+
 
 	enum style {
 		roundrect = (1 << 1),
@@ -661,7 +662,7 @@ namespace button {
 				flags.onMouseover = state->onMouseOver || state->OnMouseTracking || (GetFocus() == state->wnd);
 				flags.isEnabled = IsWindowEnabled(state->wnd);
 				
-				state->render(state->wnd, dc, to_rect_i32(rc), flags, state->element, state->user_extra);
+				state->render(state->wnd, dc, to_rect_i32(rc), flags,&state->theme, state->element, state->user_extra);
 			}
 			else paint(state, dc);
 

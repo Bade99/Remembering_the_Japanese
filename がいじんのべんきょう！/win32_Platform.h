@@ -61,7 +61,8 @@ struct _str {
 	//Does _not_ include null terminator
 	size_t cnt() const { return (sz ? sz - 1 * sizeof(*str) : sz) / sizeof(*str); }
 
-	type last() const { return str[cnt()]; }
+	//Use for quick debugging and checking for null terminator
+	type last_char() const { return str[cnt()]; }
 
 	//Includes null terminator
 	size_t cntn() const { return sz / sizeof(*str); }

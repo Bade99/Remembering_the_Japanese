@@ -94,11 +94,23 @@ typedef _extra_word<utf16_str> extra_word16;
 //UTF8 encoded data
 typedef _extra_word<utf8_str> extra_word8;
 
-struct stored_word16 {
-	learnt_word16 user_defined;
-	extra_word16 application_defined;
+template<typename T>
+struct _stored_word {
+	_learnt_word<T> user_defined;
+	_extra_word<T> application_defined;
 };
 
+typedef _stored_word<utf16_str> stored_word16;
+typedef _stored_word<utf8_str> stored_word8;
+
+template<typename T>
+struct _practiced_word {
+	_learnt_word<T> word;
+	bool answered_correctly;
+};
+
+typedef _practiced_word<utf16_str> practiced_word16;
+typedef _practiced_word<utf8_str> practiced_word8;
 
 //-------------------------Macros----------------------------:
 
@@ -185,9 +197,22 @@ struct stored_word16 {
 
 //TODO(fran): add indexing (or default ordering, is that a thing?) by creation_date
 
-#define べんきょう_table_version version
+#define _べんきょう_table_version version
 #define べんきょう_table_version_structure \
 	v					INTEGER PRIMARY KEY\
+
+#define べんきょう_table_practiced "practiced"
+#define _べんきょう_table_practiced practiced
+#define べんきょう_table_practiced_structure \
+	word_id				INTEGER NOT NuLL,\
+	answered_correctly	BOOLEAN NOT NuLL,\
+	creation_time		INTEGER DEFAULT(strftime('%s', 'now'))\
+
+//TODO(fran): we could store the word state at that point, to make sure to show the word at the point it was practiced and not now, it could have been modified since then
+//TODO(fran): dont let the table grow too much, allow max 200 entries for example
+
+//INFO about べんきょう_table_practiced:
+//	word_id references and id from the 'word' table
 
 //INFO about べんきょう_table_version_structure:
 //	v: stores the db/program version, to make it simpler versions are just a number, the db wont be changing too often
@@ -230,7 +255,7 @@ namespace べんきょう {
 		Assert(stmt);
 		Assert(index);
 		Assert(txt.str && txt.sz);
-		Assert(txt[txt.last() == 0]);//check for null termination (some day we wont have it, but not today)
+		Assert(txt.last_char() == 0);//check for null termination (some day we wont have it, but not today)
 		int res = sqlite3_bind_text(stmt, index, txt.str, (int)(txt.cnt()*sizeof(txt[0])), destructor);
 		Assert(res == SQLITE_OK);
 		return res;
@@ -572,6 +597,41 @@ namespace べんきょう {
 		return res;
 	}
 
+	ptr<practiced_word16> get_previously_practiced_words(sqlite3* db, size_t cnt) {
+		ptr<practiced_word16> res;
+		res.alloc(cnt);
+		res.cnt = 0;
+		static_assert(res.mem->word.pk_count == 1);
+		
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns);
+		columns += "answered_correctly";
+
+		std::string select_words = 
+			" SELECT " + columns + 
+			" FROM " べんきょう_table_words " AS w "
+			" JOIN " べんきょう_table_practiced " AS p " " ON p.word_id = w.id" //TODO(fran): make sure this join doesnt add null entries for p.word_id that are invalid (eg if user deleted the word)
+			" ORDER BY " "p.creation_time" " ASC "
+			" LIMIT " + std::to_string(cnt) + ";";
+		
+		auto parse_practiced_word_array = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			ptr<practiced_word16>* res = (decltype(res))extra_param;
+
+			for (int i = 0; i < column_cnt-1; i++)
+				res->mem[res->cnt].word.all[i] = convert_utf8_to_utf16(results[i], (int)strlen(results[i]) + 1);
+
+			res->mem[res->cnt].answered_correctly = results[column_cnt - 1][0] == '1';
+
+			res->cnt++;
+			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
+		};
+
+		char* select_errmsg;
+		sqlite3_exec(db, select_words.c_str(), parse_practiced_word_array, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+
+		return res;
+	}
+
 	void bind_non_primary_keys(sqlite3_stmt* stmt, const learnt_word8& word) {
 		//TODO(fran): making this with some macro generation function that gets values out of the word struct would probably be safer (this depends on nobody inserting extra members in the middle of the word and thus breaking indexing)
 		for (int i = word.pk_count; i < ARRAYSIZE(learnt_word_indexes_int_array); i++)
@@ -739,9 +799,29 @@ namespace べんきょう {
 			sqlite_exec_runtime_assert(errmsg);
 		};
 
+		auto register_word_practiced = [](sqlite3* db, const learnt_word16& word, bool answered_correctly) {
+			using namespace std::string_literals;
+
+			Assert(word.attributes.id.sz && word.attributes.id.str);
+			s8 word_id = s16_to_s8(word.attributes.id); defer{ free_any_str(word_id); };
+
+			std::string insert_word_practiced = 
+				" INSERT INTO " べんきょう_table_practiced "(word_id, answered_correctly)"
+				" VALUES "
+				"("s + word_id.str + "," + std::to_string(answered_correctly) + ")" ";";
+
+			//TODO(fran): parameterized query, binding for word_id
+
+			utf8* errmsg;
+			sqlite3_exec(db, insert_word_practiced.c_str(), 0, 0, &errmsg);
+			sqlite_exec_runtime_assert(errmsg);
+		};
+
 
 		word_increment_times_practiced(db, word);
 		if (inc_times_right)word_increment_times_right(db, word);
+
+		register_word_practiced(db, word, inc_times_right);
 	}
 
 
@@ -1034,7 +1114,7 @@ namespace べんきょう {
 			//CREATE
 			{
 				utf8 create_version_table[] = SQL(
-					CREATE TABLE べんきょう_table_version(べんきょう_table_version_structure) WITHOUT ROWID;
+					CREATE TABLE _べんきょう_table_version(べんきょう_table_version_structure) WITHOUT ROWID;
 				);
 				sqlite3_exec(db, create_version_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1058,6 +1138,13 @@ namespace べんきょう {
 					CREATE TABLE _べんきょう_table_accuracy_timeline(べんきょう_table_accuracy_timeline_structure);
 				);
 				sqlite3_exec(db, create_accuracy_timeline_table, 0, 0, &errmsg);
+				sqlite_exec_runtime_assert(errmsg);
+			}
+			{
+				utf8 create_practiced_table[] = SQL(
+					CREATE TABLE _べんきょう_table_practiced(べんきょう_table_practiced_structure);
+				);
+				sqlite3_exec(db, create_practiced_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 			}
 
@@ -1086,7 +1173,7 @@ namespace べんきょう {
 				//else {
 					//Entry isnt there, create it
 				utf8 insert_version[] = SQL(
-					INSERT INTO べんきょう_table_version(v) VALUES(1);
+					INSERT INTO _べんきょう_table_version(v) VALUES(1);
 				);
 				sqlite3_exec(db, insert_version, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1179,7 +1266,7 @@ namespace べんきょう {
 		i32 version;
 		{
 			utf8 get_version[] = SQL(
-				SELECT v FROM べんきょう_table_version;
+				SELECT v FROM _べんきょう_table_version;
 			);
 			sqlite3_stmt* stmt;
 			int errcode;
