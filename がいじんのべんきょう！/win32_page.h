@@ -105,7 +105,7 @@ namespace page {
 		static const int total_frames = 100;
 		state->scroll_frame = 0;
 
-		state->scroll_a = -(f32)increment * 10;
+		state->scroll_a = (f32)increment * 10;
 		state->scroll_dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame
 		static u32 scroll_ms = (u32)(state->scroll_dt * 1000.f);
 

@@ -35,6 +35,7 @@
 //TODO(fran): change to logging
 #define _SHOWCONSOLE /*Creates a cmd window for the current process, allows for easy output through printf or similar*/
 //#define _DELETE_DB
+//#define _TEST_SATURATE_DB
 #endif
 
 #ifdef NDEBUG //No printf on Release version 
@@ -192,7 +193,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
     べんきょう::startup(db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
-    //if(MessageBoxW(0,L"Saturate DB?",L"",MB_YESNOCANCEL) == IDYES) べんきょう::test::saturate_db(db);
+
+    #if defined(_TEST_SATURATE_DB)
+    if(MessageBoxW(0,L"Saturate DB?",L"",MB_YESNOCANCEL) == IDYES) べんきょう::test::saturate_db(db);
+    #endif
 
     defer{ 
         int close_res = sqlite3_close(db); sqliteok_runtime_check(close_res,db); 

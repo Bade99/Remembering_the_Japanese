@@ -29,6 +29,7 @@
 #define LBN_CLK (LBN_KILLFOCUS+10) //NOTE: LBN_KILLFOCUS is the last default listbox notif
 
 //TODO(fran): add extra functionality for non floating listboxes, eg VK_UP and VK_DOWN to change the selection
+//TODO(fran): BUG: reproduction: hold click on an element, move outside the window and only then release click, the element will remain in the clicked state, solution: CaptureMouse() probably
 
 namespace listbox {
 
@@ -156,6 +157,47 @@ namespace listbox {
 
 					state->render_element(dc, elem_rc,flags, state->elements[i],state->user_extra);
 				}
+			}
+		}
+	}
+
+	void render_backbuffer_element(ProcState* state, size_t elem_idx) {
+		//TODO(fran): this is a quick HACK reusing render_backbuffer()'s code
+		if (state->backbuffer) {
+			HDC& dc = state->offscreendc;
+			auto oldbmp = SelectBitmap(dc, state->backbuffer); defer{ SelectBitmap(dc,oldbmp); };
+
+			RECT backbuffer_rc{ 0,0,state->backbuffer_dim.cx,state->backbuffer_dim.cy };
+			bool window_enabled = IsWindowEnabled(state->wnd); //TODO(fran): we need to repaint the backbuf if the window is disabled and the dis_... are !=0 and != than the non dis_... brushes
+
+			//Paint the background
+#if 0
+			HBRUSH bk_br = window_enabled ? state->brushes.bk : state->brushes.bk_dis;
+#else
+			HBRUSH bk_br = state->brushes.bk;
+#endif
+			//FillRect(dc, &backbuffer_rc, bk_br);
+
+			//NOTE: do _not_ paint the border here, since it should fit the real size of the wnd
+
+			//Render the elements
+			//TODO(fran): we should have a list of changed elems so we know which ones need redrawing, otherwise this wont scale at all
+			if (state->render_element) {
+				Assert(elem_idx < state->elements.size());
+				size_t i = elem_idx;
+				rect_i32 elem_rc{
+						backbuffer_rc.left
+					, backbuffer_rc.top + (i32)i * state->element_dim.cy
+					, state->element_dim.cx
+					, state->element_dim.cy
+				};
+
+				renderflags flags;
+				flags.onClicked = state->clicked_element == i;
+				flags.onSelected = state->selected_element == i;
+				flags.onMouseover = state->mousehover_element == i;
+
+				state->render_element(dc, elem_rc, flags, state->elements[i], state->user_extra);
 			}
 		}
 	}
@@ -524,8 +566,13 @@ namespace listbox {
 			size_t mousehover_element = mouse_on_backbuffer_y / state->element_dim.cy;
 
 			if (state->mousehover_element != mousehover_element) {
+				size_t old_element = state->mousehover_element;
+
 				state->mousehover_element = mousehover_element;
-				render_backbuffer(state);
+				
+				if(old_element!=UINT32_MAX)render_backbuffer_element(state,old_element);
+				render_backbuffer_element(state, state->mousehover_element);
+				//render_backbuffer(state);
 				ask_for_repaint(state);
 
 				//We now need to know when the mouse exits our window to clear the mousehover_element
@@ -543,8 +590,10 @@ namespace listbox {
 			//we asked TrackMouseEvent for this so we can update when the mouse leaves our client area, which we dont get notified about otherwise and is needed, for example when the user hovers on top an element and then hovers outside the wnd
 			//Clear the mousehover_element
 			if (state->mousehover_element != UINT32_MAX) {
+				size_t old_element = state->mousehover_element;
 				state->mousehover_element = UINT32_MAX;
-				render_backbuffer(state);
+				render_backbuffer_element(state, old_element);
+				//render_backbuffer(state);
 				ask_for_repaint(state);
 			}
 			return 0;
@@ -566,7 +615,9 @@ namespace listbox {
 
 			if (state->clicked_element != clicked_element) {
 				state->clicked_element = clicked_element;
-				render_backbuffer(state);
+
+				if (state->clicked_element != UINT32_MAX)render_backbuffer_element(state, state->clicked_element);
+				//render_backbuffer(state);
 				ask_for_repaint(state);
 			}
 
@@ -589,8 +640,10 @@ namespace listbox {
 				notify_parent(state, LBN_CLK);
 			}
 			//Clear the clicked element since the mouse btn is now up
+			size_t old_clicked_element = state->clicked_element;
 			state->clicked_element = UINT32_MAX;
-			render_backbuffer(state);
+			if (old_clicked_element != UINT32_MAX)render_backbuffer_element(state, old_clicked_element);
+			//render_backbuffer(state);
 			ask_for_repaint(state);
 
 			return 0;
