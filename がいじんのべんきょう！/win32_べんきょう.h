@@ -35,9 +35,10 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
 //TODO(fran): application icon: chidori bird(talk to bren)
-//TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store and extra parameter with the string size everywhere (utf8_str,...)
-//TODO(fran): page landing (or new page): list words added in the previous couple of days, could even load an entire list of all the words ordered by creation date (feed the list via a separate thread)
-	//TODO(fran)?: new page?: add a place where you can see the words you added grouped by day
+//TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
+//TODO(fran): page wordbook: list words added in the previous couple of days, provide button to go to another page that loads an entire list of all the words ordered by creation date (feed the list via a separate thread)
+	//Provide ordering: worst score, creation date
+	//Provide filters: word group, lexical category
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
@@ -330,9 +331,13 @@ namespace べんきょう {
 
 					type button_show_word;
 
+					type button_disambiguation;
+
 					type embedded_show_word_reduced;//#hidden by default
+
+					type embedded_show_word_disambiguation;//#hidden by default
 				};
-				type all[6];
+				type all[8];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			}practice_writing;
 
@@ -1293,6 +1298,7 @@ namespace べんきょう {
 			EnableWindow(controls.button_show_word, FALSE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->word);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &practice->word);
 
 		} break;
 		case decltype(page)::review_practice:
@@ -1373,6 +1379,7 @@ namespace べんきょう {
 			EnableWindow(controls.button_show_word, TRUE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->word);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->word);
 
 		} break;
 		case decltype(page)::practice_multiplechoice:
@@ -1583,6 +1590,7 @@ namespace べんきょう {
 		case decltype(p)::practice_writing:
 			for (auto ctl : state->pages.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd);
 			ShowWindow(state->pages.practice_writing.embedded_show_word_reduced, SW_HIDE);
+			ShowWindow(state->pages.practice_writing.embedded_show_word_disambiguation, SW_HIDE);
 			ShowWindow(state->pages.practice_writing.page, ShowWindow_cmd);
 			break;
 		case decltype(p)::practice_multiplechoice:
@@ -2289,15 +2297,18 @@ namespace べんきょう {
 		for (auto& b : dark_nonclickable_btn_theme.brushes.border.all) b = dark_nonclickable_btn_theme.brushes.border.normal;
 
 		embedded::show_word_reduced::Theme eswr_theme;
-		brush_group eswr_bk, eswr_txt, eswr_border;
-		eswr_bk.normal = global::colors.ControlBk;
-		eswr_txt.normal = global::colors.ControlTxt;
-		eswr_border.normal = global::colors.ControlTxt;
 		eswr_theme.font = global::fonts.General;
 		eswr_theme.dimensions.border_thickness = 1;
-		eswr_theme.brushes.bk = eswr_bk;
-		eswr_theme.brushes.txt = eswr_txt;
-		eswr_theme.brushes.border = eswr_border;
+		eswr_theme.brushes.bk.normal = global::colors.ControlBk;
+		eswr_theme.brushes.txt.normal = global::colors.ControlTxt;
+		eswr_theme.brushes.border.normal = global::colors.ControlTxt;
+
+		embedded::show_word_disambiguation::Theme eswd_theme;
+		eswd_theme.font = global::fonts.General;
+		eswd_theme.dimensions.border_thickness = 1;
+		eswd_theme.brushes.bk.normal = global::colors.ControlBk;
+		eswd_theme.brushes.txt.normal = global::colors.ControlTxt;
+		eswd_theme.brushes.border.normal = global::colors.ControlTxt;
 
 		edit_oneline::Theme base_editoneline_theme;
 		base_editoneline_theme.dimensions.border_thickness = 1;
@@ -2864,6 +2875,12 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
+			controls.button_disambiguation = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			button::set_theme(controls.button_disambiguation, &base_btn_theme);
+			//TODO(fran): add tooltip: "Disambiguation"
+			SendMessage(controls.button_disambiguation, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.disambiguation);
+
 			controls.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, controls.edit_answer, 0, NULL, NULL);
 			SendMessage(controls.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
@@ -2876,6 +2893,10 @@ namespace べんきょう {
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			controls.embedded_show_word_disambiguation = CreateWindow(embedded::show_word_disambiguation::wndclass, NULL, WS_CHILD | embedded::show_word_disambiguation::style::roundrect,
+				0, 0, 0, 0, controls.page, 0, 0, 0);
+			embedded::show_word_disambiguation::set_theme(controls.embedded_show_word_disambiguation, &eswd_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -3328,51 +3349,71 @@ namespace べんきょう {
 		{
 			auto& controls = state->pages.practice_writing;
 
-			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
+			int smallwnd_h = (i32)(wnd_h * .8f);
 
-			rect_i32 static_test_word;
-			static_test_word.y = start_y;
-			static_test_word.h = bigwnd_h;
-			static_test_word.w = w;
-			static_test_word.x = (w - static_test_word.w) / 2;
+			HFONT font = GetWindowFont(controls.edit_answer);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			rect_i32 edit_answer;
-			edit_answer.y = static_test_word.bottom() + h_pad;
-			edit_answer.h = wnd_h;
-			edit_answer.w = min(max_w, avg_str_dim(GetWindowFont(controls.edit_answer), 20).cx);
-			edit_answer.x = (w - edit_answer.w) / 2;
+			hpsizer lhpad{};
+			vpsizer lvpad{};
 
+			ssizer static_test_word{ controls.static_test_word };
+			ssizer _edit_answer{ controls.edit_answer };
+			hcsizer edit_answer{ {&_edit_answer,min(max_w, avg_str_dim(GetWindowFont(controls.edit_answer), 20).cx)} };
+
+			ssizer button_disambiguation{ controls.button_disambiguation };
+			ssizer button_show_word{ controls.button_show_word };
+			hcsizer helpers{
+				{&button_disambiguation, smallwnd_h * 16 / 9},
+				{&lhpad,3},
+				{&button_show_word, smallwnd_h * 16 / 9},
+			};
+
+			vsizer practice_column{
+				{&static_test_word,bigwnd_h},
+				{&edit_answer, wnd_h},
+				{&lvpad, 3},
+				{&helpers,smallwnd_h} };
+
+			hsizer layout{
+				{&practice_column,layout_bounds.cx} };
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
+
+			//TODO(fran): resizing for embedded controls via ssizer,...
 			rect_i32 button_next;//child inside edit_answer
+			RECT _edit_answer_rc;  GetClientRect(controls.edit_answer, &_edit_answer_rc); 
+			auto edit_answer_rc = to_rect_i32(_edit_answer_rc);
 			button_next.y = 1; //the button is inside the edit box (and past the border) //TODO(fran): we should ask the parent for its border size
-			button_next.h = edit_answer.h - 2;
-			button_next.w = min(button_next.h, max(0, edit_answer.w - 4/*avoid covering rounded borders*/));
-			button_next.x = edit_answer.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
-
-			rect_i32 button_show_word;
-			button_show_word.h = (i32)(wnd_h * .8f);
-			button_show_word.y = edit_answer.bottom() + 3;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = edit_answer.center_x() - button_show_word.w / 2;
+			button_next.h = edit_answer_rc.h - 2;
+			button_next.w = min(button_next.h, max(0, edit_answer_rc.w - 4/*avoid covering rounded borders*/));
+			button_next.x = edit_answer_rc.w - button_next.w - 2;//TODO(fran): if the style of the edit box parent is  ES_ROUNDRECT we gotta subtract one more, in this case we went from -1 to -2
+			MyMoveWindow(controls.button_next, button_next, FALSE);
 
 			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
+			RECT _button_show_word_rc;  GetWindowRect(controls.button_show_word, &_button_show_word_rc); MapWindowRect(0, controls.page, &_button_show_word_rc);
+			auto button_show_word_rc = to_rect_i32(_button_show_word_rc);
+			embedded_show_word_reduced.w = layout_bounds.cx;
 			embedded_show_word_reduced.h = wnd_h * 3;
 			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+			embedded_show_word_reduced.y = button_show_word_rc.bottom() + 3;
 
-			rect_i32 bottom_most_control = button_show_word;
+			MyMoveWindow(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+			rect_i32 embedded_show_word_disambiguation = embedded_show_word_reduced;
 
-			べんきょう_page_scroll(used_h);
-
-			MyMoveWindow_offset(controls.static_test_word, static_test_word, FALSE);
-			MyMoveWindow_offset(controls.edit_answer, edit_answer, FALSE);
-			MyMoveWindow_offset(controls.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-			MyMoveWindow(controls.button_next, button_next, FALSE);
+			MyMoveWindow(controls.embedded_show_word_disambiguation, embedded_show_word_disambiguation, FALSE);
 
 		} break;
 		case ProcState::page::practice_multiplechoice:
@@ -3959,12 +4000,18 @@ namespace べんきょう {
 					else if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
 					}
+					else if (child == page.button_disambiguation) {
+						flip_visibility(page.embedded_show_word_disambiguation);
+					}
 				} break;
 				case ProcState::page::review_practice_writing:
 				{
 					auto& page = state->pages.practice_writing;
 					if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
+					}
+					else if (child == page.button_disambiguation) {
+						flip_visibility(page.embedded_show_word_disambiguation);
 					}
 					else if (child == page.button_next) {
 						goto_previous_page(state);

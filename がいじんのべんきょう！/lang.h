@@ -73,6 +73,7 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(170,"Word already exists, would you like to override it?")
 
+	lang_entry(199," ")
 	lang_entry(200,"Noun")
 	lang_entry(201,"Verb")
 	lang_entry(202,"い-Adjective")

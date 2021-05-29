@@ -191,6 +191,7 @@
     <ClInclude Include="win32_combobox.h" />
     <ClInclude Include="win32_combobox_subclass.h" />
     <ClInclude Include="win32_edit_oneline.h" />
+    <ClInclude Include="win32_edit_oneline_subclass.h" />
     <ClInclude Include="win32_eyecandy.h" />
     <ClInclude Include="win32_Global.h" />
     <ClInclude Include="unCap_Math.h" />

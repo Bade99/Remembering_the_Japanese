@@ -350,6 +350,10 @@ namespace static_oneline {
 		{
 			return SendMessage(state->parent,msg,wparam,lparam);
 		} break;
+		case WM_MOUSELEAVE:
+		{
+			return 0;
+		} break;
 
 		default:
 #ifdef _DEBUG
