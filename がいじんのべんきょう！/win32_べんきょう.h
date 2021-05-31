@@ -41,7 +41,6 @@
 	//Provide filters: word group, lexical category
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 //TODO(fran): page practice_drawing: kanji detection via OCR
-//TODO(fran): db: on the subject of multiple meanings for the same kanji/hiragana: provide a 'Disambiguation' button that shows the user extra information about the word so they can discern which one it is in case they think there's more than one option, each piece of content shown should be hidden behind, for example, a button that says 'show', eg: Lexical Category: [Show]. NOTE: one thing I realize now is that the disambiguation serves  a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
 //TODO(fran): landing page?: track user "dedication", for example number of consecutive days the app has been opened, number of days of inactivity (that one would be quite useful for me)
 
 //TODO(fran): IDEA: navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
@@ -66,6 +65,7 @@
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
 //INFO: use parameterized queries for any query that requires direct user input (avoid sql injection)
 
+//NOTE: on the subject of Disambiguation: one thing I realize now is that the disambiguation serves a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
 
 //REMEMBER: have checks in place to make sure the user cant execute operations twice by quickly pressing a button again
 
@@ -331,7 +331,7 @@ namespace べんきょう {
 
 					type button_show_word;
 
-					type button_disambiguation;
+					type button_show_disambiguation;
 
 					type embedded_show_word_reduced;//#hidden by default
 
@@ -354,8 +354,12 @@ namespace べんきょう {
 					type button_show_word;//#disabled by default
 
 					type embedded_show_word_reduced;//#hidden by default
+
+					type button_show_disambiguation;
+
+					type embedded_show_word_disambiguation;//#hidden by default
 				};
-				type all[6];
+				type all[8];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			}practice_multiplechoice;
 
@@ -369,6 +373,7 @@ namespace べんきょう {
 
 					type button_next;//#disabled by default (gets enabled when the user drew smth)
 					type button_show_word;//#disabled
+					type button_show_disambiguation;
 
 					type static_correct_answer;//#hidden
 					//NOTE: working on a good handwriting recognition pipeline so this can be automatically checked (probably google translate style)
@@ -377,8 +382,9 @@ namespace べんきょう {
 					type button_wrong;//#hidden by default
 
 					type embedded_show_word_reduced;//#hidden by default
+					type embedded_show_word_disambiguation;//#hidden by default
 				};
-				type all[9];
+				type all[11];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			}practice_drawing;
 
@@ -1420,6 +1426,7 @@ namespace べんきょう {
 
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &practice->question);
 
 		} break;
 		case decltype(page)::review_practice_multiplechoice:
@@ -1470,6 +1477,7 @@ namespace べんきょう {
 			EnableWindow(controls.button_show_word, TRUE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->question);
 
 		} break;
 		case decltype(page)::practice_drawing:
@@ -1501,6 +1509,7 @@ namespace べんきょう {
 			EnableWindow(controls.button_next, FALSE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &practice->question);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &practice->question);
 
 			{
 				HDC _dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,_dc); };
@@ -1559,6 +1568,7 @@ namespace べんきょう {
 			EnableWindow(controls.button_next, TRUE);
 
 			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
+			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->question);
 
 		} break;
 
@@ -1582,8 +1592,7 @@ namespace べんきょう {
 			for (auto ctl : state->pages.show_word.all) ShowWindow(ctl, ShowWindow_cmd); 
 			ShowWindow(state->pages.show_word.page, ShowWindow_cmd);
 			break;
-		//case decltype(p)::search: for (auto ctl : state->pages.search.all) ShowWindow(ctl, ShowWindow_cmd); break;
-		case decltype(p)::practice: 
+		case decltype(p)::practice:
 			for (auto ctl : state->pages.practice.all) ShowWindow(ctl, ShowWindow_cmd); 
 			ShowWindow(state->pages.practice.page, ShowWindow_cmd);
 			break;
@@ -1596,6 +1605,7 @@ namespace べんきょう {
 		case decltype(p)::practice_multiplechoice:
 			for (auto ctl : state->pages.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
 			ShowWindow(state->pages.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
+			ShowWindow(state->pages.practice_multiplechoice.embedded_show_word_disambiguation, SW_HIDE);
 			ShowWindow(state->pages.practice_multiplechoice.page, ShowWindow_cmd);
 			break;
 		case decltype(p)::practice_drawing:
@@ -1604,6 +1614,7 @@ namespace べんきょう {
 			ShowWindow(state->pages.practice_drawing.button_wrong, SW_HIDE);
 			ShowWindow(state->pages.practice_drawing.button_right, SW_HIDE);
 			ShowWindow(state->pages.practice_drawing.embedded_show_word_reduced, SW_HIDE);
+			ShowWindow(state->pages.practice_drawing.embedded_show_word_disambiguation, SW_HIDE);
 			ShowWindow(state->pages.practice_drawing.page, ShowWindow_cmd);
 			break;
 		case decltype(p)::review_practice:
@@ -1634,7 +1645,7 @@ namespace べんきょう {
 		//case decltype(p)::search: SetFocus(state->pages.search.searchbox_search); break;
 		case decltype(p)::practice_writing: SetFocus(state->pages.practice_writing.edit_answer); break;
 
-			//default:Assert(0);
+		//default:Assert(0);
 		}
 	}
 
@@ -2875,12 +2886,6 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			//NOTE: text color and default text will be set according to the type of word that has to be written
 
-			controls.button_disambiguation = CreateWindowW(button::wndclass, NULL, style_button_bmp
-				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			button::set_theme(controls.button_disambiguation, &base_btn_theme);
-			//TODO(fran): add tooltip: "Disambiguation"
-			SendMessage(controls.button_disambiguation, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.disambiguation);
-
 			controls.button_next = CreateWindowW(button::wndclass, NULL, style_button_bmp
 				, 0, 0, 0, 0, controls.edit_answer, 0, NULL, NULL);
 			SendMessage(controls.button_next, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.arrowSimple_right);
@@ -2889,10 +2894,34 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, 0, 0);
 			button::set_theme(controls.button_show_word, &base_btn_theme);
 			SendMessage(controls.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+			button::set_user_extra(controls.button_show_word, state);
+			button::set_function_on_click(controls.button_show_word,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_writing;
+					flip_visibility(page.embedded_show_word_reduced);
+					if (IsWindowVisible(page.embedded_show_word_disambiguation))ShowWindow(page.embedded_show_word_disambiguation, SW_HIDE);
+				}
+			);
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			controls.button_show_disambiguation = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			button::set_theme(controls.button_show_disambiguation, &base_btn_theme);
+			SendMessage(controls.button_show_disambiguation, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.disambiguation);
+			AWTT(controls.button_show_disambiguation, 700);
+			button::set_user_extra(controls.button_show_disambiguation, state);
+			button::set_function_on_click(controls.button_show_disambiguation,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_writing;
+					flip_visibility(page.embedded_show_word_disambiguation);
+					if (IsWindowVisible(page.embedded_show_word_reduced))ShowWindow(page.embedded_show_word_reduced, SW_HIDE);
+				}
+			);
 
 			controls.embedded_show_word_disambiguation = CreateWindow(embedded::show_word_disambiguation::wndclass, NULL, WS_CHILD | embedded::show_word_disambiguation::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);
@@ -2930,10 +2959,38 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, 0, 0);
 			button::set_theme(controls.button_show_word, &base_btn_theme);
 			SendMessage(controls.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
+			button::set_user_extra(controls.button_show_word, state);
+			button::set_function_on_click(controls.button_show_word,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_multiplechoice;
+					flip_visibility(page.embedded_show_word_reduced);
+					if (IsWindowVisible(page.embedded_show_word_disambiguation))ShowWindow(page.embedded_show_word_disambiguation, SW_HIDE);
+				}
+			);
 
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			controls.button_show_disambiguation = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			button::set_theme(controls.button_show_disambiguation, &base_btn_theme);
+			SendMessage(controls.button_show_disambiguation, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.disambiguation);
+			AWTT(controls.button_show_disambiguation, 700);
+			button::set_user_extra(controls.button_show_disambiguation, state);
+			button::set_function_on_click(controls.button_show_disambiguation,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_multiplechoice;
+					flip_visibility(page.embedded_show_word_disambiguation);
+					if (IsWindowVisible(page.embedded_show_word_reduced))ShowWindow(page.embedded_show_word_reduced, SW_HIDE);
+				}
+			);
+
+			controls.embedded_show_word_disambiguation = CreateWindow(embedded::show_word_disambiguation::wndclass, NULL, WS_CHILD | embedded::show_word_disambiguation::style::roundrect,
+				0, 0, 0, 0, controls.page, 0, 0, 0);
+			embedded::show_word_disambiguation::set_theme(controls.embedded_show_word_disambiguation, &eswd_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -2958,7 +3015,15 @@ namespace べんきょう {
 				, 0, 0, 0, 0, controls.page, 0, 0, 0);
 			button::set_theme(controls.button_show_word, &base_btn_theme);
 			SendMessage(controls.button_show_word, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.eye);
-
+			button::set_user_extra(controls.button_show_word, state);
+			button::set_function_on_click(controls.button_show_word,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_drawing;
+					flip_visibility(page.embedded_show_word_reduced);
+					if (IsWindowVisible(page.embedded_show_word_disambiguation))ShowWindow(page.embedded_show_word_disambiguation, SW_HIDE);
+				}
+			);
 
 			controls.button_right = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
@@ -2982,6 +3047,25 @@ namespace べんきょう {
 			controls.embedded_show_word_reduced = CreateWindow(embedded::show_word_reduced::wndclass, NULL, WS_CHILD | embedded::show_word_reduced::style::roundrect,
 				0, 0, 0, 0, controls.page, 0, 0, 0);//TODO(fran): must be shown on top of all the other wnds
 			embedded::show_word_reduced::set_theme(controls.embedded_show_word_reduced, &eswr_theme);
+
+			controls.button_show_disambiguation = CreateWindowW(button::wndclass, NULL, style_button_bmp
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			button::set_theme(controls.button_show_disambiguation, &base_btn_theme);
+			SendMessage(controls.button_show_disambiguation, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)global::bmps.disambiguation);
+			AWTT(controls.button_show_disambiguation, 700);
+			button::set_user_extra(controls.button_show_disambiguation, state);
+			button::set_function_on_click(controls.button_show_disambiguation,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					auto& page = state->pages.practice_drawing;
+					flip_visibility(page.embedded_show_word_disambiguation);
+					if (IsWindowVisible(page.embedded_show_word_reduced))ShowWindow(page.embedded_show_word_reduced, SW_HIDE);
+				}
+			);
+
+			controls.embedded_show_word_disambiguation = CreateWindow(embedded::show_word_disambiguation::wndclass, NULL, WS_CHILD | embedded::show_word_disambiguation::style::roundrect,
+				0, 0, 0, 0, controls.page, 0, 0, 0);
+			embedded::show_word_disambiguation::set_theme(controls.embedded_show_word_disambiguation, &eswd_theme);
 
 			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
@@ -3363,7 +3447,7 @@ namespace べんきょう {
 			ssizer _edit_answer{ controls.edit_answer };
 			hcsizer edit_answer{ {&_edit_answer,min(max_w, avg_str_dim(GetWindowFont(controls.edit_answer), 20).cx)} };
 
-			ssizer button_disambiguation{ controls.button_disambiguation };
+			ssizer button_disambiguation{ controls.button_show_disambiguation };
 			ssizer button_show_word{ controls.button_show_word };
 			hcsizer helpers{
 				{&button_disambiguation, smallwnd_h * 16 / 9},
@@ -3423,128 +3507,139 @@ namespace べんきょう {
 			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
 
-			rect_i32 static_question;
-			static_question.y = start_y;
-			static_question.h = bigwnd_h;
-			static_question.w = w;
-			static_question.x = (w - static_question.w) / 2;
+			HFONT font = GetWindowFont(controls.multibutton_choices);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			rect_i32 multibutton_choices;
-			multibutton_choices.y = static_question.bottom() + h_pad;
-			multibutton_choices.h = bigwnd_h;
-			multibutton_choices.w = max_w;
-			multibutton_choices.x = (w - multibutton_choices.w) / 2;
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer static_question{ controls.static_question };
+			ssizer multibutton_choices{ controls.multibutton_choices };
+
+			ssizer button_show_disambiguation{ controls.button_show_disambiguation };
+			ssizer button_show_word{ controls.button_show_word };
+			ssizer button_next{ controls.button_next };
+			hcsizer control_buttons{
+				{&button_show_disambiguation, wnd_h * 16 / 9}, 
+				{&lhpad,3},
+				{&button_show_word, wnd_h * 16 / 9},
+				{&lhpad,3},
+				{&button_next, wnd_h} };
+
+			vsizer layout{
+				{&static_question,bigwnd_h},
+				{&lvpad, h_pad},
+				{&multibutton_choices,bigwnd_h},
+				{&lvpad, h_pad},
+				{&control_buttons,wnd_h} };
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
+
+			rect_i32 embedded_show_word_reduced;
+			RECT _button_show_word_rc;  GetWindowRect(controls.button_show_word, &_button_show_word_rc); MapWindowRect(0, controls.page, &_button_show_word_rc);
+			auto button_show_word_rc = to_rect_i32(_button_show_word_rc);
+			embedded_show_word_reduced.w = layout_bounds.cx;
+			embedded_show_word_reduced.h = wnd_h * 3;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.y = button_show_word_rc.bottom() + 3;
+
+			MyMoveWindow(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
+
+			rect_i32 embedded_show_word_disambiguation = embedded_show_word_reduced;
+
+			MyMoveWindow(controls.embedded_show_word_disambiguation, embedded_show_word_disambiguation, FALSE);
+
 
 			multibutton::Theme multibutton_choices_theme;
 			multibutton_choices_theme.dimensions.btn = { avg_str_dim((HFONT)SendMessage(controls.multibutton_choices, WM_GETFONT, 0, 0), 15).cx,wnd_h };
 			multibutton_choices_theme.dimensions.inbetween_pad = { 3,3 };
 			multibutton::set_theme(controls.multibutton_choices, &multibutton_choices_theme);
 
-			rect_i32 button_next;
-			button_next.y = multibutton_choices.bottom() + h_pad;
-			button_next.h = wnd_h;
-			button_next.w = button_next.h;
-
-			rect_i32 button_show_word;
-			button_show_word.h = button_next.h;
-			button_show_word.y = button_next.y;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
-
-			button_next.x = button_show_word.right() + 1;
-
-			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
-			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
-			embedded_show_word_reduced.h = wnd_h * 3;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
-
-			rect_i32 bottom_most_control = button_show_word;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			べんきょう_page_scroll(used_h);
-
-			MyMoveWindow_offset(controls.static_question, static_question, FALSE);
-			MyMoveWindow_offset(controls.multibutton_choices, multibutton_choices, FALSE);
-			MyMoveWindow_offset(controls.button_next, button_next, FALSE);
-			MyMoveWindow_offset(controls.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-
 		} break;
 		case ProcState::page::practice_drawing:
 		{
 			auto& controls = state->pages.practice_drawing;
 
-			int start_y = 0;
 			int bigwnd_h = wnd_h * 4;
+			int mediumwnd_h = wnd_h * 3;
 
-			rect_i32 static_question;
-			static_question.y = start_y;
-			static_question.h = bigwnd_h;
-			static_question.w = w;
-			static_question.x = (w - static_question.w) / 2;
+			HFONT font = GetWindowFont(controls.button_wrong);
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
-			rect_i32 paint_answer;
-			paint_answer.y = static_question.bottom() + h_pad;
-			paint_answer.h = bigwnd_h * 2;
-			paint_answer.w = max_w;
-			paint_answer.x = (w - paint_answer.w) / 2;
+			hpsizer lhpad{};
+			vpsizer lvpad{};
 
-			rect_i32 button_next;
-			button_next.y = paint_answer.bottom() + h_pad;
-			button_next.h = wnd_h;
-			button_next.w = button_next.h;
+			ssizer static_question{ controls.static_question };
+			ssizer paint_answer{ controls.paint_answer };
 
-			rect_i32 button_show_word;
-			button_show_word.h = button_next.h;
-			button_show_word.y = button_next.y;
-			button_show_word.w = button_show_word.h * 16 / 9;
-			button_show_word.x = (w - (button_show_word.w + button_next.w)) / 2;
+			ssizer button_show_disambiguation{ controls.button_show_disambiguation};
+			ssizer button_show_word{ controls.button_show_word };
+			ssizer button_next{ controls.button_next };
+			hcsizer control_buttons{ 
+				{&button_show_disambiguation, wnd_h * 16 / 9},
+				{&lhpad,3},
+				{&button_show_word, wnd_h * 16 / 9},
+				{&lhpad,3},
+				{&button_next, wnd_h} };
 
-			button_next.x = button_show_word.right() + 1;
+			ssizer static_correct_answer{ controls.static_correct_answer };
+
+			ssizer button_wrong{ controls.button_wrong };
+			ssizer button_right{ controls.button_right };
+			hcsizer response_buttons{
+				//TODO(fran): better check for the actual char cnt
+				{&button_wrong, min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.button_wrong, WM_GETFONT, 0, 0), 20).cx)},
+				{&lhpad,w_pad},
+				{&button_right, min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.button_right, WM_GETFONT, 0, 0), 20).cx)} };
+
+			vsizer layout{ 
+				{&static_question, bigwnd_h}, 
+				{&lvpad,h_pad},
+				{&paint_answer, bigwnd_h * 2},
+				{&lvpad,h_pad},
+				{&control_buttons, wnd_h},
+				{&lvpad,h_pad},
+				{&static_correct_answer,mediumwnd_h },
+				{&lvpad,h_pad},
+				{&response_buttons, wnd_h}
+			};
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
+			
 
 			rect_i32 embedded_show_word_reduced;
-			embedded_show_word_reduced.w = max_w;
-			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			RECT _button_show_word_rc;  GetWindowRect(controls.button_show_word, &_button_show_word_rc); MapWindowRect(0, controls.page, &_button_show_word_rc);
+			auto button_show_word_rc = to_rect_i32(_button_show_word_rc);
+			embedded_show_word_reduced.w = layout_bounds.cx;
 			embedded_show_word_reduced.h = wnd_h * 3;
-			embedded_show_word_reduced.y = button_show_word.bottom() + 3;
+			embedded_show_word_reduced.x = (w - embedded_show_word_reduced.w) / 2;
+			embedded_show_word_reduced.y = button_show_word_rc.bottom() + 3;
 
-			rect_i32 static_correct_answer;
-			static_correct_answer.y = button_next.bottom() + h_pad;
-			static_correct_answer.h = bigwnd_h - wnd_h;
-			static_correct_answer.w = w;
-			static_correct_answer.x = (w - static_correct_answer.w) / 2;
+			MyMoveWindow(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
 
-			rect_i32 button_wrong;
-			button_wrong.y = static_correct_answer.bottom() + h_pad;
-			button_wrong.h = wnd_h;
-			button_wrong.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.button_wrong, WM_GETFONT, 0, 0), 20).cx);
-			button_wrong.x = half_w - w_pad / 2 - button_wrong.w;
+			rect_i32 embedded_show_word_disambiguation = embedded_show_word_reduced;
 
-			rect_i32 button_right;
-			button_right.y = static_correct_answer.bottom() + h_pad;
-			button_right.h = wnd_h;
-			button_right.w = min(max_w / 2, avg_str_dim((HFONT)SendMessage(controls.button_right, WM_GETFONT, 0, 0), 20).cx);
-			button_right.x = half_w + w_pad / 2;
-
-			rect_i32 bottom_most_control = button_right;
-
-			int used_h = bottom_most_control.bottom();
-			int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-
-			べんきょう_page_scroll(used_h);
-
-			MyMoveWindow_offset(controls.static_question, static_question, FALSE);
-			MyMoveWindow_offset(controls.paint_answer, paint_answer, FALSE);
-			MyMoveWindow_offset(controls.button_next, button_next, FALSE);
-			MyMoveWindow_offset(controls.button_show_word, button_show_word, FALSE);
-			MyMoveWindow_offset(controls.embedded_show_word_reduced, embedded_show_word_reduced, FALSE);
-			MyMoveWindow_offset(controls.static_correct_answer, static_correct_answer, FALSE);
-			MyMoveWindow_offset(controls.button_wrong, button_wrong, FALSE);
-			MyMoveWindow_offset(controls.button_right, button_right, FALSE);
-
+			MyMoveWindow(controls.embedded_show_word_disambiguation, embedded_show_word_disambiguation, FALSE);
 
 		} break;
 		case ProcState::page::review_practice:
@@ -3997,23 +4092,12 @@ namespace べんきょう {
 							next_practice_level(state,false);
 						}
 					}
-					else if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}
-					else if (child == page.button_disambiguation) {
-						flip_visibility(page.embedded_show_word_disambiguation);
-					}
+					
 				} break;
 				case ProcState::page::review_practice_writing:
 				{
 					auto& page = state->pages.practice_writing;
-					if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}
-					else if (child == page.button_disambiguation) {
-						flip_visibility(page.embedded_show_word_disambiguation);
-					}
-					else if (child == page.button_next) {
+					if (child == page.button_next) {
 						goto_previous_page(state);
 					}
 				} break;
@@ -4076,9 +4160,9 @@ namespace べんきょう {
 							next_practice_level(state,false);
 						}
 					}
-					else if (child == page.button_show_word) {
+					/*else if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
-					}
+					}*/
 					else
 					{
 						printf("FIX ERROR\n");
@@ -4088,10 +4172,10 @@ namespace べんきょう {
 				case ProcState::page::review_practice_multiplechoice:
 				{
 					auto& page = state->pages.practice_multiplechoice;
-					if (child == page.button_show_word) {
+					/*if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
-					}
-					else if (child == page.button_next) {
+					}*/
+					/*else*/ if (child == page.button_next) {
 						goto_previous_page(state);
 					}
 				} break;
@@ -4177,17 +4261,17 @@ namespace べんきょう {
 							if (answered_correctly) next_practice_level(state);
 						}
 					}
-					else if (child == page.button_show_word) {
+					/*else if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
-					}
+					}*/
 				} break;
 				case ProcState::page::review_practice_drawing:
 				{
 					auto& page = state->pages.practice_drawing;
-					if (child == page.button_show_word) {
+					/*if (child == page.button_show_word) {
 						flip_visibility(page.embedded_show_word_reduced);
-					}
-					else if (child == page.button_next) {
+					}*/
+					/*else */if (child == page.button_next) {
 						goto_previous_page(state);
 					}
 				} break;

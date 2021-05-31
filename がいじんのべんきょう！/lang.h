@@ -73,7 +73,7 @@ constexpr static utf16 lang_english_entries[] =
 
 	lang_entry(170,"Word already exists, would you like to override it?")
 
-	lang_entry(199," ")
+	lang_entry(199,"\\0") //IMPORTANT: when editing from here if you want to add an escapement use double backslash not single, in order for it _not_ to get saved in already converted form
 	lang_entry(200,"Noun")
 	lang_entry(201,"Verb")
 	lang_entry(202,"い-Adjective")
@@ -123,6 +123,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(600,"Successfully added")
 	lang_entry(601,"Error adding word")
 
+	lang_entry(700,"Disambiguation")
 ;
 
 constexpr static utf16 lang_español_entries[] =
