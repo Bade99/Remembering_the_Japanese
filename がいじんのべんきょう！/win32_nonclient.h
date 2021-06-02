@@ -361,29 +361,47 @@ namespace nonclient {
 				TCHAR title[256]; int sz = GetWindowText(state->wnd, title, ARRAYSIZE(title));
 				TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 
-
+#if 0
 				HICON icon = (HICON)GetClassLongPtr(state->wnd, GCLP_HICONSM);
-				int icon_height = (int)((float)tm.tmHeight * 1.5f);
-				int icon_width = icon_height;
-				int icon_align_height = (RECTHEIGHT(state->rc_caption) - icon_height) / 2;
-				int icon_align_width = icon_align_height;
-				int icon_x = icon_align_width;
+				int icon_h=  (int)((float)tm.tmHeight * 1.5f);
+				int icon_w = icon_h;
+				int icon_y = (RECTHEIGHT(state->rc_caption) - icon_h) / 2;
+				int icon_x = icon_y;
 				if (state->btn_back_visible) {//INFO: we always assume the back button is leftmost and topmost of the caption area
 					RECT btn_back_rc = nonclient::calc_btn_back_rc(state);
 					icon_x += btn_back_rc.left + RECTW(btn_back_rc);
 				}
 
-				state->rc_icon = rectWH(icon_x, icon_align_height, icon_width, icon_height);
+				state->rc_icon = rectWH(icon_x, icon_y, icon_w, icon_h);
 				MYICON_INFO iconnfo = MyGetIconInfo(icon);
 				//TODO(fran): the last pixels from the circle dont seem to get rendered
-				urender::draw_icon(dc, icon_x, icon_align_height, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+				urender::draw_icon(dc, icon_x, icon_y, icon_w, icon_h, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+#else
+				HICON icon = (HICON)GetClassLongPtr(state->wnd, GCLP_HICONSM);
+				MYICON_INFO iconnfo = MyGetIconInfo(icon);
+				#if 1
+				int icon_h = iconnfo.nHeight;
+				int icon_w = iconnfo.nWidth;
+				#else
+				int icon_h = (int)((float)tm.tmHeight * 1.5f);
+				int icon_w = icon_h;
+				#endif
+				int icon_y = (RECTH(state->rc_caption) - icon_h) / 2;
+				int icon_x = icon_y;
+				if (state->btn_back_visible) {//INFO: we always assume the back button is leftmost and topmost of the caption area
+					RECT btn_back_rc = nonclient::calc_btn_back_rc(state);
+					icon_x += btn_back_rc.left + RECTW(btn_back_rc);
+				}
+				state->rc_icon = rectWH(icon_x, icon_y, icon_w, icon_h);
+				DrawIconEx(dc, icon_x, icon_y, icon, icon_w,icon_h, 0, 0, DI_NORMAL);
+#endif
 
 				int yPos = (state->rc_caption.bottom + state->rc_caption.top - tm.tmHeight) / 2;
 				HBRUSH txtbr = state->active ? global::colors.ControlTxt : global::colors.ControlTxt_Inactive;
 				SetTextColor(dc, ColorFromBrush(txtbr)); SetBkMode(dc, TRANSPARENT);
 
 
-				TextOut(dc, icon_x + icon_width + max(icon_align_width,1), yPos, title, sz);
+				TextOut(dc, icon_x + icon_w + max(icon_y,1), yPos, title, sz);
 
 				button::Theme btn_theme;
 				btn_theme.dimensions.border_thickness = 0;

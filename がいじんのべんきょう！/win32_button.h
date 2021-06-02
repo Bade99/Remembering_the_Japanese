@@ -285,12 +285,21 @@ namespace button {
 			HICON icon = state->icon;
 			//NOTE: we assume all icons to be squares 1:1
 			MYICON_INFO iconnfo = MyGetIconInfo(icon);
-			int max_sz = (int)((float)min(RECTW(rc), RECTH(rc)) * .8f);
-			int icon_height = max_sz;
-			int icon_width = icon_height;
-			int icon_y = (RECTH(rc) - icon_height) / 2;
-			int icon_x = (RECTW(rc) - icon_width) / 2;
-			urender::draw_icon(dc, icon_x, icon_y, icon_width, icon_height, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+			int max_sz = roundNdown(iconnfo.nWidth, (int)((float)min(RECTWIDTH(rc), RECTHEIGHT(rc)) * .8f)); //HACK: instead use png + gdi+ + color matrices
+			if (!max_sz) {
+				if ((iconnfo.nWidth % 2) == 0) max_sz = iconnfo.nWidth / 2;
+				else max_sz = iconnfo.nWidth; //More HACKs
+			}
+			int icon_h = max_sz;
+			int icon_w = icon_h;
+			int icon_y = (RECTH(rc) - icon_h) / 2;
+			int icon_x = (RECTW(rc) - icon_w) / 2;
+#if 0
+			urender::draw_icon(dc, icon_x, icon_y, icon_w, icon_h, icon, 0, 0, iconnfo.nWidth, iconnfo.nHeight);
+#else
+			DrawIconEx(dc, icon_x, icon_y, icon, icon_w, icon_h, 0, 0, DI_NORMAL);
+#endif
+			//TODO(fran): the actual problem with icons is the shitty software im using to generate the layers, it generates lots of erroneous pixel colors on the smaller layers. NOTE: now im not too sure about this, gimp renders the layers correctly and without all the broken stuff visual studio's viewer shows, so it may just be that gdi+ (used by urender::draw_icon) sucks as usual which wouldnt really be a surprise
 		}
 		else if (style & BS_BITMAP) {
 			BITMAP bitmap; GetObject(state->bmp, sizeof(bitmap), &bitmap);
