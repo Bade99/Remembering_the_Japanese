@@ -34,7 +34,6 @@
 
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
-//TODO(fran): application icon: chidori bird(talk to bren)
 //TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
 //TODO(fran): page wordbook: list words added in the previous couple of days, provide button to go to another page that loads an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//Provide ordering: worst score, creation date
@@ -49,6 +48,7 @@
 
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran):BUG searchbox: caret on the searchbox gets misplaced. howto reproduce: search for a word, then using the down arrow go to some option and then press enter, now the searchbox caret will be misplaced
+//TODO(fran): BUG: landing page: howto reproduce: press the recently added button to hide the elements, then press it again to show them, nothing will show cause we seem to not be sending a redraw request
 
 
 
