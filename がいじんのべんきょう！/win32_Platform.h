@@ -133,7 +133,7 @@ struct ptr {//TODO(fran): maybe 'arr' or 'array' is a better name
 
 	//void operator[](size_t i) const { return mem[i]; }
 
-	T& operator[](size_t i) { return mem[i]; }
+	T& operator[](size_t i) const { return mem[i]; }
 
 	T* begin() {
 		return this->cnt ? &(*this)[0] : nullptr;

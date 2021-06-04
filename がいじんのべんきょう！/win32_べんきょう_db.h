@@ -9,6 +9,7 @@
 //All interactions with the がいしんのべんきょう db are in here:
 
 //TODO(fran): maybe we should use stored procs, that way we get sintax checking on startup for everything, otherwise something might slip up, still we may also want to add tests for each thing too. One problem with stored procedures would be when we went for optimization, by generating the request on real time we can only add specific columns in each case, with stored procs that wont be possible
+//TODO(fran): maybe I should change to using UTC instead of GMT which is no longer the norm
 
 //Stuff I learnt:
 //SUPER IMPORTANT: when using parameterized queries if you are binding text you _must_ remove the null terminator, otherwise it will be interpreted as a BLOB, when retrieving the text sql will automatically append a null terminator
@@ -233,6 +234,8 @@ typedef _practiced_word<utf8_str> practiced_word8;
 #define _notes 9
 #define _example_sentence 10
 
+#define _gmt_upper_bound 50
+
 #define __sqlParamS(p) #p
 #define _sqlParamS(p) __sqlParamS(?##p)
 #define sqlParamS(p) _sqlParamS(p)
@@ -251,20 +254,28 @@ typedef _practiced_word<utf8_str> practiced_word8;
 
 namespace べんきょう {
 
-	int sqlite3_bind(sqlite3_stmt* stmt, int index, const s8& txt, void (*destructor)(void*) = SQLITE_STATIC) {
+	int sqlite3_bind(sqlite3_stmt* stmt, int index, const s8& value, void (*destructor)(void*) = SQLITE_STATIC) {
 		Assert(stmt);
 		Assert(index);
-		Assert(txt.str && txt.sz);
-		Assert(txt.last_char() == 0);//check for null termination (some day we wont have it, but not today)
-		int res = sqlite3_bind_text(stmt, index, txt.str, (int)(txt.cnt()*sizeof(txt[0])), destructor);
+		Assert(value.str && value.sz);
+		Assert(value.last_char() == 0);//check for null termination (some day we wont have it, but not today)
+		int res = sqlite3_bind_text(stmt, index, value.str, (int)(value.cnt()*sizeof(value[0])), destructor);
 		Assert(res == SQLITE_OK);
 		return res;
 	}
 
-	int sqlite3_bind(sqlite3_stmt* stmt, int index, const std::string& txt, void (*destructor)(void*) = SQLITE_STATIC) {
+	int sqlite3_bind(sqlite3_stmt* stmt, int index, const std::string& value, void (*destructor)(void*) = SQLITE_STATIC) {
 		Assert(stmt);
 		Assert(index);
-		int res = sqlite3_bind_text(stmt, index, txt.c_str(), (int)(txt.size() * sizeof(txt[0])), destructor);
+		int res = sqlite3_bind_text(stmt, index, value.c_str(), (int)(value.size() * sizeof(value[0])), destructor);
+		Assert(res == SQLITE_OK);
+		return res;
+	}
+
+	int sqlite3_bind(sqlite3_stmt* stmt, int index, time64 value) {
+		Assert(stmt);
+		Assert(index);
+		int res = sqlite3_bind_int64(stmt, index, value);
 		Assert(res == SQLITE_OK);
 		return res;
 	}
@@ -545,12 +556,13 @@ namespace べんきょう {
 	}
 
 	//returns GMT unixtime
-	time64 get_latest_word_creation_date(sqlite3* db) {
+	time64 get_latest_word_creation_date(sqlite3* db, time64 gmt_upper_bound = I64MAX) {
 		time64 res;
-
-		utf8 select_last_creation_date[] = SQL(
+		
+		static constexpr utf8 select_last_creation_date[] = SQL(
 			SELECT creation_date
 			FROM _べんきょう_table_words
+			WHERE creation_date <= sqlParam(_gmt_upper_bound)
 			ORDER BY creation_date DESC
 			LIMIT 1;
 		);
@@ -561,8 +573,16 @@ namespace べんきょう {
 			errcode = sqlite3_prepare_v2(db, select_last_creation_date, sizeof(select_last_creation_date), &stmt, nullptr);
 
 			if (errcode == SQLITE_OK) {
-				errcode = sqlite3_step(stmt);
-				if (errcode == SQLITE_ROW) res = sqlite3_column_int64(stmt, 0);
+
+				errcode = sqlite3_bind(stmt, sqlIdx(_gmt_upper_bound), gmt_upper_bound);
+				sqliteok_runtime_check(errcode, db);//TODO(fran): sqliteok_check()
+				
+				if (errcode == SQLITE_OK) {
+
+					errcode = sqlite3_step(stmt);
+					if (errcode == SQLITE_ROW) res = sqlite3_column_int64(stmt, 0);
+					else res = 0;
+				}
 				else res = 0;
 			}
 			else res = 0;
@@ -573,7 +593,7 @@ namespace べんきょう {
 	}
 
 	struct unixtime_day_range { time64 start, end; };
-	//returns the gmt timestamp for start and end of the day of the requested gmt unixtime converted to localtime
+	//receives a gmt("unixtime") timestamp and returns the gmt timestamp for start and end of the day based on localtime
 	unixtime_day_range day_range(time64 unixtime_gmt) {
 		unixtime_day_range res;
 

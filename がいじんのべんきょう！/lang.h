@@ -124,6 +124,8 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(601,"Error adding word")
 
 	lang_entry(700,"Disambiguation")
+
+	lang_entry(800,"View All")
 ;
 
 constexpr static utf16 lang_español_entries[] =

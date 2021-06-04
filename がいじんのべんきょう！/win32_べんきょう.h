@@ -32,15 +32,15 @@
 #include <string>
 #include <algorithm>
 
-//TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
-//TODO(fran): application icon: IDEA: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, maybe try to retrofit that into an icon
-//TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
 //TODO(fran): page wordbook: list words added in the previous couple of days, provide button to go to another page that loads an entire list of all the words ordered by creation date (feed the list via a separate thread)
 	//Provide ordering: worst score, creation date
 	//Provide filters: word group, lexical category
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
-//TODO(fran): page practice_drawing: kanji detection via OCR
+	//Each word group should have a different color, set either by the user or ourselves
 //TODO(fran): landing page?: track user "dedication", for example number of consecutive days the app has been opened, number of days of inactivity (that one would be quite useful for me)
+//TODO(fran): page practice_drawing: kanji detection via OCR
+//TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
+//TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
 
 //TODO(fran): IDEA: navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): IDEA: all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
@@ -56,6 +56,8 @@
 //IDEA: page review_practice_...: When opening practices for the review we could add new pages to the enum, this are like virtual pages, using the same controls, but now can have different layout or behaviour simply by adding them to the switch statements, this is very similar to the scene flag idea; the bennefit of virtual pages is that no code needs to be added to already existing things, on the other side the scene flag has to be handled by each page, adding an extra switch(state->current_scene), the annoying thing is on resizing, with a scene flag we remain on the same part of the code and can simply append more controls to the end, change the "bottommost_control" and be correclty resized, we could cheat by putting multiple case statements together, and inside check which virtual page we're in now. The problem for virtual pages is code repetition, yeah the old stuff wont be affected, but we need to copy parts of that old stuff since virtual pages will share most things
 	//NOTE: on iterating through elements, we probably can still only iterate over each virtual page's specific elements by adding some extra separator on the struct and checking for their address, subtracting from some base, dividing by the type size and doing for(int i= base; i < cnt; i++) func( all[i] )
 //IDEA: page review_practice: alternative idea: cliking an element of the gridview redirects to the show_word page
+//IDEA: application icon: japanese schools seem to usually be represented as "cabildo" like structures with a rectangle and a column coming out the middle, try to retrofit that into an icon
+
 
 
 //INFO: this wnd is divided into two, the UI side and the persistence/db interaction side, the first one operates on utf16 for input and output, and the second one in utf8 for input and utf8 for output (also utf16 but only if you manually handle it)
@@ -243,6 +245,7 @@ namespace べんきょう {
 			review_practice,
 			show_word,
 			wordbook,
+			wordbook_all,
 
 			//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
 			review_practice_writing,
@@ -430,11 +433,22 @@ namespace べんきょう {
 				struct {
 					type page;
 					//TODO(fran): sorting options
+					type listbox_last_days_words[4];
+					type button_all_words;
+				};
+				type all[6];
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
+			} wordbook;
+
+			union wordbook_all_controls {
+				struct {
+					type page;
+					//TODO(fran): sorting options
 					type listbox_words;
 				};
 				type all[2];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
-			} wordbook;
+			} wordbook_all;
 
 		}pages;
 
@@ -831,6 +845,8 @@ namespace べんきょう {
 			RECT txt_rc = to_RECT(r);
 			txt_rc.left += x_pad;
 			txt_rc.right = icon_x;
+
+			txt_rc.right -= avg_str_dim(font, 1).cx;//Add spacing between txt & icon for right aligned
 
 			DrawTextW(dc, s->str, (int)s->cnt(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 		}
@@ -1634,6 +1650,10 @@ namespace べんきょう {
 			for (auto ctl : state->pages.wordbook.all) ShowWindow(ctl, ShowWindow_cmd);
 			ShowWindow(state->pages.wordbook.page, ShowWindow_cmd);//#pointless duplicate of above
 			break;
+		case decltype(p)::wordbook_all:
+			for (auto ctl : state->pages.wordbook_all.all) ShowWindow(ctl, ShowWindow_cmd);
+			ShowWindow(state->pages.wordbook_all.page, ShowWindow_cmd);//#pointless duplicate of above
+			break;
 		default:Assert(0);
 		}
 	}
@@ -1669,6 +1689,7 @@ namespace べんきょう {
 
 			auto& controls = state->pages.landing;
 
+			//TODO(fran): date information requested from the db or sent to it should all be in local time, the db can bother with storing gmt and doing the appropiate conversions, but the application shouldnt have to even bother with that
 			auto [start, end] = day_range(get_latest_word_creation_date(state->settings->db));
 
 			ptr<learnt_word16> recents = get_learnt_word_by_date(state->settings->db, start, end);
@@ -1716,6 +1737,31 @@ namespace べんきょう {
 		{
 			auto& controls = state->pages.wordbook;
 
+			time64 upper_bound = I64MAX;
+			for (int i = 0; i < ARRAYSIZE(controls.listbox_last_days_words); i++) {
+				const auto [start, end] = day_range(get_latest_word_creation_date(state->settings->db, upper_bound));
+				upper_bound = start - 1;
+
+				//TODO(fran): get and set words in different threads
+				ptr<learnt_word16> words = get_learnt_word_by_date(state->settings->db, start, end);
+
+				ptr<void*> elems{ 0 }; elems.alloc(words.cnt); defer{ elems.free(); };
+				for (size_t i = 0; i < words.cnt; i++) elems[i] = &words[i];
+
+				HWND listbox = controls.listbox_last_days_words[i];
+				{//Free previous elements
+					ptr<void*> elements = listbox::get_all_elements(listbox);//HACK
+					for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
+					if (elements.cnt)free(elements[0]);
+				}
+
+				listbox::set_elements(listbox, elems.mem, elems.cnt);
+			}
+		} break;
+		case decltype(new_page)::wordbook_all:
+		{
+			auto& controls = state->pages.wordbook_all;
+
 			ptr<learnt_word16> words = get_learnt_word_by_date(state->settings->db, 0, I64MAX); //TODO(fran): replace with faster query get_all_words
 			//TODO(fran): new struct reduced_word (or smth like that) that only contains hira,kanji,meaning
 
@@ -1729,9 +1775,8 @@ namespace べんきょう {
 			}
 
 			listbox::set_elements(controls.listbox_words, elems.mem, elems.cnt);
-		} break;
+				} break;
 		}
-		//state->scroll = 0;
 		resize_controls(state);
 		show_page(state, state->current_page, SW_SHOW);
 		set_default_focus(state, state->current_page);
@@ -2546,7 +2591,7 @@ namespace べんきょう {
 					//flip_visibility(listbox);
 					ask_for_resize(state);
 					ask_for_repaint(state);
-					//TODO(fran): we may want to resize the listbox to be 0 height, in order for the future resizer to kick in
+					//TODO(fran): BUG: listbox doesnt re-render when being shown after being hidden
 				}
 			);
 
@@ -3133,6 +3178,50 @@ namespace べんきょう {
 
 			auto page = controls.page;
 
+			controls.button_all_words = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			AWT(controls.button_all_words, 800);
+			button::set_theme(controls.button_all_words, &base_btn_theme);
+			button::set_user_extra(controls.button_all_words, state);
+			button::set_function_on_click(controls.button_all_words,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					store_previous_page(state, state->current_page);
+					set_current_page(state, ProcState::page::wordbook_all);
+				}
+			);
+
+			for (auto& listbox : controls.listbox_last_days_words) {
+				listbox = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+					, 0, 0, 0, 0, page, 0, NULL, NULL);
+				listbox::set_function_render(listbox, listbox_recents_func_render);
+				listbox::set_user_extra(listbox, state);
+				listbox::set_function_on_click(listbox, [](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					learnt_word16* txt = (decltype(txt))element;
+
+					stored_word16_res res = get_stored_word(state->settings->db, *txt/*TODO(fran): make sure this isnt a copy*/);  defer{ if (res.found) free_stored_word(res.word); };
+					if (res.found) {
+						preload_page(state, ProcState::page::show_word, &res.word);
+						store_previous_page(state, state->current_page);
+						set_current_page(state, ProcState::page::show_word);
+					}
+					//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
+					}
+				);
+			}
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
+		}
+
+		//---------------------Wordbook All----------------------:
+		{
+			auto& controls = state->pages.wordbook_all;
+
+			controls.page = create_page(state, base_page_theme);
+
+			auto page = controls.page;
+
 			controls.listbox_words = CreateWindowW(listbox::wndclass, 0, WS_CHILD
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			listbox::set_function_render(controls.listbox_words, listbox_recents_func_render);
@@ -3151,6 +3240,7 @@ namespace べんきょう {
 				}
 			);
 		}
+
 	}
 
 	void resize_controls(ProcState* state, ProcState::page page) {
@@ -3815,6 +3905,61 @@ namespace べんきょう {
 		{
 			auto& controls = state->pages.wordbook;
 
+			for(const auto& listbox : controls.listbox_last_days_words)
+				listbox::set_dimensions(listbox, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
+			HFONT font = GetWindowFont(controls.button_all_words);//TODO(fran): listboxes dont store fonts, change to a different control
+			SIZE layout_bounds = avg_str_dim(font, 100);
+			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
+
+			hpsizer lhpad{};
+			vpsizer lvpad{};
+
+			ssizer _button_all_words{ controls.button_all_words};
+			hcsizer button_all_words{ {&_button_all_words, GetWindowDesiredSize(_button_all_words.wnd,{200,200},{200,200}).max.cx} };
+
+			ssizer listbox_last_days_words[ARRAYSIZE(controls.listbox_last_days_words)]{ controls.listbox_last_days_words[0],controls.listbox_last_days_words[1],controls.listbox_last_days_words[2],controls.listbox_last_days_words[3] };
+			static_assert(ARRAYSIZE(listbox_last_days_words) == 4);//TODO(fran): make parametric somehow
+			
+			vsizer lists_left{
+				{&listbox_last_days_words[0],wnd_h * (int)listbox::get_element_cnt(listbox_last_days_words[0].wnd)},
+				{&lvpad,half_wnd_h},
+				{&listbox_last_days_words[2],wnd_h * (int)listbox::get_element_cnt(listbox_last_days_words[2].wnd)} };
+
+			vsizer lists_right{
+				{&listbox_last_days_words[1],wnd_h * (int)listbox::get_element_cnt(listbox_last_days_words[1].wnd)},
+				{&lvpad,half_wnd_h},
+				{&listbox_last_days_words[3],wnd_h * (int)listbox::get_element_cnt(listbox_last_days_words[3].wnd)} };
+
+			hsizer lists{
+				{&lists_left,(int)(.475f * (f32)layout_bounds.cx)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
+				{&lists_right,(int)(.475f * (f32)layout_bounds.cx)},
+			};
+
+			vsizer layout{
+				{&lvpad,wnd_h},
+				{&button_all_words, wnd_h},
+				{&lvpad,wnd_h},
+				{&lists,lists.get_bottom({ 0,0,0,0 }).y}
+			};
+
+			rect_i32 layout_rc;
+			layout_rc.w = layout_bounds.cx;
+			layout_rc.y = 0;
+			layout_rc.h = h;
+			layout_rc.x = (w - layout_rc.w) / 2;
+			layout_rc.h = layout.get_bottom(layout_rc).y;
+
+			べんきょう_page_scroll(layout_rc.h);
+
+			layout.resize(layout_rc);
+
+		} break;
+		case ProcState::page::wordbook_all:
+		{
+			auto& controls = state->pages.wordbook_all;
+
 			listbox::set_dimensions(controls.listbox_words, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
 
 			HFONT font = GetWindowFont(controls.listbox_words);//TODO(fran): listboxes dont store fonts, change to a different control
@@ -3999,6 +4144,7 @@ namespace べんきょう {
 				case ProcState::page::show_word:
 				case ProcState::page::review_practice:
 				case ProcState::page::wordbook:
+				case ProcState::page::wordbook_all:
 				{
 				} break;
 				case ProcState::page::practice_writing:
