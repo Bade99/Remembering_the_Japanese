@@ -35,6 +35,10 @@
 
 #define sqlite_runtime_check(assertion,db) if (!(assertion))MessageBoxW(0,(str(L"SQLite: ") + (cstr*)sqlite3_errmsg16(db)).c_str(),L"Error",MB_OK|MB_ICONWARNING|MB_SETFOREGROUND)
 
+//---------------------BETWEEN----------------------:
+
+#define between_inclusive(lower_bound,target,upper_bound) ((target)>=(lower_bound) && (target)<=(upper_bound))
+#define between_exclusive(lower_bound,target,upper_bound) ((target)>(lower_bound) && (target)<(upper_bound))
 
 //-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 

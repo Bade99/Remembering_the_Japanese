@@ -7,6 +7,8 @@
 #include <map>
 #include <sstream>
 
+//TODO(fran): add entry referencing, eg entry 199 = "hello \200", entry 200 = "fran" -> entry 199 = "hello fran". NOTE: we should solve entry referencing after parsing all entries, since one could point to a later, not yet parsed, entry. NOTE: add a recursion limit, otherwise this can overflow the stack
+
 //Up to now we've been using the resource files (.rc) to store languages, this is annoying for a couple of reasons, that's why this file will define a new way to manage languages:
 //there will be a couple of default languages that are stored with the .exe similar to how .rc does it, we'll manually set up some map/array whatever to write the strings we need and their mapping, and on startup those will be sent to disc on some specified folder, once that's done the language manager will read those files, and any other in the same folder, from disk, it'll either load only the current language and go to disk each time it needs to swap, or it'll load everything and just switch in code
 //with this we get rid of the language enums and new languages can be very easily added after the fact
@@ -83,6 +85,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(206,"Pronoun")
 	lang_entry(207,"Counter")
 	lang_entry(208,"Particle")
+	//IMPORTANT: range [199-250) is reserved for lexical categories
 
 	lang_entry(250,"Search Hiragana")
 	lang_entry(251,"Search . . .")
@@ -126,6 +129,27 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(700,"Disambiguation")
 
 	lang_entry(800,"View All")
+
+	lang_entry(900,"Sort by")//TODO(fran): Order by ?
+	lang_entry(901,"Filter by")
+
+	lang_entry(1000,"Latest")
+	lang_entry(1001,"Oldest")
+	lang_entry(1002,"Worst Score")
+	//IMPORTANT: range [1000-1098) is reserved for word orderings
+
+	lang_entry(1098, "\\0")
+	lang_entry(1099, "Lex: None")
+	lang_entry(1100, "Lex: Noun")
+	lang_entry(1101, "Lex: Verb")
+	lang_entry(1102, "Lex: い-Adjective")
+	lang_entry(1103, "Lex: な-Adjective")
+	lang_entry(1104, "Lex: Adverb")
+	lang_entry(1105, "Lex: Conjunction")
+	lang_entry(1106, "Lex: Pronoun")
+	lang_entry(1107, "Lex: Counter")
+	lang_entry(1108, "Lex: Particle")
+	//IMPORTANT: range [1099-1200) is reserved for word filters
 ;
 
 constexpr static utf16 lang_español_entries[] =

@@ -34,6 +34,22 @@ struct user_stats {
 	}
 };
 
+enum lexical_category { //this value is stored on the db
+	__first = -1,
+	dont_care = __first, //I tend to annotate the different adjectives, but not much else
+	noun,
+	verb,
+	adj_い,
+	adj_な,
+	adverb,
+	conjunction, //and, or, but, ...
+	pronoun,
+	counter,
+	particle,
+
+	__last
+};
+
 //TODO(fran): why allocate this? I'd much prefer constant size arrays with a length and no null terminator, we know the approximate size of everyone (probably needs templates)
 	//I really dont know what to do about the null terminator, do I "ignore" it like std::string, basically by not presenting it to the user but always making sure it's there, or strip it altogether
 template <typename type>
@@ -258,7 +274,7 @@ namespace べんきょう {
 		Assert(stmt);
 		Assert(index);
 		Assert(value.str && value.sz);
-		Assert(value.last_char() == 0);//check for null termination (some day we wont have it, but not today)
+		Assert(value.last_char() == 0);//check for null termination (some day we wont have it, but not today) //INFO: comment this line out before doing the db saturation test
 		int res = sqlite3_bind_text(stmt, index, value.str, (int)(value.cnt()*sizeof(value[0])), destructor);
 		Assert(res == SQLITE_OK);
 		return res;
@@ -501,6 +517,94 @@ namespace べんきょう {
 		char* select_errmsg;
 		sqlite3_exec(db, select_word.c_str(), parse_select_stored_word, &res, &select_errmsg);
 		sqlite_exec_runtime_check(select_errmsg);
+		return res;
+	}
+
+	//Filters: word group(TODO(fran)), lexical category
+	//NOTE: using scoped enums the hacky way since c++ sucks
+	namespace word_filter {
+		enum type { __first = -2, none = __first,/*uses lexical category values*/ __last = lexical_category::__last };
+	};
+	namespace word_order {
+		enum type { __first = 0, creation_latest = __first, creation_oldest, worst_score, __last };
+	};
+
+	struct word_filters {
+		word_filter::type filter;
+		word_order::type order;
+	};
+
+	//NOTE: returns an array of learnt_words that are contiguous in memory, which means that freeing the base pointer frees all the elements at once
+	ptr<learnt_word16> get_all_learnt_words(sqlite3* db, word_filters filters) {
+		using namespace std::string_literals;
+		ptr<learnt_word16> res;
+		
+		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
+
+		std::string filter = " FROM " べんきょう_table_words;
+
+		{
+			if (filters.filter == decltype(filters.filter)::none) {}
+			else if (between_inclusive(lexical_category::__first, filters.filter, lexical_category::__last-1)) {
+				filter += " WHERE " "lexical_category" "=" + std::to_string(filters.filter);
+			}
+			else Assert(0);
+
+			static auto add_order_by = [](std::string& s) {s += " ORDER BY "; };
+			switch (filters.order) {
+			case decltype(filters.order)::creation_latest:
+				add_order_by(filter);
+				filter += "creation_date" " DESC ";
+				break;
+			case decltype(filters.order)::creation_oldest:
+				add_order_by(filter);
+				filter += "creation_date" " ASC ";
+				break;
+			case decltype(filters.order)::worst_score:
+				add_order_by(filter);
+				filter += SQL( (CAST(times_right AS REAL)/CAST(times_practiced AS REAL)) ASC NULLS LAST );
+				break;
+			default: Assert(0); break;
+			}
+		}
+		filter += ";";
+
+		std::string count_words = "SELECT "s + " COUNT(*) " + filter;
+		std::string select_words = "SELECT "s + columns + filter;
+
+		i64 cnt;
+		{
+			sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
+			int errcode;
+			errcode = sqlite3_prepare_v2(db, count_words.c_str(), (int)(count_words.length() + 1) * sizeof(count_words[0]), &stmt, nullptr);
+
+			if (errcode == SQLITE_OK) {
+				errcode = sqlite3_step(stmt);
+				if (errcode == SQLITE_ROW) cnt = sqlite3_column_int64(stmt, 0);
+				else cnt = 0;
+			}
+			else cnt = 0;
+		}
+
+		res.alloc(cnt);//TODO(fran): I think allocating zero size (cnt=0) works just as well but im not sure
+		res.cnt = 0;
+
+		auto parse_learnt_word_array = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
+			//NOTE: everything comes in utf8
+			Assert(column_cnt == (0 + _foreach_learnt_word_member(_generate_count)));
+			ptr<learnt_word16>* res = (decltype(res))extra_param;
+
+			for (int i = 0; i < column_cnt; i++)
+				res->mem[res->cnt].all[i] = convert_utf8_to_utf16(results[i], (int)strlen(results[i]) + 1);
+
+			res->cnt++;
+			return 0;//if non-zero then the query stops and exec returns SQLITE_ABORT
+		};
+
+		char* select_errmsg;
+		sqlite3_exec(db, select_words.c_str(), parse_learnt_word_array, &res, &select_errmsg);
+		sqlite_exec_runtime_check(select_errmsg);
+
 		return res;
 	}
 
@@ -1394,6 +1498,7 @@ namespace べんきょう {
 				write_str(word.attributes.mnemonic,
 					random_between(0, (int)word.attributes.mnemonic.cnt()), roman_gen);
 				auto lex = std::to_wstring(random_between(-1/*::dont_care*/,8 /*::particle*/));
+				word.attributes.lexical_category.sz = sizeof(lex[0]) * (lex.size()+1);
 				memcpy(word.attributes.lexical_category, lex.c_str(), (lex.size() + 1) * sizeof(lex[0]));
 				write_str(word.attributes.notes,
 					random_between(0, (int)word.attributes.notes.cnt()), roman_gen);

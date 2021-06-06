@@ -561,26 +561,27 @@ namespace listbox {
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 
-			Assert(state->elements.size());
-			size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
-			size_t mousehover_element = mouse_on_backbuffer_y / state->element_dim.cy;
+			if (state->elements.size()) {
+				size_t mouse_on_backbuffer_y = (size_t)(state->scroll_y * (f32)state->backbuffer_dim.cy) + mouse.y;
+				size_t mousehover_element = mouse_on_backbuffer_y / state->element_dim.cy;
 
-			if (state->mousehover_element != mousehover_element) {
-				size_t old_element = state->mousehover_element;
+				if (state->mousehover_element != mousehover_element) {
+					size_t old_element = state->mousehover_element;
 
-				state->mousehover_element = mousehover_element;
-				
-				if(old_element!=UINT32_MAX)render_backbuffer_element(state,old_element);
-				render_backbuffer_element(state, state->mousehover_element);
-				//render_backbuffer(state);
-				ask_for_repaint(state);
+					state->mousehover_element = mousehover_element;
 
-				//We now need to know when the mouse exits our window to clear the mousehover_element
-				TRACKMOUSEEVENT track;
-				track.cbSize = sizeof(track);
-				track.hwndTrack = state->wnd;
-				track.dwFlags = TME_LEAVE;
-				TrackMouseEvent(&track);
+					if (old_element != UINT32_MAX)render_backbuffer_element(state, old_element);
+					render_backbuffer_element(state, state->mousehover_element);
+					//render_backbuffer(state);
+					ask_for_repaint(state);
+
+					//We now need to know when the mouse exits our window to clear the mousehover_element
+					TRACKMOUSEEVENT track;
+					track.cbSize = sizeof(track);
+					track.hwndTrack = state->wnd;
+					track.dwFlags = TME_LEAVE;
+					TrackMouseEvent(&track);
+				}
 			}
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);

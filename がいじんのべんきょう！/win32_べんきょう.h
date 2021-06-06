@@ -32,9 +32,9 @@
 #include <string>
 #include <algorithm>
 
-//TODO(fran): page wordbook: list words added in the previous couple of days, provide button to go to another page that loads an entire list of all the words ordered by creation date (feed the list via a separate thread)
-	//Provide ordering: worst score, creation date
-	//Provide filters: word group, lexical category
+//TODO(fran): page wordbook_all: feed the list via a separate thread
+	//Provide filters: word group
+	//Extra: once some filter/order is applied add that column to the word list (we'll need to change the render function)
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 	//Each word group should have a different color, set either by the user or ourselves
 //TODO(fran): landing page?: track user "dedication", for example number of consecutive days the app has been opened, number of days of inactivity (that one would be quite useful for me)
@@ -143,7 +143,6 @@ void languages_setup_combobox(HWND cb) {
 	InvalidateRect(cb, NULL, TRUE);
 }
 
-
 //-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 
 // use for controls whose value is obtained via WM_GETTEXT, eg static, button, edit, ...
@@ -194,18 +193,7 @@ namespace べんきょう {
 
 	//NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
 	//TODO(fran): store lexical_category value together with it's string in the combobox, that way we dont depend on the order of the elements for mapping
-	enum lexical_category { //this value is stored on the db
-		dont_care = -1, //I tend to annotate the different adjectives, but not much else
-		noun,
-		verb,
-		adj_い,
-		adj_な,
-		adverb,
-		conjunction, //and, or, but, ...
-		pronoun,
-		counter,
-		particle
-	};
+
 	str lexical_category_to_str(lexical_category cat) {
 		return RS(200 + cat); //NOTE: dont_care should never be shown
 	}
@@ -224,6 +212,47 @@ namespace べんきょう {
 		ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
 		ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
 		ACT(cb, lexical_category::particle, lexical_category_str_lang_id(lexical_category::particle));
+	}
+
+	str word_filter_to_str(word_filter::type filter) {
+		return RS(1100 + filter); //NOTE: dont_care should never be shown
+	}
+	//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
+	u32 word_filter_str_lang_id(word_filter::type filter) {
+		return 1100 + filter; //NOTE: dont_care should never be shown
+	}
+
+	str word_order_to_str(word_order::type order) {
+		return RS(1000 + order); //NOTE: dont_care should never be shown
+	}
+	//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
+	u32 word_order_str_lang_id(word_order::type order) {
+		return 1000 + order; //NOTE: dont_care should never be shown
+	}
+
+	//TODO(fran): not yet sure whether to follow up on this or not
+	//struct word_order_modifier {
+	//	void (*set_order)(word_order*);
+	//	s16 text;
+	//};
+
+	void word_order_setup_combobox(HWND cb) {
+		for (int i = word_order::__first; i < word_order::__last; i++)
+			ACT(cb, i, word_order_str_lang_id((word_order::type)i));
+		SendMessageW(cb, CB_SETCURSEL, 0, 0);
+	}
+	void apply_word_order_element(int element_idx, word_order::type* order) {
+		*order = (word_order::type)(word_order::__first + element_idx);
+	}
+
+	void word_filter_setup_combobox(HWND cb) {
+		int idx_correction = word_filter::__first >= 0 ? 0 : abs(word_filter::__first);
+		for (int i = word_filter::__first; i < word_filter::__last; i++)
+			ACT(cb, i + idx_correction, word_filter_str_lang_id((word_filter::type)i));
+		_clear_combo_sel(cb);
+	}
+	void apply_word_filter_element(int element_idx, word_filter::type* filter) {
+		*filter = element_idx!=-1 ? (word_filter::type)(word_filter::__first + element_idx) : word_filter::none;
 	}
 
 	struct ProcState {
@@ -443,10 +472,15 @@ namespace べんきょう {
 			union wordbook_all_controls {
 				struct {
 					type page;
-					//TODO(fran): sorting options
+
+					//type static_orderby;
+					type combo_orderby;
+					//type static_filterby;
+					type combo_filterby;
+					
 					type listbox_words;
 				};
-				type all[2];
+				type all[4];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			} wordbook_all;
 
@@ -1086,6 +1120,14 @@ namespace べんきょう {
 		return true;
 	}
 
+	word_filters wordbook_all_get_filters(ProcState* state) {
+		word_filters res;
+		const auto& controls = state->pages.wordbook_all;
+		apply_word_order_element((int)SendMessageW(controls.combo_orderby, CB_GETCURSEL, 0, 0), &res.order);
+		apply_word_filter_element((int)SendMessageW(controls.combo_filterby, CB_GETCURSEL, 0, 0), &res.filter);
+		return res;
+	}
+
 	void clear_practices_vector(decltype(decltype(ProcState::pagestate)::practice_review_state::practices)& practices) {
 		for (auto p : practices) {
 			switch (p->type) {
@@ -1671,6 +1713,25 @@ namespace べんきょう {
 
 	void resize_controls(ProcState* state);//HACK
 
+	void wordbook_all__update_wordlist(ProcState* state) {
+		auto& controls = state->pages.wordbook_all;
+
+		word_filters filters = wordbook_all_get_filters(state);
+		ptr<learnt_word16> words = get_all_learnt_words(state->settings->db, filters);
+		//TODO(fran): new struct reduced_word (or smth like that) that only contains hira,kanji,meaning
+
+		ptr<void*> elems{ 0 }; elems.alloc(words.cnt); defer{ elems.free(); };
+		for (size_t i = 0; i < words.cnt; i++) elems[i] = &words[i];
+
+		{//Free previous elements
+			ptr<void*> elements = listbox::get_all_elements(controls.listbox_words);//HACK
+			for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
+			if (elements.cnt)free(elements[0]);
+		}
+
+		listbox::set_elements(controls.listbox_words, elems.mem, elems.cnt);
+	}
+
 	void set_current_page(ProcState* state, ProcState::page new_page) {
 		show_page(state, state->current_page, SW_HIDE);
 		state->current_page = new_page;
@@ -1760,22 +1821,8 @@ namespace べんきょう {
 		} break;
 		case decltype(new_page)::wordbook_all:
 		{
-			auto& controls = state->pages.wordbook_all;
-
-			ptr<learnt_word16> words = get_learnt_word_by_date(state->settings->db, 0, I64MAX); //TODO(fran): replace with faster query get_all_words
-			//TODO(fran): new struct reduced_word (or smth like that) that only contains hira,kanji,meaning
-
-			ptr<void*> elems{ 0 }; elems.alloc(words.cnt); defer{ elems.free(); };
-			for (size_t i = 0; i < words.cnt; i++) elems[i] = &words[i];
-
-			{//Free previous elements
-				ptr<void*> elements = listbox::get_all_elements(controls.listbox_words);//HACK
-				for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
-				if (elements.cnt)free(elements[0]);
-			}
-
-			listbox::set_elements(controls.listbox_words, elems.mem, elems.cnt);
-				} break;
+			wordbook_all__update_wordlist(state);
+		} break;
 		}
 		resize_controls(state);
 		show_page(state, state->current_page, SW_SHOW);
@@ -3222,7 +3269,32 @@ namespace べんきょう {
 
 			auto page = controls.page;
 
-			controls.listbox_words = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+			//controls.static_orderby = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_LEFT | WS_VISIBLE
+			//	, 0, 0, 0, 0, page, 0, NULL, NULL);
+			//AWT(controls.static_orderby, 900);
+			//static_oneline::set_theme(controls.static_orderby, &base_static_theme);
+
+			//controls.static_filterby = CreateWindowW(static_oneline::wndclass, NULL, WS_CHILD | SS_CENTERIMAGE | SS_LEFT | WS_VISIBLE
+			//	, 0, 0, 0, 0, page, 0, NULL, NULL);
+			//AWT(controls.static_filterby, 901);
+			//static_oneline::set_theme(controls.static_filterby, &base_static_theme);
+
+			//TODO(fran): custom rendering, they shouldnt have a border
+			controls.combo_orderby = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			word_order_setup_combobox(controls.combo_orderby);
+			SetWindowSubclass(controls.combo_orderby, ComboProc, 0, 0);
+			SendMessage(controls.combo_orderby, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
+			ACC(controls.combo_orderby, 900);
+
+			controls.combo_filterby = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
+				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
+			word_filter_setup_combobox(controls.combo_filterby);
+			SetWindowSubclass(controls.combo_filterby, ComboProc, 0, 0);
+			SendMessage(controls.combo_filterby, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
+			ACC(controls.combo_filterby, 901);
+
+			controls.listbox_words = CreateWindowW(listbox::wndclass, 0, WS_CHILD | WS_VISIBLE
 				, 0, 0, 0, 0, page, 0, NULL, NULL);
 			listbox::set_function_render(controls.listbox_words, listbox_recents_func_render);
 			listbox::set_user_extra(controls.listbox_words, state);
@@ -3239,6 +3311,8 @@ namespace べんきょう {
 				//TODO(fran): else {notify user of error finding the word}, we need to get good error info from the db functions
 				}
 			);
+
+			for (auto ctl : controls.all) SendMessage(ctl, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
 		}
 
 	}
@@ -3939,9 +4013,9 @@ namespace べんきょう {
 
 			vsizer layout{
 				{&lvpad,wnd_h},
-				{&button_all_words, wnd_h},
+				{&button_all_words, wnd_h},//TODO(fran): standard layout logic tells me the button should go last of all, bottom-most
 				{&lvpad,wnd_h},
-				{&lists,lists.get_bottom({ 0,0,0,0 }).y}
+				{&lists,lists.get_bottom({ 0,0,0,0 }).y},
 			};
 
 			rect_i32 layout_rc;
@@ -3966,10 +4040,17 @@ namespace べんきょう {
 			SIZE layout_bounds = avg_str_dim(font, 100);
 			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
 
+			hpsizer lhpad{};
 			vpsizer lvpad{};
+
+			ssizer combo_orderby{ controls.combo_orderby };
+			ssizer combo_filterby{ controls.combo_filterby };
+			hrsizer filters{ {&combo_orderby,avg_str_dim(font, 20).cx}, {&lhpad,2},{&combo_filterby,avg_str_dim(font, 20).cx} };//TODO(fran): request desired size
 
 			ssizer listbox_words{ controls.listbox_words };
 			vsizer layout{
+				{&lvpad,wnd_h},
+				{&filters,wnd_h},
 				{&lvpad,wnd_h},
 				{&listbox_words, wnd_h * (int)listbox::get_element_cnt(controls.listbox_words)},
 			};
@@ -4144,8 +4225,15 @@ namespace べんきょう {
 				case ProcState::page::show_word:
 				case ProcState::page::review_practice:
 				case ProcState::page::wordbook:
+				{
+				} break;
 				case ProcState::page::wordbook_all:
 				{
+					auto& page = state->pages.wordbook_all;
+					
+					if (WORD notif = HIWORD(wparam); (child == page.combo_filterby || child == page.combo_orderby) && notif == CBN_SELENDOK) {
+						wordbook_all__update_wordlist(state);
+					}
 				} break;
 				case ProcState::page::practice_writing:
 				{

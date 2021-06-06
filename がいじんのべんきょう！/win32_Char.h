@@ -1,10 +1,8 @@
 ﻿#pragma once
 #include "win32_Platform.h"
+#include "win32_Helpers.h"
 
 //TODO(fran): idk if we should really apply this checks, allowing the user the freedom to input whatever they want isnt a bad idea
-
-#define between_inclusive(lower_bound,target,upper_bound) ((c)>=(lower_bound) && (c)<=(upper_bound))
-#define between_exclusive(lower_bound,target,upper_bound) ((c)>(lower_bound) && (c)<(upper_bound))
 
 bool is_hiragana(utf16 c) {
 	bool res = between_inclusive(0x3041,c,0x30A0);

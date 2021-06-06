@@ -71,7 +71,7 @@ namespace navbar {
 	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
 
 	void ask_for_resize(HWND wnd) {
-		ProcState* state = get_state(wnd);
+		ProcState* state = get_state(wnd);//TODO(fran): why the need to get the state, pointless
 		if (state) PostMessage(state->wnd, WM_SIZE, 0, 0);
 	}
 
