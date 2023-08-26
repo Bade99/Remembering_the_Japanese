@@ -208,7 +208,7 @@ namespace userial {
 	}
 
 	static str serialize(RECT var) {//Also simple structs that we know wont change
-		str res = _structbegin + str(L"left") + _keyvaluesepartor + serialize(var.left) + _memberseparator + str(L"top") + _keyvaluesepartor + serialize(var.top) + _memberseparator + str(L"right") + _keyvaluesepartor + serialize(var.right) + _memberseparator + str(L"bottom") + _keyvaluesepartor + serialize(var.bottom) + _structend;
+		str res = _structbegin + str(L"left") + _keyvaluesepartor + serialize((i32)var.left) + _memberseparator + str(L"top") + _keyvaluesepartor + serialize((i32)var.top) + _memberseparator + str(L"right") + _keyvaluesepartor + serialize((i32)var.right) + _memberseparator + str(L"bottom") + _keyvaluesepartor + serialize((i32)var.bottom) + _structend;
 		return res;
 	}
 

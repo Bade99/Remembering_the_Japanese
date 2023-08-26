@@ -4,6 +4,7 @@
 #include "win32_Helpers.h"
 #include "win32_Global.h"
 #include "unCap_Math.h"
+#include <deque>
 
 namespace page {
 	constexpr cstr wndclass[] = TEXT("win32_wndclass_page");
@@ -24,13 +25,22 @@ namespace page {
 
 		bool does_scrolling;
 
-		f32 scroll;//vertical scrolling of page
+		struct {
+			b32 active; //currently performing animation
+			int current_frame; //starts at
+			f32 dt;
+			int total_frames;
+		} scroll_anim;
+		std::deque<int> scroll_tasks;
+
+		f32 scroll;//vertical scrolling of page //@int NOTE(fran): given the limitations of MoveWindow we must interpret this value as an integer (cast), the float precision is only used for animations
+
 		//anim
-		int scroll_frame;
+		int scroll_frame; //@delete
 		f32 scroll_dt;
 		f32 scroll_v;
 		f32 scroll_a;
-		bool scroll_on_anim;
+		bool scroll_on_anim; //@delete
 	};
 
 	ProcState* get_state(HWND wnd) {
@@ -101,6 +111,7 @@ namespace page {
 		}
 	}
 
+#if 0
 	void smooth_scroll(ProcState* state, int increment) {
 		static const int total_frames = 100;
 		state->scroll_frame = 0;
@@ -139,6 +150,84 @@ namespace page {
 			SetTimer(state->wnd, 1111, 0, scroll_anim);
 		}
 	}
+#else
+	void smooth_scroll(ProcState* state, int increment) {
+		
+		//TODO(fran): the scrolling is now pretty good & responsive, only thing missing is a bit of smoothing across large distances (speeding up at the beginning and slowing down close to the end, possibly based on the frecuency of new scroll events?)
+		static i64 time_between=0;
+		printf("time between last two scroll events: %f ms\n", (f32)EndCounter(time_between));
+		time_between = StartCounter();
+
+		if (state->scroll_tasks.size() && (signum(state->scroll_tasks.back()) != signum(increment))) {
+			//IMPORTANT(fran): I think the Timer runs on the same thread, otherwise race conditions accessing & modifying scroll_tasks can crash the app
+			auto last = state->scroll_tasks.back();
+			state->scroll_tasks.clear();
+			state->scroll_tasks.push_back(last);
+		}
+		state->scroll_tasks.push_back(increment);
+
+		
+		static void (*scroll_timeout)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState* state = get_state(hwnd);
+			if (state) {
+				if (state->scroll_tasks.size()) {
+					auto last = state->scroll_tasks.back();
+					state->scroll_tasks.clear();
+					state->scroll_tasks.push_back(last);
+				}
+			}
+		};
+
+		//If no new scroll events happen after X ms then stop scrolling, the user is no longer scrolling the mouse wheel and wants scrolling to stop
+		SetTimer(state->wnd, 2222, 125/*ms*/, scroll_timeout);
+
+		static auto setup_scroll_anim = [](ProcState* state, TIMERPROC scroll_animation) {
+			state->scroll_anim.active = true;
+
+			auto anim_duration = 50.f / state->scroll_tasks.size(); //ms
+			state->scroll_anim.dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame in seconds
+			state->scroll_anim.total_frames = (i32)maximum(anim_duration / (state->scroll_anim.dt * 1000.f), 1.f);
+			state->scroll_anim.current_frame = 1;
+			SetTimer(state->wnd, 1111, (u32)(state->scroll_anim.dt * 1000), scroll_animation);
+		};
+
+		static void (*scroll_anim)(HWND, UINT, UINT_PTR, DWORD) =
+			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
+			ProcState* state = get_state(hwnd);
+			if (state) {
+
+				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->parent, (POINT*)&r, 2);
+
+				int original_wnd_y = r.top - (int)state->scroll;
+
+				f32 dy = (f32)state->scroll_tasks[0] / (f32)state->scroll_anim.total_frames;
+				state->scroll += dy;
+
+				MoveWindow(state->wnd, r.left, (int)(original_wnd_y+state->scroll), RECTW(r), RECTH(r), TRUE);
+
+				if (state->scroll_anim.current_frame++ <= state->scroll_anim.total_frames) {
+					SetTimer(state->wnd, anim_id, (u32)(state->scroll_anim.dt*1000), scroll_anim);
+				}
+				else {
+					state->scroll_tasks.pop_front();
+
+					if (state->scroll_tasks.empty()) {
+						state->scroll_anim.active = false; 
+						KillTimer(state->wnd, anim_id); 
+					}
+					else {
+						setup_scroll_anim(state, scroll_anim);
+					}
+				}
+			}
+		};
+
+		if (!state->scroll_anim.active) {
+			setup_scroll_anim(state, scroll_anim);
+		}
+	}
+#endif
 
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//static int __cnt; printf("%d:PAGE:%s\n", __cnt++, msgToString(msg));
@@ -153,6 +242,7 @@ namespace page {
 			set_state(hwnd, state);
 			state->wnd = hwnd;
 			state->parent = creation_nfo->hwndParent;
+			state->scroll_tasks = decltype(state->scroll_tasks)();
 			return TRUE; //continue creation
 		} break;
 		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
@@ -222,6 +312,7 @@ namespace page {
 		} break;
 		case WM_NCDESTROY://Last msg. Sent _after_ WM_DESTROY
 		{
+			state->scroll_tasks.~deque();
 			free(state);
 			return 0;
 		}break;
@@ -331,7 +422,7 @@ namespace page {
 				short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
 				int dy = avg_str_dim(global::fonts.General, 1).cy;
 				//printf("zDelta %d ; height %d\n", zDelta, dy);
-				int step = zDelta * dy;
+				int step = zDelta * 3 * dy;
 #if 0 //possibly better solution
 				UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
 				ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);

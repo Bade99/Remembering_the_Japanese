@@ -684,12 +684,20 @@ namespace listbox {
 			EndPaint(hwnd, &ps);
 			return 0;
 		} break;
+#if 0
 		case WM_MOUSEWHEEL:
 		{
 			//TODO(fran): offset state->scroll_y;
 			Assert(0);
 			return 0;
 		} break;
+#else
+		case WM_MOUSEWHEEL:
+		{
+			//no reason for needing mousewheel input
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+		} break;
+#endif
 		case WM_GETTEXT:
 		{
 			return 0;
@@ -793,7 +801,7 @@ namespace listbox {
 				//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
 				return DefWindowProc(hwnd, msg, wparam, lparam);
 			}
-			Assert(0);
+			//Assert(0);
 #else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 #endif

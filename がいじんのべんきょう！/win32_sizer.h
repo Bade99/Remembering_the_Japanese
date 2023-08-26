@@ -11,13 +11,10 @@
 //		- sizer: adjust its windows' width to equal the resizer's; and adjust the height if not all can fit
 
 
-//TODO(fran): arrancar por un mover, simplemente ubicamos un control arriba del otro, nada de resizing
-
-
 //TODO(fran): lets not create another window, lets simply create a resizer struct that we call whenever we need to resize, also when adding/removing controls from it it will auto resize. it will take charge in moving the objects, it will use getclientrect(or getwindowrect?) to determine the correct size for that wnd
 
 struct sizer {
-	//calculates bottom-right point of the bottommost wnd if a resize was made
+	//calculates bottom-right point of the bottommost wnd if a resize were to be made
 	virtual POINT get_bottom(rect_i32 rc) = 0;
 	//returns bottom-right point of the bottommost wnd resized
 	virtual POINT resize(rect_i32 rc) = 0;

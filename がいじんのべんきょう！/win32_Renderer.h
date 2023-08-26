@@ -183,11 +183,11 @@ u8 sample_mask(img* mask, i32 x, i32 y) {
 
 //---------------Ring rendering---------------:
 
-f32 signum(f32 val) { return (f32)((f32(0) < val) - (val < f32(0))); }
+//f32 signum(f32 val) { return (f32)((f32(0) < val) - (val < f32(0))); }
 
 f32 isGreaterEqThanZero(f32 num) { return num>=0; }
 
-f32 signOf(f32 num) { return signum(num) + !num; }
+//f32 signOf(f32 num) { return signum(num) + !num; }
 
 f32 modulus(f32 num, f32 base) { return (f32)fmod(fmod(num, base) + base, base); }
 
@@ -969,7 +969,7 @@ namespace urender {
 		using namespace Gdiplus;
 		Graphics graphics(dc);
 		SolidBrush brush(Color(a, r, g, b));
-		graphics.FillRectangle(&brush, rc.left, rc.top, RECTW(rc), RECTH(rc));
+		graphics.FillRectangle(&brush, (i32)rc.left, (i32)rc.top, (i32)RECTW(rc), (i32)RECTH(rc));
 #endif
 	}
 

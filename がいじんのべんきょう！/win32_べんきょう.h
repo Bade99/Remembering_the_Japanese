@@ -32,15 +32,20 @@
 #include <string>
 #include <algorithm>
 
+//TODO(fran): page practice: ability to create lists of words to study, this lists are stored & can be edited and deleted
 //TODO(fran): page wordbook_all: feed the list via a separate thread
 	//Provide filters: word group
 	//Extra: once some filter/order is applied add that column to the word list (we'll need to change the render function)
 //TODO(fran): page new_word, show_word & new page: add ability to create word groups, lists of known words the user can create and add to, also ask to practice a specific group. we can include a "word group" combobox in the new_word and show_word pages (also programatically generated comboboxes to add to multiple word groups)
 	//Each word group should have a different color, set either by the user or ourselves
+	//Start by only allowing words to belong to one group, that way we stay away from lists for now
 //TODO(fran): landing page?: track user "dedication", for example number of consecutive days the app has been opened, number of days of inactivity (that one would be quite useful for me)
+//TODO(fran): landing page: add hide/reveal checkmark that remembers the hidden state when the app is closed, there should be one checkmark for each column so each one can be hidden individually, while on this state the cell should show a 'Reveal' button that shows the original cell while clicked and returns to hidden when the click is released, or maybe better simply reveal the text when on mouseover, and hide it again when the mouse moves away
+//TODO(fran): landing page: give the user the option to choose how many previous day words they want to see, giving a range of 1 to 10 days (not literal days but days in which they added new words)
 //TODO(fran): page practice_drawing: kanji detection via OCR
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
+//TODO(fran): whole application: double buffered rendering
 
 //TODO(fran): IDEA: navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): IDEA: all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
@@ -2940,11 +2945,9 @@ namespace べんきょう {
 					ProcState* state = (decltype(state))user_extra;
 					i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
 					if (word_cnt > 0) {
-#define TEST_QUICKPRACTICE
-#if !defined(TEST_QUICKPRACTICE) && defined(_DEBUG)
-						constexpr int practice_cnt = 15;
-#else
-						constexpr int practice_cnt = 2;
+						int practice_cnt = 10;
+#if 0 && defined(_DEBUG)
+						practice_cnt = 2;
 #endif
 						state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 						store_previous_page(state, state->current_page);

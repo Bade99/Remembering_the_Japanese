@@ -101,7 +101,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         TEXTMETRIC tm; GetTextMetrics(dc, &tm);
         lf.lfHeight = tm.tmHeight;
     }
-    global::fonts.Caption = CreateFontIndirectW(&lf); runtime_assert(global::fonts.Menu, (str(L"Font not found: ") + lf.lfFaceName).c_str());
+    global::fonts.Caption = CreateFontIndirectW(&lf); runtime_assert(global::fonts.Caption, (str(L"Font not found: ") + lf.lfFaceName).c_str());
 
     defer{ for (auto& f : global::fonts.all) if (f) { DeleteObject(f); f = NULL; } };
 

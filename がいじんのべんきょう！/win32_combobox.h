@@ -671,6 +671,11 @@ namespace combobox {
 			else return 0;
 
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//no reason for processing mousewheel input, some comboboxes change their index when being scrolled, I hate that behaviour since the user always ends up doing that by accident when trying to scroll the page
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+		} break;
 
 
 		default:

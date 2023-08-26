@@ -45,7 +45,7 @@ struct lang_mapper { //Identifies a usable language string mapping table
 constexpr static utf16 lang_english[] = L"English";
 constexpr static utf16 lang_español[] = L"Español";
 
-//TODO(fran): lang_entry 0 should never be used, that way we preseve the concept of a null value
+//TODO(fran): lang_entry 0 should never be used, that way we preserve the concept of a null value
 constexpr static utf16 lang_english_entries[] = 
 	lang_entry(0,"Restore")
 	lang_entry(1,"Minimize")

@@ -909,9 +909,9 @@ namespace edit_oneline{
 			PAINTSTRUCT ps;
 			RECT rc; GetClientRect(state->wnd, &rc);
 			int w = RECTW(rc), h = RECTH(rc);
-			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 			//ps.rcPaint
-			HDC dc = BeginPaint(state->wnd, &ps);
+			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd, &ps); };
 			HBRUSH bk_br, txt_br, border_br, selection_br;
 			u32 border_thickness = state->theme.dimensions.border_thickness;
 			bool show_placeholder = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length()==0);
@@ -969,13 +969,15 @@ namespace edit_oneline{
 
 			}
 
+			//TODO(fran): render text _before_ border, otherwise it can draw over it it
 			int text_y;//top of the text
 			{
 				HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 				UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
 
 				COLORREF oldtxtcol = SetTextColor(dc, ColorFromBrush(txt_br)); defer{ SetTextColor(dc, oldtxtcol); };
-				COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
+				//COLORREF oldbkcol = SetBkColor(dc, ColorFromBrush(bk_br)); defer{ SetBkColor(dc, oldbkcol); };
+				auto oldbkmode = SetBkMode(dc, TRANSPARENT); defer{ SetBkMode(dc, oldbkmode); };
 
 				TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 				// Calculate vertical position for the string so that it will be vertically centered
@@ -984,6 +986,25 @@ namespace edit_oneline{
 				int xPos;
 
 				text_y = yPos;
+
+				{ //Render Selection
+					if (state->char_cur_sel.has_selection()) {
+						//We use the height of the caret (for now) as the height of the selection
+						RECT selection;
+						selection.top = text_y;
+						selection.bottom = selection.top + state->caret.dim.cy;
+						selection.left = state->char_pad_x;
+						for (size_t i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
+							selection.left += state->char_dims[i];
+						selection.right = selection.left;
+						for (size_t i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
+							selection.right += state->char_dims[i];
+						//FillRect(dc, &selection, selection_br);
+						COLORREF sel_col = ColorFromBrush(selection_br);
+						urender::FillRectAlpha(dc, selection, GetRValue(sel_col), GetGValue(sel_col), GetBValue(sel_col), 128);
+						//TODO(fran): instead of painting over the text with alpha we need to change the bk color of the selected section when rendering the text, otherwise the text color gets too opaqued and looks bad
+					}
+				}
 
 				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 				//ES_LEFT ES_CENTER ES_RIGHT
@@ -1006,7 +1027,7 @@ namespace edit_oneline{
 				}
 				else if (style & ES_PASSWORD) {
 					//TODO(fran): what's faster, full allocation or for loop drawing one by one
-					cstr* pass_text = (cstr*)malloc(state->char_text.length() * sizeof(cstr));
+					cstr* pass_text = (cstr*)malloc(state->char_text.length() * sizeof(cstr)); defer{ free(pass_text); };
 					for (size_t i = 0; i < state->char_text.length(); i++)pass_text[i] = password_char;
 
 					TextOut(dc, xPos, yPos, pass_text, (int)state->char_text.length());
@@ -1016,25 +1037,7 @@ namespace edit_oneline{
 				}
 			}
 
-			{ //Render Selection
-				if (state->char_cur_sel.has_selection()) {
-					//We use the height of the caret (for now) as the height of the selection
-					RECT selection;
-					selection.top = text_y;
-					selection.bottom = selection.top + state->caret.dim.cy;
-					selection.left = state->char_pad_x;
-					for (size_t i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
-						selection.left += state->char_dims[i];
-					selection.right = selection.left;
-					for (size_t i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
-						selection.right += state->char_dims[i];
-					COLORREF sel_col = ColorFromBrush(selection_br);
-					urender::FillRectAlpha(dc, selection, GetRValue(sel_col), GetGValue(sel_col), GetBValue(sel_col), 128);
-					//TODO(fran): instead of painting over the text with alpha we need to change the bk color of the selected section when rendering the text, otherwise the text color gets too opaqued and looks bad
-				}
-			}
-
-			EndPaint(hwnd, &ps);
+			
 			return 0;
 		} break;
 		case WM_ENABLE:
@@ -1913,6 +1916,11 @@ namespace edit_oneline{
 			//Extra info on 'rendering': https://docs.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard?redirectedfrom=MSDN#_win32_Copying_Information_to_the_Clipboard
 			return 0;
 		} break;
+		case WM_MOUSEWHEEL:
+		{
+			//no reason for processing mousewheel input. TODO(fran): we may want to process it if the text is longer that what fits on our box, we could provide sideways scrolling
+			return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+		} break;
 
 		default:
 		{
@@ -1926,7 +1934,7 @@ namespace edit_oneline{
 				return DefWindowProc(hwnd, msg, wparam, lparam);
 			}
 
-			Assert(0);
+			//Assert(0);
 	#else 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 	#endif

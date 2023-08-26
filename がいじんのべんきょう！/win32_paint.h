@@ -665,7 +665,7 @@ namespace paint {
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 			bool window_enabled = IsWindowEnabled(state->wnd);
 			if (window_enabled) {
-				state->smooth_pos.setpos(mouse.x, mouse.y);
+				state->smooth_pos.setpos((i32)mouse.x, (i32)mouse.y);
 				backbuffer_draw_point(state, state->smooth_pos.getposf(), (f32)state->dimensions.fore_thickness);
 				ask_for_repaint(state);
 

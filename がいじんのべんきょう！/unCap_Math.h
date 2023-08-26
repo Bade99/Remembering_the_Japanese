@@ -7,6 +7,7 @@
 static i32 distance(i32 a, i32 b) {
 	return abs(a - b);
 }
+static i32 distance(long a, long b) { return abs(a - b); } //NOTE(fran): added due to new dumb compiler complaints whereby it doesnt know whether con convert long to int or float
 
 v2_i32 lerp(v2_i32 n1, f32 t, v2_i32 n2) {
 	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
@@ -289,4 +290,12 @@ T minimum(T a, T b) {
 template<typename T>
 T maximum(T a, T b) {
 	return (a > b) ? a : b;
+}
+
+template <typename T> T signum(T val) {
+	return (T(0) < val) - (val < T(0));
+}
+
+template <typename T> T signOf(T num) {
+	return signum(num) + !num; 
 }
