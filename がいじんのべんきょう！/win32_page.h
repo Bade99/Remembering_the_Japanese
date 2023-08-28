@@ -30,12 +30,14 @@ namespace page {
 			int current_frame; //starts at
 			f32 dt;
 			int total_frames;
+			i64 _time_between; //internal
+			f32 time_between_last_two_scroll_events; //ms
 		} scroll_anim;
 		std::deque<int> scroll_tasks;
 
 		f32 scroll;//vertical scrolling of page //@int NOTE(fran): given the limitations of MoveWindow we must interpret this value as an integer (cast), the float precision is only used for animations
 
-		//anim
+		//anim //@old @delete
 		int scroll_frame; //@delete
 		f32 scroll_dt;
 		f32 scroll_v;
@@ -154,9 +156,11 @@ namespace page {
 	void smooth_scroll(ProcState* state, int increment) {
 		
 		//TODO(fran): the scrolling is now pretty good & responsive, only thing missing is a bit of smoothing across large distances (speeding up at the beginning and slowing down close to the end, possibly based on the frecuency of new scroll events?)
-		static i64 time_between=0;
-		printf("time between last two scroll events: %f ms\n", (f32)EndCounter(time_between));
-		time_between = StartCounter();
+		state->scroll_anim.time_between_last_two_scroll_events = (f32)EndCounter(state->scroll_anim._time_between); //TODO(fran): it may be good to calculate the 2nd derivative of this, aka the delta between the last two times between two scroll events
+		if (state->scroll_anim.time_between_last_two_scroll_events > .200f /*ms expressed in seconds*/)
+			state->scroll_anim.time_between_last_two_scroll_events = 0;
+		//printf("time between last two scroll events: %f ms\n", (f32)EndCounter(state->scroll_anim._time_between));
+		state->scroll_anim._time_between = StartCounter();
 
 		if (state->scroll_tasks.size() && (signum(state->scroll_tasks.back()) != signum(increment))) {
 			//IMPORTANT(fran): I think the Timer runs on the same thread, otherwise race conditions accessing & modifying scroll_tasks can crash the app
@@ -185,7 +189,8 @@ namespace page {
 		static auto setup_scroll_anim = [](ProcState* state, TIMERPROC scroll_animation) {
 			state->scroll_anim.active = true;
 
-			auto anim_duration = 50.f / state->scroll_tasks.size(); //ms
+			//auto anim_duration = (50.f + state->scroll_anim.time_between_last_two_scroll_events) / state->scroll_tasks.size(); //ms
+			auto anim_duration = 50.f / state->scroll_tasks.size() + state->scroll_anim.time_between_last_two_scroll_events; //ms //TODO(fran): the gradual slowdown effect works for short event chains, long ones, like the ones I can create with my free scrolling mouse still stop dead with no ease out
 			state->scroll_anim.dt = 1.f / (f32)win32_get_refresh_rate_hz(state->wnd);//duration of each frame in seconds
 			state->scroll_anim.total_frames = (i32)maximum(anim_duration / (state->scroll_anim.dt * 1000.f), 1.f);
 			state->scroll_anim.current_frame = 1;
@@ -418,10 +423,12 @@ namespace page {
 		case WM_MOUSEWHEEL:
 		{
 			if (state->does_scrolling) {
-				//TODO(fran): look at more reasonable algorithms, also this one should probably get a little exponential
 				short zDelta = (short)(((float)GET_WHEEL_DELTA_WPARAM(wparam) / (float)WHEEL_DELTA) /** 3.f*/);
 				int dy = avg_str_dim(global::fonts.General, 1).cy;
 				//printf("zDelta %d ; height %d\n", zDelta, dy);
+				
+				//TODO(fran): SystemParametersInfo(SPI_GETWHEELSCROLLLINES) to scroll based on windows mouse scroll sensitivity the user set?
+
 				int step = zDelta * 3 * dy;
 #if 0 //possibly better solution
 				UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);

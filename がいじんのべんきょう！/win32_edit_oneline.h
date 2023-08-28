@@ -9,8 +9,8 @@
 #include "LANGUAGE_MANAGER.h"
 #include "windows_extra_msgs.h"
 
-//TODO(fran): 'show password' button
-//TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the indicator leaves it much clearer what the tip is referring to in cases where there's many controls next to each other
+//TODO(fran): 'show password' button (this needs to be a new class with border + text + button
+//TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the ballon tail makes it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
 //TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
@@ -20,8 +20,6 @@
 //TODO(fran): it seems like the IME window is global or smth like that, if I dont ask for candidate windows on WM_IME_SETCONTEXT then it also wont show them for other controls, wtf
 //TODO(fran): double click on a word to select it
 //TODO(fran): change EM_SETINVALIDCHARS to be a function call provided by the user, 2 opts: bool that says tell me if there's anything invalid OR remove anything invalid, 2nd opt return array with indexes of invalid chars
-
-//NOTE: this took two days to fully implement, certainly a hard control but not as much as it's made to believe, obviously im just doing single line but extrapolating to multiline isnt much harder now a single line works "all right"
 
 //-------------------"API"--------------------:
 // edit_oneline::set_theme()
@@ -155,6 +153,9 @@ namespace edit_oneline{
 		void* user_extra;
 
 		func_has_invalid_chars has_invalid_chars;
+
+		int scrollx;
+
 	};
 
 
@@ -265,7 +266,7 @@ namespace edit_oneline{
 		return res;
 	}
 
-	POINT calc_caret_p(ProcState* state) {
+	POINT calc_caret_p(ProcState* const state) {
 		Assert(safe_subtract0(state->char_cur_sel.cursor, (size_t)1) <= state->char_dims.size());
 		POINT res = { state->char_pad_x, 0 };
 		for (size_t i = 0; i < state->char_cur_sel.cursor; i++) {
@@ -331,12 +332,40 @@ namespace edit_oneline{
 		SetTimer(state->wnd, EDITONELINE_tooltip_timer_id, duration_ms, NULL);
 	}
 
-	void reposition_caret(ProcState* state) {
+	void scroll_based_on_caret(ProcState* state) {
+		//TODO(fran): test right and center text alignments, @BUG: center alignment is wrong, probably due to my stupid use of char_pad_x, it should simply indicate the render area, instead Im using it to align the text, I think
+
+		RECT rc; GetClientRect(state->wnd, &rc);
+		if (!RECTW(rc)) return; //TODO(fran): this is probably more accurate by checking for element visibility or smth like that
+		//TODO(fran): im sure this can be done branchless
+		if (int scroll = state->caret.pos.x - (RECTW(rc) - state->char_pad_x + state->scrollx); scroll > 0) {
+			//scroll right
+			state->scrollx += scroll;
+			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE|SW_INVALIDATE);
+			ask_for_repaint(state); //TODO(fran): currently we simply invalidate the whole window and redraw everything, this may or may not be optimal
+		}
+		else if (int scroll = state->caret.pos.x - (state->scrollx + state->char_pad_x); scroll < 0) {
+			//scroll left
+			state->scrollx += scroll;
+			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE | SW_INVALIDATE);
+			ask_for_repaint(state);
+		}
+	}
+
+	void reposition_caret(ProcState* state, b32 nocheck = false) {
 		POINT oldcaretp = state->caret.pos;
 		state->caret.pos = calc_caret_p(state);
-		if (oldcaretp != state->caret.pos) SetCaretPos(state->caret.pos);
+		if (oldcaretp != state->caret.pos || nocheck) {
+			scroll_based_on_caret(state);
+
+			//I havent found a way to apply a translation to the caret so that SetCaretPos automatically places it on the correct character even when the characters are scrolled, therefore we gotta apply the transformation manually
+			POINT p = state->caret.pos;
+			p.x -= state->scrollx;
+			SetCaretPos(p);
+		}
 		//if(GetFocus() == state->wnd) SetCaretPos(state->caret.pos); //NOTE: this introduced a bug with settext where calling settext with a null string on the focussed editbox would place the caret on the wrong place
 	}
+
 
 	void update_char_pad(ProcState* state) {
 		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
@@ -369,6 +398,7 @@ namespace edit_oneline{
 
 	//true if the current contents of the text were modified, false otherwise
 	bool insert_character(ProcState* state, utf16_str s, size_t x_min, size_t x_max) {
+		//TODO(fran): center alignment get offset wrongly when inserting text of any length
 		bool res = false;
 		x_min = clamp((size_t)0, x_min, state->char_text.length());
 		x_max = clamp((size_t)0, x_max, state->char_text.length());
@@ -543,8 +573,8 @@ namespace edit_oneline{
 		PostMessage(state->parent, WM_COMMAND, MAKELONG(state->identifier, notif_code), (LPARAM)state->wnd);
 	}
 
-	bool show_placeholder(ProcState* state) {
-		bool res = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length() == 0);
+	bool is_placeholder_visible(ProcState* state) {
+		bool res = (state->char_text.length() == 0) && *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus);
 		return res;
 	}
 
@@ -612,7 +642,7 @@ namespace edit_oneline{
 		Assert(direction);
 		//TODO(fran): handle overflow
 
-		start_p = clamp((decltype(start_p))0, start_p, s.sz_char());
+		start_p = clamp((decltype(start_p))0, start_p, s.cnt());
 
 		if (iswspace(s[start_p]) || iswcntrl(s[start_p])) {//we're on a whitespace
 			//find first non whitespace in the direction
@@ -747,13 +777,14 @@ namespace edit_oneline{
 		for (; i < state->char_dims.size(); i++) {
 			f32 d = (f32)state->char_dims[i] / 2.f;
 			x += d;
-			if ((f32)mouse.x < x) { res = i; break; }
+			if ((f32)mouse.x+state->scrollx < x) { res = i; break; }
 			x += d;
 		}
 		if (i == state->char_dims.size()) res = i;//if the mouse is rightmost of the last character then simply clip to there
 		return res;
 	}
 
+	//NOTE: Windows had the brilliant idea of stopping the caret from blinking after a couple of seconds, and the only real fix is via a registry hack, therefore we take the poor man's approach, a 5 sec timer that reblinks the caret
 	void keep_caret_blinking(ProcState* state) {
 		SetTimer(state->wnd, EDITONELINE_caret_timer_id, EDITONELINE_default_caret_duration, NULL);
 	}
@@ -791,8 +822,9 @@ namespace edit_oneline{
 			else {//we are either left or right
 				st->char_pad_x = 3;
 			}
-			st->char_text = str();//REMEMBER: this c++ guys dont like being calloc-ed, they need their constructor, or, in this case, someone else's, otherwise they are badly initialized
+			st->char_text = str();//REMEMBER: this c++ objects dont like being calloc-ed, they need their constructor, or, in this case, someone else's, otherwise they are badly initialized
 			st->char_dims = std::vector<int>();
+
 			return TRUE; //continue creation
 		} break;
 		case WM_NCCALCSIZE: { //2nd msg received https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
@@ -914,7 +946,7 @@ namespace edit_oneline{
 			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd, &ps); };
 			HBRUSH bk_br, txt_br, border_br, selection_br;
 			u32 border_thickness = state->theme.dimensions.border_thickness;
-			bool show_placeholder = *state->placeholder && (GetFocus() != state->wnd || state->maintain_placerholder_on_focus) && (state->char_text.length()==0);
+			bool show_placeholder = is_placeholder_visible(state);
 			if (IsWindowEnabled(state->wnd)) {
 				bk_br = state->theme.brushes.bk.normal;
 				txt_br = state->theme.brushes.foreground.normal;
@@ -970,7 +1002,6 @@ namespace edit_oneline{
 			}
 
 			//TODO(fran): render text _before_ border, otherwise it can draw over it it
-			int text_y;//top of the text
 			{
 				HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
 				UINT oldalign = GetTextAlign(dc); defer{ SetTextAlign(dc,oldalign); };
@@ -985,7 +1016,13 @@ namespace edit_oneline{
 				int yPos = (rc.bottom + rc.top - tm.tmHeight) / 2;
 				int xPos;
 
-				text_y = yPos;
+				int text_y = yPos; //top of the text
+
+				//TODO(fran): create clip region so the text cant go over the border
+
+				//TODO(fran): continue exploring world transformations for scrolling, 
+				POINT old_origin; SetViewportOrgEx(dc, -state->scrollx, 0, &old_origin); defer{ SetViewportOrgEx(dc, old_origin.x, old_origin.y, 0); };
+				//NOTE: even if you dont reset the origin back to 0,0 windows automatically does
 
 				{ //Render Selection
 					if (state->char_cur_sel.has_selection()) {
@@ -1120,6 +1157,15 @@ namespace edit_oneline{
 			
 			return 0;
 		} break;
+		case WM_LBUTTONDBLCLK:
+		{
+			//TODO(fran): select entire word
+			auto text = to_utf16_str(state->char_text);
+			//HACK: We assume the mouse hasnt moved much since the first click, therefore we do not need to check the mouse position to find out where the cursor is since the first click already set the cursor position
+			auto left = find_stopper(text, state->char_cur_sel.cursor+1, -1);
+			auto right = find_stopper(text, state->char_cur_sel.cursor ? state->char_cur_sel.cursor-1 : 0 , +1);
+			SendMessage(state->wnd, EM_SETSEL, left, right);
+		} break;
 		case WM_LBUTTONUP:
 		{
 			ReleaseCapture();
@@ -1154,16 +1200,15 @@ namespace edit_oneline{
 			}
 			BOOL caret_res = CreateCaret(state->wnd, state->caret.bmp, 0, 0);
 			Assert(caret_res);
-			state->caret.pos = calc_caret_p(state);
-			SetCaretPos(state->caret.pos);
-			BOOL showcaret_res = ShowCaret(state->wnd); //TODO(fran): the docs seem to imply you display the caret here but I dont wanna draw outside wm_paint
+			
+			reposition_caret(state, true);
+
+			BOOL showcaret_res = ShowCaret(state->wnd);
 			Assert(showcaret_res);
-
-			//Check in case we are showing the default text, when we get keyboard focus that text should disappear
-			bool show_placeholder = *state->placeholder && (state->char_text.length() == 0);//this one doesnt check GetFocus since it's always gonna be us
-			if (show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
-
-			//NOTE: Windows had the brilliant idea of stopping the caret from blinking after a couple of seconds, and the only real fix is via a registry hack, therefore we take the poor man's approach, a 5 sec timer that reblinks the caret
+			
+			//We ask for repainting so placeholders and other focus dependent elements con be re-renderered o hidden
+			ask_for_repaint(state);
+			
 			keep_caret_blinking(state);
 
 			return 0;
@@ -1171,11 +1216,12 @@ namespace edit_oneline{
 		case WM_KILLFOCUS:
 		{
 			//We lost keyboard focus
-			//TODO(fran): docs say we should destroy the caret now
+			//NOTE(fran): docs says to never display/activate a window here cause we can lock the thread
+
 			DestroyCaret();
-			//Also says to not display/activate a window here cause we can lock the thread
-			bool show_placeholder = *state->placeholder && (state->char_text.length() == 0);//this one doesnt check GetFocus since it's never gonna be us
-			if(show_placeholder) InvalidateRect(state->wnd, NULL, TRUE);
+
+			//We ask for repainting so placeholders and other focus dependent elements con be re-renderered o hidden
+			ask_for_repaint(state);
 
 			PostMessage(GetParent(state->wnd), WM_COMMAND, MAKELONG(state->identifier, EN_KILLFOCUS), (LPARAM)state->wnd);
 
@@ -1244,6 +1290,7 @@ namespace edit_oneline{
 				move_selection(state, +1, shift_is_down, ctrl_is_down);
 
 			} break;
+			//TODO(fran): do we want to update scrolling to the left when deleting causes the text to get shorter than the right side of the element?
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
 				if (!state->char_text.empty()) {
@@ -1531,6 +1578,7 @@ namespace edit_oneline{
 			cstr* buf = (cstr*)lparam;//null terminated
 		
 			BOOL res = edit_oneline::_settext(state, buf);
+			SendMessage(state->wnd, EM_SETSEL, 0, 0); //When setting the whole element's text we want to keep the cursor at the beginning
 
 			en_change = res;
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
@@ -1542,6 +1590,7 @@ namespace edit_oneline{
 			cstr* buf = (cstr*)lparam;//null terminated
 
 			BOOL res = edit_oneline::_settext(state, buf);
+			SendMessage(state->wnd, EM_SETSEL, 0, 0);
 
 			return res;
 		} break;
@@ -1948,7 +1997,7 @@ namespace edit_oneline{
 		WNDCLASSEXW cl;
 
 		cl.cbSize = sizeof(cl);
-		cl.style = CS_HREDRAW | CS_VREDRAW;
+		cl.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
 		cl.lpfnWndProc = Proc;
 		cl.cbClsExtra = 0;
 		cl.cbWndExtra = sizeof(ProcState*);

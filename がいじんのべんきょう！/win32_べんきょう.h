@@ -2704,6 +2704,7 @@ namespace べんきょう {
 			controls.edit_kanji = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_kanji, &kanji_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.edit_kanji, true);
 			AWDT(controls.edit_kanji, 121);
 
 			controls.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
@@ -2716,6 +2717,7 @@ namespace べんきょう {
 			controls.edit_meaning = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_CENTER | WS_TABSTOP | ES_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.edit_meaning, true);
 			AWDT(controls.edit_meaning, 122);
 
 			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT

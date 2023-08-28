@@ -292,10 +292,12 @@ T maximum(T a, T b) {
 	return (a > b) ? a : b;
 }
 
-template <typename T> T signum(T val) {
-	return (T(0) < val) - (val < T(0));
+template <typename T>
+T signum(T val) {
+	return (T)((T(0) < val) - (val < T(0)));
 }
 
-template <typename T> T signOf(T num) {
+template <typename T>
+T signOf(T num) {
 	return signum(num) + !num; 
 }
