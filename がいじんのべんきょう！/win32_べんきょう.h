@@ -2349,7 +2349,7 @@ namespace べんきょう {
 		set_current_page(state, ProcState::page::practice);
 	}
 
-	void add_controls(ProcState* state) {
+	void create_controls(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
 		DWORD style_button_icon = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_ICON;
@@ -2720,17 +2720,17 @@ namespace べんきょう {
 			edit_oneline::maintain_placerholder_when_focussed(controls.edit_meaning, true);
 			AWDT(controls.edit_meaning, 122);
 
-			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
 
-			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
 			AWDT(controls.edit_example_sentence, 127);
 
-			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
 			AWDT(controls.edit_notes, 126);
@@ -2794,17 +2794,17 @@ namespace べんきょう {
 			edit_oneline::set_theme(controls.edit_meaning, &meaning_editoneline_theme);
 			AWDT(controls.edit_meaning, 122);
 
-			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
 			AWDT(controls.edit_mnemonic, 125);
 
-			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
 			AWDT(controls.edit_example_sentence, 127);
 
-			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
 			AWDT(controls.edit_notes, 126);
@@ -3323,6 +3323,7 @@ namespace べんきょう {
 	}
 
 	void resize_controls(ProcState* state, ProcState::page page) {
+		static int rez = 0; printf("Resize calls: %d\n", ++rez);
 		RECT r; GetClientRect(state->wnd, &r);
 
 		const int w = RECTWIDTH(r);
@@ -3898,16 +3899,17 @@ namespace べんきょう {
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
 			ssizer edit_notes{ controls.edit_notes };
 			ssizer edit_example_sentence{ controls.edit_example_sentence };
+			
 			vsizer meaning_sizer{
 				{&lexical_category,wnd_h},
 				{&lvpad,half_wnd_h},
 				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
-				{&edit_mnemonic,wnd_h},
+				{&edit_mnemonic,GetWindowDesiredSize(edit_mnemonic.wnd, { 0,wnd_h }, {0,wnd_h * 5}).max.cy},
 				{&lvpad,half_wnd_h},
-				{&edit_example_sentence,wnd_h},
+				{&edit_example_sentence,GetWindowDesiredSize(edit_example_sentence.wnd, { 0,wnd_h }, {0,wnd_h * 5}).max.cy},
 				{&lvpad,half_wnd_h},
-				{&edit_notes,wnd_h},
+				{&edit_notes,GetWindowDesiredSize(edit_notes.wnd, { 0,wnd_h }, {0,wnd_h * 5}).max.cy},
 			};
 
 			hsizer word_info{
@@ -4099,7 +4101,7 @@ namespace べんきょう {
 		{
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
 
-			add_controls(state);
+			create_controls(state);
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
@@ -4669,6 +4671,12 @@ namespace べんきょう {
 		case WM_MOUSEWHEEL:
 		{
 			return SendMessage(state->nc_parent, msg, wparam, lparam);
+		} break;
+		case WM_ASK_FOR_RESIZE:
+		{
+			resize_controls(state); //TODO(fran): only process resizes every X milliseconds (later on we should get rid of this concept entirely and provide resize info to the control directly so it knows when it can send the ask_for_resize msg)
+			ask_for_repaint(state); //TODO(fran): controls dont re-render otherwise, even though Im resizing them, maybe because they only change position and not size? also maybe because I dont ask the page to be resized?
+			return 0;
 		} break;
 
 #if defined(TEST_IME_MODE_SWITCH)

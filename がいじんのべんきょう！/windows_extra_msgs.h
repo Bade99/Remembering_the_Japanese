@@ -23,6 +23,11 @@
 	// 1 : flexible : the two SIZE params represent the lower and upper bound but also allow for values in between
 	// 2 : fixed    : the two SIZE params represent the small and big size and dont allow for values in between
 
+#define WM_ASK_FOR_RESIZE (extramsgs_base_msg_addr+4)
+// Child asks parent to be resized
+// wparam = unused
+// lparam = unused
+
 enum desired_size : unsigned int { dontcare = 0, flexible, fixed };
 desired_size GetWindowDesiredSize(HWND wnd, SIZE* min, SIZE* max) {
 	return (desired_size)SendMessage(wnd, WM_DESIRED_SIZE, (WPARAM)min, (LPARAM)max);
@@ -35,4 +40,8 @@ _desired_size GetWindowDesiredSize(HWND wnd, SIZE min, SIZE max) {
 	res.min = min;
 	res.max = max;
 	return res;
+}
+
+void AskForResize(HWND wnd) { //TODO(fran): resize information should be sent to the control itself and allow it to decide when to do a resize, and then simply notify the parent that it has resized
+	PostMessage(wnd, WM_ASK_FOR_RESIZE, 0, 0);
 }

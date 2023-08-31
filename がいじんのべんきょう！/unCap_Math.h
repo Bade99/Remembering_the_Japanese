@@ -134,7 +134,7 @@ static u64 random_bit_set(u64 val) {
 //f32
 
 //Ease in & out
-f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
+static f32 ParametricBlend(f32 t /*[0.0,1.0]*/) {
 	// thanks https://stackoverflow.com/questions/13462001/ease-in-and-ease-out-animation-formula
 	f32 sqt = t * t;
 	return sqt / (2.0f * (sqt - t) + 1.0f);
@@ -180,60 +180,60 @@ static f32 length(v2 v) {
 	return res;
 }
 
-v2 normalize(v2 v) {
+static v2 normalize(v2 v) {
 	v2 res = v / length(v); //TODO(fran): beware of division by zero
 	return res;
 }
 
-f32 lerp(f32 n1, f32 t, f32 n2) {
+static f32 lerp(f32 n1, f32 t, f32 n2) {
 	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
 	return (1.f - t) * n1 + t * n2;
 }
 
-v4 lerp(v4 n1, f32 t, v4 n2) {
+static v4 lerp(v4 n1, f32 t, v4 n2) {
 	return (1.f - t) * n1 + t * n2;
 }
 
-f32 squared(f32 n) {
+static f32 squared(f32 n) {
 	f32 res = n * n;
 	return res;
 }
 
-f32 square_root(f32 n) {
+static f32 square_root(f32 n) {
 	f32 res = sqrtf(n);
 	return res;
 }
 
-u32 round_f32_to_u32(f32 n) {
+static u32 round_f32_to_u32(f32 n) {
 	Assert(n >= 0.f);
 	//TODO(fran): intrinsic
 	u32 res = (u32)(n + .5f);
 	return res;
 }
 
-i32 round_f32_to_i32(f32 n) {
+static i32 round_f32_to_i32(f32 n) {
 	//TODO(fran): intrinsic
 	i32 res = (i32)(n + .5f); //TODO(fran): does this work correctly with negative numbers?
 	return res;
 }
 
-f32 clamp(f32 min, f32 n, f32 max) {
+static f32 clamp(f32 min, f32 n, f32 max) {
 	f32 res = n;
 	if (res < min) res = min;
 	else if (res > max) res = max;
 	return res;
 }
 
-f32 clamp01(f32 n) {
+static f32 clamp01(f32 n) {
 	return clamp(0.f, n, 1.f);
 }
 
-bool is_between_inclusive(f32 min, f32 n, f32 max) {
+static bool is_between_inclusive(f32 min, f32 n, f32 max) {
 	bool res = n <= max && n >= min;
 	return res;
 }
 
-v4 clamp01(v4 v) {
+static v4 clamp01(v4 v) {
 	v4 res;
 	res.r = clamp01(v.r);
 	res.g = clamp01(v.g);
@@ -242,7 +242,7 @@ v4 clamp01(v4 v) {
 	return res;
 }
 
-v2 perp(v2 v) {//generate orthogonal vector (counter clockwise)
+static v2 perp(v2 v) {//generate orthogonal vector (counter clockwise)
 	v2 res;
 	res.x = -v.y;
 	res.y = v.x;
@@ -264,40 +264,62 @@ static size_t distance(size_t a, size_t b) {
 }
 
 //returns a - b if a >= b otherwise returns n
-size_t safe_subtractN(size_t a, size_t b, size_t n) {
+static size_t safe_subtractN(size_t a, size_t b, size_t n) {
 	size_t res;
 	if (a >= b) res = a - b;
 	else res = n;
 	return res;
 }
 
-size_t safe_subtract0(size_t a, size_t b) {
+static size_t safe_subtract0(size_t a, size_t b) {
 	return safe_subtractN(a, b, (decltype(a))0);
 }
 
 //i64
-i64 lerp(i64 n1, f32 t, i64 n2) {
+static i64 lerp(i64 n1, f32 t, i64 n2) {
 	//NOTE: interesting that https://en.wikipedia.org/wiki/Linear_interpolation mentions this is the Precise method
 	return (i64)((1.f - t) * (f64)n1 + t * (f64)n2);
 }
 
 //templates
 template<typename T>
-T minimum(T a, T b) {
+static T minimum(T a, T b) {
 	return (a < b) ? a : b;
 }
 
 template<typename T>
-T maximum(T a, T b) {
+static T maximum(T a, T b) {
 	return (a > b) ? a : b;
 }
 
 template <typename T>
-T signum(T val) {
+static T signum(T val) {
 	return (T)((T(0) < val) - (val < T(0)));
 }
 
 template <typename T>
 T signOf(T num) {
-	return signum(num) + !num; 
+	return signum(num) + !num;
+}
+
+template <typename T>
+static T safe_ratioN(T dividend, T divisor, T n) {
+	T res;
+	if (divisor != (T)0) {
+		res = dividend / divisor;
+	}
+	else {
+		res = n;
+	}
+	return res;
+}
+
+template <typename T>
+static T safe_ratio1(T dividend, T divisor) {
+	return safe_ratioN(dividend, divisor, (T)1);
+}
+
+template <typename T>
+static T safe_ratio0(T dividend, T divisor) {
+	return safe_ratioN(dividend, divisor, (T)0);
 }

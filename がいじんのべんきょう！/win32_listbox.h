@@ -183,7 +183,7 @@ namespace listbox {
 			//Render the elements
 			//TODO(fran): we should have a list of changed elems so we know which ones need redrawing, otherwise this wont scale at all
 			if (state->render_element) {
-				Assert(elem_idx < state->elements.size()); //BUG(fran): there's some case that causes this to trigger at app startup with elem_idx = 1 & elements.size() = 1
+				Assert(elem_idx < state->elements.size()); //BUG(fran): there's some case that causes this to trigger at app startup with elem_idx = 1 & elements.size() = 1. INFO: apparently happens when the mouse is on top of the wnd just as it is being created, causing bad stuff to happen like getting negative mouse positions
 				size_t i = elem_idx;
 				rect_i32 elem_rc{
 						backbuffer_rc.left

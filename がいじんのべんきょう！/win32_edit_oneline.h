@@ -9,7 +9,7 @@
 #include "LANGUAGE_MANAGER.h"
 #include "windows_extra_msgs.h"
 
-//TODO(fran): 'show password' button (this needs to be a new class with border + text + button
+//TODO(fran): 'show password' button (this needs to be a new element made up from 3 others: border + (editoneline + button)
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the ballon tail makes it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
@@ -18,7 +18,6 @@
 //TODO(fran): on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
 //TODO(fran): at some point I got to trigger a secondary IME candidates window which for some reason decided to show up, this BUG is probably related to the multiple candidates window, maybe we need to manually block the secondary ones, it could be that if you write too much text this extra candidate windows appear
 //TODO(fran): it seems like the IME window is global or smth like that, if I dont ask for candidate windows on WM_IME_SETCONTEXT then it also wont show them for other controls, wtf
-//TODO(fran): double click on a word to select it
 //TODO(fran): change EM_SETINVALIDCHARS to be a function call provided by the user, 2 opts: bool that says tell me if there's anything invalid OR remove anything invalid, 2nd opt return array with indexes of invalid chars
 
 //-------------------"API"--------------------:
@@ -45,8 +44,8 @@
 
 
 //-------------Additional Styles-------------:
-#define ES_ROUNDRECT 0x0200L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
-
+#define ES_ROUNDRECT  0x0200L //Border is made of a rounded rectangle instead of just straight lines //TODO(fran): not convinced with the name
+#define ES_EXPANSIBLE 0x4000L //Text editor asks the parent for resizing if its text doesnt fit vertically on its client area
 
 //-------------Tooltip-------------:
 #define EDITONELINE_default_tooltip_duration 3000 /*ms*/
@@ -120,6 +119,8 @@ namespace edit_oneline{
 		u32 char_max_sz;//doesnt include terminating null, also we wont have terminating null
 		
 		char_sel char_cur_sel;//this is in "character" coordinates, zero-based
+		//TODO(fran): cache char_cur_sel's starting line
+
 		struct caretnfo {
 			HBITMAP bmp;
 			SIZE dim;
@@ -128,8 +129,9 @@ namespace edit_oneline{
 
 		std::wstring char_text;//much simpler to work with and debug
 		std::vector<int> char_dims;//NOTE: specifies, for each character, its width
-		//TODO(fran): it's probably better to use signed numbers in case the text overflows ths size of the control
-		int char_pad_x;//NOTE: specifies x offset from which characters start being placed on the screen, relative to the client area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
+		std::vector<size_t> line_breaks; //Indices into the text string where line breaks occur
+		//TODO(fran): it's probably better to use signed numbers in case the text overflows the size of the control
+		v2_i32 padding; //NOTE: x,y offset from where characters start being placed on the screen, relative to the client area, positive values 'shrink' the rendering area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
 
 		cstr placeholder[100]; //NOTE: uses txt_dis brush for rendering
 		bool maintain_placerholder_on_focus;//Hide placeholder text when the user clicks over it
@@ -227,8 +229,7 @@ namespace edit_oneline{
 		int res;
 		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
 		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
-		TEXTMETRIC tm;
-		GetTextMetrics(dc, &tm);
+		TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 		res = tm.tmHeight;
 		return res;
 	}
@@ -266,18 +267,51 @@ namespace edit_oneline{
 		return res;
 	}
 
+	//Finds out the index of the first character of the line where the input character index belongs to
+	//(This will be either 0 for the first line, or one character past the \n for all other lines)
+	struct _char_idx_to_line_char_idx_res { u64 line_char_idx; u64 line_idx; };
+	_char_idx_to_line_char_idx_res char_idx_to_line_char_idx(ProcState* const state, size_t char_idx) {
+		_char_idx_to_line_char_idx_res res;
+		res.line_char_idx = state->char_text.rfind('\n', safe_subtract0(char_idx,1))+1; //TODO(fran): I do this instead of iterating over state->line_breaks cause I think it scales better to larger strings and may even be generally faster or close to it, though there maybe be a fast way to search through state->line_breaks, otherwise having that cache is pointless & I should remove it
+
+		res.line_idx = 0;
+		if (res.line_char_idx ) {
+			u64 line_idx_estimate = safe_ratio0((f64)res.line_char_idx, (f64)state->char_text.size()) * safe_subtract0(state->line_breaks.size(),1);
+			u64 increment = state->line_breaks[line_idx_estimate] < res.line_char_idx ? +1 : -1;
+
+			for (u64 i = line_idx_estimate; i < state->line_breaks.size(); i += increment) {
+				if (state->line_breaks[i] == res.line_char_idx - 1) {
+					if (char_idx == state->line_breaks[i]) res.line_idx = i;
+					else res.line_idx = i+1; 
+					break;
+					//TODO(fran): this code sucks, as well as its use in calc_caret_p, this NEEDS a redesign. Look at the selection rendering code for inspiration, since it does the exact same thing, I should be able to reuse it somehow
+				}
+			}
+		}
+		//TODO(fran): now I need to know the line idx, I guess the cache wasnt so pointless after all, although this search pattern may even be faster if I now add a hash table to store a mapping line_char_idx -> line_idx (remember to remove the -1 before using it on the hash table though)
+			//NOTE: I will usually need both line_idx and line_char_idx, since I use the first one to move in Y and the other to move in X
+			//TODO(fran)?: if we dont want to do the hash table thing we could estimate the index: line_idx_estimation = (char_idx / total_chars) * total_lines; and iterate forward or backwards from there
+
+		//TODO(fran): im having this issue with the fact that line_idx = 0 is not always a valid index into state->line_breaks, we have a dual mapping for 0, it will return 0 when there are no line breaks, but also 0 when we are on the first line break. The code needs to be re-tought, maybe we should return a line count, that is always at least 1. This would fix the dual mapping problem though it would still not fix the access into state->line_breaks
+		return res;
+	}
+
 	POINT calc_caret_p(ProcState* const state) {
 		Assert(safe_subtract0(state->char_cur_sel.cursor, (size_t)1) <= state->char_dims.size());
-		POINT res = { state->char_pad_x, 0 };
-		for (size_t i = 0; i < state->char_cur_sel.cursor; i++) {
+		POINT res = { state->padding.x, state->padding.y };
+
+		auto [line_char_idx, line_idx] = char_idx_to_line_char_idx(state, state->char_cur_sel.cursor);
+
+		for (size_t i = line_char_idx; i < state->char_cur_sel.cursor; i++) {
 			res.x += state->char_dims[i];
-			//TODO(fran): probably wrong
 		}
-		//NOTE: we are single line so we always want the text to be vertically centered, same goes for the caret
-		RECT rc; GetClientRect(state->wnd, &rc);
-		int wnd_h = RECTHEIGHT(rc);
-		int caret_h = state->caret.dim.cy;
-		res.y = (wnd_h - state->caret.dim.cy) / 2;
+
+		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
+		TEXTMETRIC tm; GetTextMetrics(dc, &tm);
+		
+
+		res.y += (LONG)(line_idx * tm.tmHeight);
 		return res;
 	}
 
@@ -332,19 +366,19 @@ namespace edit_oneline{
 		SetTimer(state->wnd, EDITONELINE_tooltip_timer_id, duration_ms, NULL);
 	}
 
-	void scroll_based_on_caret(ProcState* state) {
-		//TODO(fran): test right and center text alignments, @BUG: center alignment is wrong, probably due to my stupid use of char_pad_x, it should simply indicate the render area, instead Im using it to align the text, I think
+	void scroll_based_on_caret(ProcState* state) { //TODO(fran): @multiline
+		//TODO(fran): test right and center text alignments, @BUG: center alignment is wrong, probably due to my stupid use of padding.x, it should simply indicate the render area, instead Im using it to align the text, I think
 
 		RECT rc; GetClientRect(state->wnd, &rc);
 		if (!RECTW(rc)) return; //TODO(fran): this is probably more accurate by checking for element visibility or smth like that
 		//TODO(fran): im sure this can be done branchless
-		if (int scroll = state->caret.pos.x - (RECTW(rc) - state->char_pad_x + state->scrollx); scroll > 0) {
+		if (int scroll = state->caret.pos.x - (RECTW(rc) - state->padding.x + state->scrollx); scroll > 0) {
 			//scroll right
 			state->scrollx += scroll;
 			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE|SW_INVALIDATE);
 			ask_for_repaint(state); //TODO(fran): currently we simply invalidate the whole window and redraw everything, this may or may not be optimal
 		}
-		else if (int scroll = state->caret.pos.x - (state->scrollx + state->char_pad_x); scroll < 0) {
+		else if (int scroll = state->caret.pos.x - (state->scrollx + state->padding.x); scroll < 0) {
 			//scroll left
 			state->scrollx += scroll;
 			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE | SW_INVALIDATE);
@@ -352,7 +386,7 @@ namespace edit_oneline{
 		}
 	}
 
-	void reposition_caret(ProcState* state, b32 nocheck = false) {
+	void reposition_caret(ProcState* state, b32 nocheck = false) { //TODO(fran): @multiline
 		POINT oldcaretp = state->caret.pos;
 		state->caret.pos = calc_caret_p(state);
 		if (oldcaretp != state->caret.pos || nocheck) {
@@ -368,11 +402,28 @@ namespace edit_oneline{
 
 
 	void update_char_pad(ProcState* state) {
-		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+		LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+		RECT rc; GetClientRect(state->wnd, &rc);
+		HDC dc = GetDC(state->wnd); defer{ ReleaseDC(state->wnd,dc); };
+		HFONT oldfont = SelectFont(dc, state->theme.font); defer{ SelectFont(dc, oldfont); };
+		TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 		if (style & ES_CENTER) {
 			//Recalc pad_x
-			RECT rc; GetClientRect(state->wnd, &rc);
-			state->char_pad_x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+			state->padding.x = (RECTWIDTH(rc) - calc_text_dim(state).cx) / 2;
+		} 
+		else {
+			state->padding.x = 3; //TODO(fran): user defined and 'dpi pixels' based
+		}
+		state->padding.y = !state->line_breaks.size() ? (rc.bottom + rc.top - tm.tmHeight) / 2 : rc.top + (RECTH(rc) % tm.tmHeight) / 2; //TODO(fran): provide additional styles so the user can change vertical alignment
+	}
+
+	void recalculate_line_breaks(ProcState* state) {
+		//TODO(fran): @speed: provide additional parameters to allow us to only recalculate line breaks after the changed characters
+		state->line_breaks.clear();
+		size_t linebreak=0;
+		while ((linebreak = state->char_text.find('\n', linebreak)) != std::wstring::npos) {
+			state->line_breaks.push_back(linebreak);
+			linebreak++;
 		}
 	}
 
@@ -386,6 +437,8 @@ namespace edit_oneline{
 
 			update_char_pad(state);
 
+			recalculate_line_breaks(state);
+
 			SendMessage(state->wnd, EM_SETSEL, x_min, x_min);
 			//state->char_cur_sel.anchor = state->char_cur_sel.cursor = x_min;
 		}
@@ -394,6 +447,23 @@ namespace edit_oneline{
 	//Removes the current text selection and updates the selection values
 	void remove_selection(ProcState* state) {
 		remove_selection(state, state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+	}
+
+	i32 min_height(ProcState* state) {
+		i32 res = state->padding.y + calc_line_height_px(state);
+		return res;
+	}
+
+	i32 desired_height(ProcState* state) {
+		i32 res = state->padding.y + calc_line_height_px(state) * (state->line_breaks.size() + 1);
+		return res;
+	}
+
+	void check_expansibility(ProcState* state) {
+		RECT rc; GetClientRect(state->wnd, &rc);
+
+		if (RECTH(rc) < desired_height(state))
+			AskForResize(state->parent);
 	}
 
 	//true if the current contents of the text were modified, false otherwise
@@ -427,6 +497,8 @@ namespace edit_oneline{
 			for (size_t i = 0; i < s.sz_char() - 1; i++)
 				state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor + i, calc_char_dim(state, s[i]).cx);
 
+			recalculate_line_breaks(state);
+
 			size_t anchor = state->char_cur_sel.cursor + safe_subtract0(s.sz_char(), (size_t)1);
 			size_t cursor = anchor;
 
@@ -434,6 +506,9 @@ namespace edit_oneline{
 
 			update_char_pad(state);
 			reposition_caret(state);
+
+			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+			if (style & ES_EXPANSIBLE) check_expansibility(state);
 		}
 		return res;
 	}
@@ -642,6 +717,8 @@ namespace edit_oneline{
 		Assert(direction);
 		//TODO(fran): handle overflow
 
+		//TODO(fran): this doesnt work exactly like we'd like for Ctrl+ Right arrow, we fail to skip to the next word instead stopping at the last character of the current one, and when we do (by placing the cursor past the last character of the word) we go past to the end of that next word instead of stopping at the beginning of it. Extra: Actually I do like that it stops at the end of words (this is not the normal behaviour but I like it more), what is wrong is the second case, whereby starting from a whitespace & going right it skips to the end of the next word instead of stopping at the beginning
+		
 		start_p = clamp((decltype(start_p))0, start_p, s.cnt());
 
 		if (iswspace(s[start_p]) || iswcntrl(s[start_p])) {//we're on a whitespace
@@ -748,6 +825,7 @@ namespace edit_oneline{
 
 	//Positive direction moves cursor/selection to the right, negative to the left
 	void move_selection(ProcState* state, int direction, bool shift_is_down, bool ctrl_is_down) {
+		Assert(direction == 1 || direction == -1);
 		size_t anchor, cursor;
 
 		if (shift_is_down && ctrl_is_down) {
@@ -757,30 +835,42 @@ namespace edit_oneline{
 		else if (shift_is_down) {
 			//User is adding one extra character to the selection
 			anchor = state->char_cur_sel.anchor;
-			cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + direction, state->char_text.length());
+			cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + ((state->char_cur_sel.cursor == 0 && direction == -1) ? 0 : direction), state->char_text.length());
 		}
 		else if (ctrl_is_down) {
 			anchor = cursor = find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,clamp(-1,direction,+1));
 		}
 		else {
 			if (state->char_cur_sel.has_selection()) anchor = cursor = ((direction>=0) ? state->char_cur_sel.x_max() : state->char_cur_sel.x_min());
-			else anchor = cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + direction, state->char_text.length());
+			else anchor = cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + ((state->char_cur_sel.cursor==0 && direction == -1) ? 0 : direction) /*TODO(fran): safe_add(a, b, ret_on_underflow, ret_on_overflow)*/, state->char_text.length());
 		}
 
 		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 	}
 
-	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) {
+	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) { //TODO(fran): @multiline
 		size_t res=0;
-		f32 x = (decltype(x))state->char_pad_x;
-		int i = 0;
-		for (; i < state->char_dims.size(); i++) {
+		f32 x = (decltype(x))state->padding.x;
+
+		u64 line = clamp((u64)0, (u64)(mouse.y - state->padding.y) / calc_line_height_px(state), state->line_breaks.size());
+
+		//IMPORTANT(fran): Line mapping is as follows:
+		//					line = 0 -> "line 0" -> char_idx = 0                
+		//						: we manually go to the start of the string cause we dont store the first line in line_breaks
+		//					line > 0 -> char_idx = minimum(line_breaks[line - 1] + 1, state->char_text.size()) 
+		//						: line 1 maps to idx 0 in line_breaks, and so on, after that we add +1 to go to the first character past the \n
+		//					      and min clamp in case \n is the last character of the string
+		
+		u64 i = !line ? 0 : minimum(state->line_breaks[line - 1]+1/*+1 to go to the first character past the \n*/, state->char_text.size());
+		u64 line_end = line < state->line_breaks.size() ? state->line_breaks[line] : state->char_text.size();
+
+		for (; i < line_end; i++) {
 			f32 d = (f32)state->char_dims[i] / 2.f;
 			x += d;
 			if ((f32)mouse.x+state->scrollx < x) { res = i; break; }
 			x += d;
 		}
-		if (i == state->char_dims.size()) res = i;//if the mouse is rightmost of the last character then simply clip to there
+		if (i == line_end) res = i;//if the mouse is rightmost of the last character then simply clip to there
 		return res;
 	}
 
@@ -793,6 +883,24 @@ namespace edit_oneline{
 		KillTimer(state->wnd, EDITONELINE_caret_timer_id);
 	}
 
+	//Renders the selection box corresponding to only one line
+	void render_selection(HDC dc, HBRUSH brush, char_sel sel, ProcState* state, int yPos, size_t line_start) {
+		Assert(sel.has_selection());
+		RECT selection;
+		selection.top = yPos;
+		selection.bottom = selection.top + state->caret.dim.cy;
+		selection.left = state->padding.x;
+		for (size_t i = line_start; i < sel.x_min(); i++)
+			selection.left += state->char_dims[i];
+		selection.right = selection.left;
+		for (size_t i = sel.x_min(); i < sel.x_max(); i++)
+			selection.right += state->char_dims[i];
+		//FillRect(dc, &selection, selection_br);
+		COLORREF sel_col = ColorFromBrush(brush);
+		urender::FillRectAlpha(dc, selection, GetRValue(sel_col), GetGValue(sel_col), GetBValue(sel_col), 128);
+		//TODO(fran): benchmark whether doing all the calculations and only rendering one polygon is faster, in which case render_selection would have to take the entire (multiline) selection and convert it into one big polygon
+	}
+
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		//static int __c; printf("%d:EDITONELINE:%s\n",__c++, msgToString(msg));
 
@@ -802,7 +910,6 @@ namespace edit_oneline{
 		{ //1st msg received
 			CREATESTRUCT* creation_nfo = (CREATESTRUCT*)lparam;
 
-			Assert(!(creation_nfo->style & ES_MULTILINE));
 			Assert(!(creation_nfo->style & ES_RIGHT));//TODO(fran)
 
 			ProcState* st = (ProcState*)calloc(1, sizeof(ProcState));
@@ -813,17 +920,9 @@ namespace edit_oneline{
 			st->identifier = (u32)(UINT_PTR)creation_nfo->hMenu;
 			st->char_max_sz = 32767;//default established by windows
 			*st->placeholder = 0;
-			//NOTE: ES_LEFT==0, that was their way of defaulting to left
-			if (creation_nfo->style & ES_CENTER) {
-				//NOTE: ES_CENTER needs the pad to be recalculated all the time
-
-				st->char_pad_x = abs(creation_nfo->cx / 2);//HACK //TODO(fran): this should be calculated on resize since the first size of the wnd is probably not the one that's gonna be used
-			}
-			else {//we are either left or right
-				st->char_pad_x = 3;
-			}
 			st->char_text = str();//REMEMBER: this c++ objects dont like being calloc-ed, they need their constructor, or, in this case, someone else's, otherwise they are badly initialized
 			st->char_dims = std::vector<int>();
+			st->line_breaks = decltype(st->line_breaks)();
 
 			return TRUE; //continue creation
 		} break;
@@ -933,21 +1032,28 @@ namespace edit_oneline{
 			}
 			state->char_dims.~vector();
 			state->char_text.~basic_string();
+			state->line_breaks.~vector();
 			free(state);
 			return 0;
 		}break;
 		case WM_PAINT:
 		{
 			PAINTSTRUCT ps;
-			RECT rc; GetClientRect(state->wnd, &rc);
-			int w = RECTW(rc), h = RECTH(rc);
-			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 			//ps.rcPaint
 			HDC dc = BeginPaint(state->wnd, &ps); defer{ EndPaint(state->wnd, &ps); };
-			HBRUSH bk_br, txt_br, border_br, selection_br;
-			u32 border_thickness = state->theme.dimensions.border_thickness;
+
+			RECT rc; GetClientRect(state->wnd, &rc);
+			int w = RECTW(rc), h = RECTH(rc);
+
+			LONG_PTR style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 			bool show_placeholder = is_placeholder_visible(state);
-			if (IsWindowEnabled(state->wnd)) {
+			bool is_enabled = IsWindowEnabled(state->wnd);
+
+			u32 border_thickness = state->theme.dimensions.border_thickness;
+
+			HBRUSH bk_br, txt_br, border_br, selection_br;
+
+			if (is_enabled) {
 				bk_br = state->theme.brushes.bk.normal;
 				txt_br = state->theme.brushes.foreground.normal;
 				border_br = state->theme.brushes.border.normal;
@@ -969,7 +1075,7 @@ namespace edit_oneline{
 				HPEN pen = CreatePen(PS_SOLID, border_thickness, ColorFromBrush(border_thickness ? border_br : bk_br)); defer{ DeletePen(pen); };
 				HPEN oldpen = SelectPen(dc, pen); defer{ SelectPen(dc,oldpen); };
 				HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
-				i32 roundedness = max(1, (i32)roundf((f32)min(w, h) * .2f));
+				i32 roundedness = 5;//TODO(fran): this should be in 'dpi pixels' and user defined //max(1, (i32)roundf((f32)min(w, h) * .2f));
 				RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, roundedness, roundedness);
 	#else
 				//Bk
@@ -1013,10 +1119,9 @@ namespace edit_oneline{
 				TEXTMETRIC tm; GetTextMetrics(dc, &tm);
 				// Calculate vertical position for the string so that it will be vertically centered
 				// We are single line so we want vertical alignment always
-				int yPos = (rc.bottom + rc.top - tm.tmHeight) / 2;
+				//TODO(fran): allow the user to select the vertical alignment (top, center, bottom)
+				int yPos = state->padding.y;
 				int xPos;
-
-				int text_y = yPos; //top of the text
 
 				//TODO(fran): create clip region so the text cant go over the border
 
@@ -1025,57 +1130,71 @@ namespace edit_oneline{
 				//NOTE: even if you dont reset the origin back to 0,0 windows automatically does
 
 				{ //Render Selection
-					if (state->char_cur_sel.has_selection()) {
-						//We use the height of the caret (for now) as the height of the selection
-						RECT selection;
-						selection.top = text_y;
-						selection.bottom = selection.top + state->caret.dim.cy;
-						selection.left = state->char_pad_x;
-						for (size_t i = 0; i < state->char_cur_sel.x_min(); i++)//TODO(fran): make into a function
-							selection.left += state->char_dims[i];
-						selection.right = selection.left;
-						for (size_t i = state->char_cur_sel.x_min(); i < state->char_cur_sel.x_max(); i++)
-							selection.right += state->char_dims[i];
-						//FillRect(dc, &selection, selection_br);
-						COLORREF sel_col = ColorFromBrush(selection_br);
-						urender::FillRectAlpha(dc, selection, GetRValue(sel_col), GetGValue(sel_col), GetBValue(sel_col), 128);
-						//TODO(fran): instead of painting over the text with alpha we need to change the bk color of the selected section when rendering the text, otherwise the text color gets too opaqued and looks bad
+					if (state->char_cur_sel.has_selection() && (style & ES_PASSWORD)) {
+						render_selection(dc, selection_br, state->char_cur_sel, state, yPos, 0);
 					}
 				}
 
-				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
-				//ES_LEFT ES_CENTER ES_RIGHT
-				//TODO(fran): store char positions in the vector
 				if (style & ES_CENTER) {
 					SetTextAlign(dc, TA_CENTER);
 					xPos = (rc.right - rc.left) / 2;
 				}
 				else if (style & ES_RIGHT) {
 					SetTextAlign(dc, TA_RIGHT);
-					xPos = rc.right - state->char_pad_x;
+					xPos = rc.right - state->padding.x;
 				}
 				else /*ES_LEFT*/ {//NOTE: ES_LEFT==0, that was their way of defaulting to left
 					SetTextAlign(dc, TA_LEFT);
-					xPos = rc.left + state->char_pad_x;
+					xPos = rc.left + state->padding.x;
 				}
 
 				if (show_placeholder) {
 					TextOut(dc, xPos, yPos, state->placeholder, (int)cstr_len(state->placeholder));
 				}
-				else if (style & ES_PASSWORD) {
-					//TODO(fran): what's faster, full allocation or for loop drawing one by one
+				else if (style & ES_PASSWORD) { //TODO(fran): ES_PASSWORD should only be taken into account for single-line edit controls
+					//TODO(fran): benchmark: full allocation vs for loop drawing characters one by one
 					cstr* pass_text = (cstr*)malloc(state->char_text.length() * sizeof(cstr)); defer{ free(pass_text); };
 					for (size_t i = 0; i < state->char_text.length(); i++)pass_text[i] = password_char;
 
 					TextOut(dc, xPos, yPos, pass_text, (int)state->char_text.length());
 				}
 				else {
-					TextOut(dc, xPos, yPos, state->char_text.c_str(), (int)state->char_text.length());
+					//TODO(fran): make a common path for all three and allow the placeholder to also have linebreaks, what we could do is have another variable that stores the currently used text, if placeholder is active it'll point to the placeholder, otherwise it'll point to the password if password style is active, or to the normal text
+					
+					//TextOut(dc, xPos, yPos, state->char_text.c_str(), (int)state->char_text.length());
+					
+					state->line_breaks.push_back(state->char_text.length()); defer{ state->line_breaks.pop_back(); }; //TODO(fran): find better solution to render the last line, which potentially doesnt have a line break
+					const u64 lines = state->line_breaks.size();
+					u64 off = 0;
+					for (u64 i = 0; i < lines; i++) { //TODO(fran): @speed: only render lines visible on screen
+						const size_t len = state->line_breaks[i];
+
+						{
+							const size_t start = off, end = len+1 /*+1 so the user can visually select the \n character at the end of the line*/;
+							char_sel selection{ clamp(start,state->char_cur_sel.x_min(),end), clamp(start,state->char_cur_sel.x_max(),end) };
+							if (selection.has_selection())
+								render_selection(dc, selection_br, selection, state, yPos, start);
+						}
+						//TODO(fran): use ExtTextOut which has support for font fallback
+						TextOut(dc, xPos, yPos, state->char_text.c_str()+off, (int)(len-off));
+						off = len+1;
+						yPos += tm.tmHeight;
+						//TODO(fran): all alignment related code needs to be re-done
+							//NOTE: I could cheat by simply using DrawText but I think this will be more insightful
+					}
 				}
 			}
-
 			
 			return 0;
+		} break;
+		case WM_DESIRED_SIZE:
+		{
+			SIZE* min = (decltype(min))wparam;
+			SIZE* max = (decltype(max))lparam;
+			min->cy = maximum(min_height(state),(i32)min->cy);
+			max->cy = minimum(maximum(desired_height(state),(i32)min->cy), (i32)max->cy);
+
+			return desired_size::flexible;
 		} break;
 		case WM_ENABLE:
 		{//Here we get the new enabled state
@@ -1290,6 +1409,15 @@ namespace edit_oneline{
 				move_selection(state, +1, shift_is_down, ctrl_is_down);
 
 			} break;
+			case VK_DOWN://Down arrow
+			{
+				Assert(0); //TODO(fran)
+			} break;
+			case VK_UP://Up arrow
+			{
+				Assert(0); //TODO(fran)
+
+			} break;
 			//TODO(fran): do we want to update scrolling to the left when deleting causes the text to get shorter than the right side of the element?
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
@@ -1364,7 +1492,7 @@ namespace edit_oneline{
 			} break;
 			}
 
-			InvalidateRect(state->wnd, NULL, TRUE);//TODO(fran): dont invalidate everything, NOTE: also on each wm_paint the cursor will stop so we should add here a bool repaint; to avoid calling InvalidateRect when it isnt needed
+			ask_for_repaint(state);//TODO(fran): dont invalidate everything, NOTE: also on each wm_paint the cursor will stop so we should add here a bool repaint; to avoid calling InvalidateRect when it isnt needed
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
 			return 0;
 		}break;
@@ -1442,6 +1570,8 @@ namespace edit_oneline{
 
 			TCHAR c = (TCHAR)wparam;
 			bool ctrl_is_down = HIBYTE(GetKeyState(VK_CONTROL));
+			LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
+
 			//lparam = flags
 			switch (c) { //https://docs.microsoft.com/en-us/windows/win32/menurc/using-carets
 			case 127://Ctrl + Backspace
@@ -1466,11 +1596,14 @@ namespace edit_oneline{
 			}break;
 			case VK_TAB://Tab
 			{
-				LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 				if (style & WS_TABSTOP) {//TODO(fran): I think we should specify a style that specifically says on tab pressed change to next control, since this style is just to say I want that to happen to me
 					SetFocus(GetNextDlgTabItem(GetParent(state->wnd), state->wnd, FALSE));
 				}
-				//We dont handle tabs for now
+				else {
+					//We dont handle tabs for now
+					Assert(0);
+					goto insert_control_char;
+				}
 			}break;
 			case VK_RETURN://Received when the user presses the "enter" key //Carriage Return aka \r
 			{
@@ -1478,6 +1611,13 @@ namespace edit_oneline{
 				//We dont handle "enter" for now
 				//if(state->identifier) //TODO(fran): should I only send notifs if I have an identifier? what do the defaults do?
 					PostMessage(GetParent(state->wnd), WM_COMMAND, MAKELONG(state->identifier, EN_ENTER), (LPARAM)state->wnd);
+
+				if (style & ES_MULTILINE) {
+					//Windows: CRLF ; Unix/Mac: LF ; Machintosh (pre-OS X aka old): CR | CR = \r = 0x0D = VK_RETURN ; LF = \n = 0x0A
+					//IMPORTANT: For the sake of not adding pointless complexity internally the control will always use LF, text pasted that uses CRLF or CR will be converted to LF
+					c = '\n';
+					goto insert_control_char;
+				}
 			}break;
 			case VK_ESCAPE://Escape
 			{
@@ -1494,6 +1634,8 @@ namespace edit_oneline{
 				//TODO(fran): filter more values
 				if (c <= (TCHAR)0x14) break;//control chars
 				if (c <= (TCHAR)0x1f) break;//IME
+
+				insert_control_char:
 
 				//TODO(fran): maybe this should be the first check for any WM_CHAR?
 
@@ -1514,7 +1656,7 @@ namespace edit_oneline{
 
 			}break;
 			}
-			InvalidateRect(state->wnd, NULL, TRUE);//TODO(fran): dont invalidate everything
+			ask_for_repaint(state); //TODO(fran): dont invalidate everything
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
 			return 0;
 		} break;

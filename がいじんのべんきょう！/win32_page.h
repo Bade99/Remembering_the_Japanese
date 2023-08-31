@@ -472,12 +472,17 @@ namespace page {
 		case WM_KILLFOCUS:
 		{
 			return 0;
-		}
+		} break;
 
 		case WM_DELETEITEM:
 		{
 			return 1;//we "processed" this msg
 			//TODO(fran): this shouldnt be getting here, I think this is because of the windows default comboboxes I use in some places that send this msg up to their parent when we change langs and the cb elements are cleared
+		} break;
+		case WM_ASK_FOR_RESIZE:
+		{
+			AskForResize(state->parent); //TODO(fran): the page could get the resize info on startup and manage this without bothering the parent
+			return 0;
 		} break;
 
 		default:
