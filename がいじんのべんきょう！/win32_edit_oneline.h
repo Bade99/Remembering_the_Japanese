@@ -13,7 +13,7 @@
 //TODO(fran): ballon tips, probably handmade since windows doesnt allow it anymore, the ballon tail makes it much clearer what the tip is referring to in cases where there's many controls next to each other
 //TODO(fran): paint/handle my own IME window https://docs.microsoft.com/en-us/windows/win32/intl/ime-window-class
 //TODO(fran): since WM_SETTEXT doesnt notify by default we should change WM_SETTEXT_NO_NOTIFY to WM_SETTEXT_NOTIFY and reverse the current roles
-//TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the correspoding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
+//TODO(fran): IDEA for multiline with wrap around text, keep a list of wrap around points, be it a new line, word break or word that doesnt fit on its line, then we can go straight from user clicking the wnd to the corresponding line by looking how many lines does the mouse go and input that into the wrap around list to get to that line's first char idx
 //TODO(fran): on WM_STYLECHANGING check for password changes, that'd need a full recalculation
 //TODO(fran): on a WM_STYLECHANGING we should check if the alignment has changed and recalc/redraw every char, NOTE: I dont think windows' controls bother with this since it's not too common of a use case
 //TODO(fran): at some point I got to trigger a secondary IME candidates window which for some reason decided to show up, this BUG is probably related to the multiple candidates window, maybe we need to manually block the secondary ones, it could be that if you write too much text this extra candidate windows appear
@@ -60,18 +60,17 @@
 //·EN_CHANGE is sent when there is a modification to the text, of any type, and it's sent immediately, not after rendering
 
 
-
 namespace edit_oneline{
 
 	constexpr cstr wndclass[] = L"unCap_wndclass_edit_oneline";
 
 	constexpr cstr password_char = sizeof(password_char) > 1 ? _t('●') : _t('*');
 
-	//TODO(fran): now that I think about I think this would be much better done once you need the contents from the editbox, you can perform a one time check, send one notification to the user informing of the problem and that's it
+	//TODO(fran): now that I think about it I believe this would be much better done once you need the contents from the editbox, you can perform a one time check, send one notification to the user informing of the problem and that's it
 	struct _has_invalid_chars { bool res; std::wstring explanation; };
 	typedef _has_invalid_chars(*func_has_invalid_chars)(const utf16* txt, size_t char_cnt, void* user_extra);
 
-	struct char_sel {//TODO(fran): we should be using size_t and solve the -1 issue by simply checking for size_t_max
+	struct char_sel {
 		using type = size_t;
 		type anchor;//Eg ABC		anchor=1	anchor is between A and B
 		type cursor;//Eg ABC		cursor=1	cursor is between A and B
@@ -95,8 +94,6 @@ namespace edit_oneline{
 		//Example:
 		//			ABCD	EM_SETSEL(1,1)	cursor is placed in between A and B
 		//			ABCD	EM_SETSEL(1,2)	selection covers the letter B, cursor is placed between B and C
-
-		//TODO(fran): not sure whether I should store y position, it's actually more of a UI thing, but it may be necessary for things like scrolling to xth char_sel
 	};
 
 	struct Theme {
@@ -116,10 +113,12 @@ namespace edit_oneline{
 
 		Theme theme;
 
-		u32 char_max_sz;//doesnt include terminating null, also we wont have terminating null
+		u64 char_max_sz;//doesnt include terminating null, also we wont have terminating null
 		
-		char_sel char_cur_sel;//this is in "character" coordinates, zero-based
-		//TODO(fran): cache char_cur_sel's starting line
+
+		char_sel selection;//current selection, in "character" coordinates, zero-based //TODO(fran): cache selection's starting line
+
+		f32 vertical_selection_stored_width;
 
 		struct caretnfo {
 			HBITMAP bmp;
@@ -130,34 +129,33 @@ namespace edit_oneline{
 		std::wstring char_text;//much simpler to work with and debug
 		std::vector<int> char_dims;//NOTE: specifies, for each character, its width
 		std::vector<size_t> line_breaks; //Indices into the text string where line breaks occur
-		//TODO(fran): it's probably better to use signed numbers in case the text overflows the size of the control
+
 		v2_i32 padding; //NOTE: x,y offset from where characters start being placed on the screen, relative to the client area, positive values 'shrink' the rendering area. For a left aligned control this will be offset from the left, for right aligned it'll be offset from the right, and for center alignment it'll be the left most position from where chars will be drawn
 
 		cstr placeholder[100]; //NOTE: uses txt_dis brush for rendering
 		bool maintain_placerholder_on_focus;//Hide placeholder text when the user clicks over it
 		
-		//cstr invalid_chars[100];
-
 		union EditOnelineControls {
 			struct {
 				HWND tooltip;
 			};
 			HWND all[1];//REMEMBER TO UPDATE
+			
+			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 		}controls;
 
-		bool OnMouseTracking;//true when capturing the mouse while the user remains with left click down
+		bool on_mouse_tracking;//true when capturing the mouse while the user remains with left click down
 
 		HGLOBAL clipboard_handle;
 
-		bool hideIMEwnd;
-		bool ignoreIMEcandidates;
+		bool hide_IME_wnd;
+		bool ignore_IME_candidates;
 
 		void* user_extra;
 
 		func_has_invalid_chars has_invalid_chars;
 
-		int scrollx;
-
+		v2_i32 scroll;//TODO(fran): v2_i64?
 	};
 
 
@@ -249,7 +247,7 @@ namespace edit_oneline{
 		return res;
 	}
 
-	SIZE calc_text_dim(ProcState* state) {
+	SIZE calc_text_dim(ProcState* state) { //TODO(fran): @multiline?
 		SIZE res;
 		LONG_PTR  style = GetWindowLongPtr(state->wnd, GWL_STYLE);
 		if (style & ES_PASSWORD) {
@@ -267,17 +265,22 @@ namespace edit_oneline{
 		return res;
 	}
 
+	//"Hello\n\n\n"
+	// -lines: "Hello\n" "\n "\n"
+	// -cursor idx mapping: func(char_idx = 1 aka H|ello) -> line_char_idx = 0 aka |Hello ; line_idx = 0 aka Hello|\n
+	//						func(char_idx = 6 aka Hello\n|\n) -> line_char_idx = 6 Hello\n|\n ; line_idx = 1 aka Hello\n|\n
+
 	//Finds out the index of the first character of the line where the input character index belongs to
-	//(This will be either 0 for the first line, or one character past the \n for all other lines)
+	//(This will be either 0 for the first line, or one character past the \n of the previous line for all other lines)
 	struct _char_idx_to_line_char_idx_res { u64 line_char_idx; u64 line_idx; };
 	_char_idx_to_line_char_idx_res char_idx_to_line_char_idx(ProcState* const state, size_t char_idx) {
 		_char_idx_to_line_char_idx_res res;
 		res.line_char_idx = state->char_text.rfind('\n', safe_subtract0(char_idx,1))+1; //TODO(fran): I do this instead of iterating over state->line_breaks cause I think it scales better to larger strings and may even be generally faster or close to it, though there maybe be a fast way to search through state->line_breaks, otherwise having that cache is pointless & I should remove it
 
 		res.line_idx = 0;
-		if (res.line_char_idx ) {
+		if (res.line_char_idx) {
 			u64 line_idx_estimate = safe_ratio0((f64)res.line_char_idx, (f64)state->char_text.size()) * safe_subtract0(state->line_breaks.size(),1);
-			u64 increment = state->line_breaks[line_idx_estimate] < res.line_char_idx ? +1 : -1;
+			i64 increment = state->line_breaks[line_idx_estimate] < res.line_char_idx ? +1 : -1;
 
 			for (u64 i = line_idx_estimate; i < state->line_breaks.size(); i += increment) {
 				if (state->line_breaks[i] == res.line_char_idx - 1) {
@@ -292,17 +295,17 @@ namespace edit_oneline{
 			//NOTE: I will usually need both line_idx and line_char_idx, since I use the first one to move in Y and the other to move in X
 			//TODO(fran)?: if we dont want to do the hash table thing we could estimate the index: line_idx_estimation = (char_idx / total_chars) * total_lines; and iterate forward or backwards from there
 
-		//TODO(fran): im having this issue with the fact that line_idx = 0 is not always a valid index into state->line_breaks, we have a dual mapping for 0, it will return 0 when there are no line breaks, but also 0 when we are on the first line break. The code needs to be re-tought, maybe we should return a line count, that is always at least 1. This would fix the dual mapping problem though it would still not fix the access into state->line_breaks
+		//TODO(fran): im having this issue with the fact that line_idx = 0 is not always a valid index into state->line_breaks, and we have a dual mapping for 0, it will return 0 when there are no line breaks, but also 0 when we are on the first line break. The code needs to be re-tought, maybe we should return a line count, that is always at least 1. This would fix the dual mapping problem though it would still not fix the access into state->line_breaks
 		return res;
 	}
 
 	POINT calc_caret_p(ProcState* const state) {
-		Assert(safe_subtract0(state->char_cur_sel.cursor, (size_t)1) <= state->char_dims.size());
+		Assert(safe_subtract0(state->selection.cursor, (size_t)1) <= state->char_dims.size());
 		POINT res = { state->padding.x, state->padding.y };
 
-		auto [line_char_idx, line_idx] = char_idx_to_line_char_idx(state, state->char_cur_sel.cursor);
+		auto [line_char_idx, line_idx] = char_idx_to_line_char_idx(state, state->selection.cursor);
 
-		for (size_t i = line_char_idx; i < state->char_cur_sel.cursor; i++) {
+		for (size_t i = line_char_idx; i < state->selection.cursor; i++) {
 			res.x += state->char_dims[i];
 		}
 
@@ -315,6 +318,15 @@ namespace edit_oneline{
 		return res;
 	}
 
+	i32 min_height(ProcState* state) {
+		i32 res = state->padding.y + calc_line_height_px(state);
+		return res;
+	}
+
+	i32 desired_height(ProcState* state) {
+		i32 res = state->padding.y + calc_line_height_px(state) * (state->line_breaks.size() + 1);
+		return res;
+	}
 
 	namespace ETP {
 		enum ETP {//EditOneline_tooltip_placement
@@ -366,27 +378,43 @@ namespace edit_oneline{
 		SetTimer(state->wnd, EDITONELINE_tooltip_timer_id, duration_ms, NULL);
 	}
 
-	void scroll_based_on_caret(ProcState* state) { //TODO(fran): @multiline
-		//TODO(fran): test right and center text alignments, @BUG: center alignment is wrong, probably due to my stupid use of padding.x, it should simply indicate the render area, instead Im using it to align the text, I think
+	void scroll_based_on_caret(ProcState* state) {
+		//TODO(fran): test right and center text alignments, @BUG: center alignment is wrong, probably due to my stupid use of padding.x, it should simply indicate the render area, instead Im using it to align the text when that should require a new variable
 
 		RECT rc; GetClientRect(state->wnd, &rc);
-		if (!RECTW(rc)) return; //TODO(fran): this is probably more accurate by checking for element visibility or smth like that
+		auto w = RECTW(rc), h = RECTH(rc);
+		if (!w || !h) return; //TODO(fran): this is probably more accurate by checking for element visibility or smth like that
 		//TODO(fran): im sure this can be done branchless
-		if (int scroll = state->caret.pos.x - (RECTW(rc) - state->padding.x + state->scrollx); scroll > 0) {
+		if (int scroll = (state->caret.pos.x + state->caret.dim.cx) - (w - state->padding.x + state->scroll.x); scroll > 0) {
 			//scroll right
-			state->scrollx += scroll;
+			state->scroll.x += scroll;
 			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE|SW_INVALIDATE);
 			ask_for_repaint(state); //TODO(fran): currently we simply invalidate the whole window and redraw everything, this may or may not be optimal
 		}
-		else if (int scroll = state->caret.pos.x - (state->scrollx + state->padding.x); scroll < 0) {
+		else if (int scroll = (state->caret.pos.x) - (state->scroll.x + state->padding.x); scroll < 0) {
 			//scroll left
-			state->scrollx += scroll;
-			//ScrollWindowEx(state->wnd, scroll, 0, 0, 0, 0, 0, SW_ERASE | SW_INVALIDATE);
+			state->scroll.x += scroll;
+			ask_for_repaint(state);
+		}
+
+		if (int scroll = (state->caret.pos.y + state->caret.dim.cy) - (h - state->padding.y + state->scroll.y); scroll > 0) {
+			//scroll down
+			state->scroll.y += scroll;
+			ask_for_repaint(state);
+		}
+		else if (int scroll = (state->caret.pos.y) - (state->scroll.y + state->padding.y); scroll < 0) {
+			//scroll up
+			state->scroll.y += scroll;
+			ask_for_repaint(state);
+		}
+		else if ((GetWindowLongPtr(state->wnd, GWL_STYLE) & ES_EXPANSIBLE) && h >= desired_height(state)) {
+			//HACK?: scroll up if you can fit all lines
+			state->scroll.y = 0; //TODO(fran): im sure this special case will introduce bugs
 			ask_for_repaint(state);
 		}
 	}
 
-	void reposition_caret(ProcState* state, b32 nocheck = false) { //TODO(fran): @multiline
+	void reposition_caret(ProcState* state, b32 nocheck = false) {
 		POINT oldcaretp = state->caret.pos;
 		state->caret.pos = calc_caret_p(state);
 		if (oldcaretp != state->caret.pos || nocheck) {
@@ -394,8 +422,9 @@ namespace edit_oneline{
 
 			//I havent found a way to apply a translation to the caret so that SetCaretPos automatically places it on the correct character even when the characters are scrolled, therefore we gotta apply the transformation manually
 			POINT p = state->caret.pos;
-			p.x -= state->scrollx;
-			SetCaretPos(p);
+			p.x -= state->scroll.x;
+			p.y -= state->scroll.y;
+			SetCaretPos(p); //TODO(fran): only the focussed element should move the caret
 		}
 		//if(GetFocus() == state->wnd) SetCaretPos(state->caret.pos); //NOTE: this introduced a bug with settext where calling settext with a null string on the focussed editbox would place the caret on the wrong place
 	}
@@ -427,6 +456,11 @@ namespace edit_oneline{
 		}
 	}
 
+	//Any event that is not a Arrow Up/Down event (keyboard strokes, mouse clicks; font/style changes?) should reset the vertical selection's stored width
+	void reset_vertical_selection_stored_width(ProcState* state) {
+		state->vertical_selection_stored_width = 0;
+	}
+
 	void remove_selection(ProcState* state, size_t x_min, size_t x_max) {
 		if (!state->char_text.empty()) {
 			x_min = clamp((size_t)0, x_min, state->char_text.length());
@@ -440,23 +474,15 @@ namespace edit_oneline{
 			recalculate_line_breaks(state);
 
 			SendMessage(state->wnd, EM_SETSEL, x_min, x_min);
-			//state->char_cur_sel.anchor = state->char_cur_sel.cursor = x_min;
+			//state->selection.anchor = state->selection.cursor = x_min;
+
+			reset_vertical_selection_stored_width(state); //NOTE(fran): this may not be necessary here since most events that remove selections already reset this as a side effect, but we'll do it anyways for completion and because it costs nothing
 		}
 	}
 
 	//Removes the current text selection and updates the selection values
 	void remove_selection(ProcState* state) {
-		remove_selection(state, state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
-	}
-
-	i32 min_height(ProcState* state) {
-		i32 res = state->padding.y + calc_line_height_px(state);
-		return res;
-	}
-
-	i32 desired_height(ProcState* state) {
-		i32 res = state->padding.y + calc_line_height_px(state) * (state->line_breaks.size() + 1);
-		return res;
+		remove_selection(state, state->selection.x_min(), state->selection.x_max());
 	}
 
 	void check_expansibility(ProcState* state) {
@@ -492,17 +518,19 @@ namespace edit_oneline{
 			if (sel.has_selection()) remove_selection(state, x_min, x_max);
 
 			//insert new character
-			state->char_text.insert(state->char_cur_sel.cursor, s.str);
+			state->char_text.insert(state->selection.cursor, s.str);
 
 			for (size_t i = 0; i < s.sz_char() - 1; i++)
-				state->char_dims.insert(state->char_dims.begin() + state->char_cur_sel.cursor + i, calc_char_dim(state, s[i]).cx);
+				state->char_dims.insert(state->char_dims.begin() + state->selection.cursor + i, calc_char_dim(state, s[i]).cx);
 
 			recalculate_line_breaks(state);
 
-			size_t anchor = state->char_cur_sel.cursor + safe_subtract0(s.sz_char(), (size_t)1);
+			size_t anchor = state->selection.cursor + safe_subtract0(s.sz_char(), (size_t)1);
 			size_t cursor = anchor;
 
 			SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
+
+			reset_vertical_selection_stored_width(state);
 
 			update_char_pad(state);
 			reposition_caret(state);
@@ -519,14 +547,14 @@ namespace edit_oneline{
 		txt[0] = c;
 		txt[1] = 0;
 
-		return insert_character(state, to_utf16_str(txt), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+		return insert_character(state, to_utf16_str(txt), state->selection.x_min(), state->selection.x_max());
 	}
 
 	//inserts string replacing the current selection
 	bool insert_character(ProcState* state, const utf16* s) {
 		bool res = false;
 		if (s)
-			res = insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->char_cur_sel.x_min(), state->char_cur_sel.x_max());
+			res = insert_character(state, to_utf16_str(const_cast<utf16*>(s)), state->selection.x_min(), state->selection.x_max());
 		return res;
 	}
 
@@ -586,7 +614,7 @@ namespace edit_oneline{
 				cf.ptCurrentPos.y = 0;
 			}
 	#else //IME window no longer draws the unnecessary border with resizing and button, it is placed at cf.ptCurrentPos and has a max size of cf.rcArea in the x axis, the y axis can extend a lot longer, basically it does what it wants with y
-			if (!state->hideIMEwnd) {
+			if (!state->hide_IME_wnd) {
 				cf.dwStyle = CFS_RECT;
 
 				//TODO(fran): should I place the IME in line with the caret or below so the user can see what's already written in that line?
@@ -628,7 +656,7 @@ namespace edit_oneline{
 	void set_IME_wnd(HWND wnd, bool hidden) {
 		ProcState* state = get_state(wnd);
 		if (state) {
-			state->hideIMEwnd = hidden;
+			state->hide_IME_wnd = hidden;
 		}
 	}
 
@@ -828,31 +856,152 @@ namespace edit_oneline{
 		Assert(direction == 1 || direction == -1);
 		size_t anchor, cursor;
 
+		auto new_cursor = [&]() {
+			auto res = clamp(
+				(char_sel::type)0, 
+				state->selection.cursor + ((state->selection.cursor == 0 && direction == -1) ? 0 : direction) /*TODO(fran): safe_add(a, b, ret_on_underflow, ret_on_overflow)*/, 
+				state->char_text.length());
+			return res;
+		};
+
 		if (shift_is_down && ctrl_is_down) {
-			anchor = state->char_cur_sel.anchor;
-			cursor = find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, clamp(-1, direction, +1));
+			anchor = state->selection.anchor;
+			cursor = find_stopper(to_utf16_str(state->char_text), state->selection.cursor, clamp(-1, direction, +1));
 		}
 		else if (shift_is_down) {
 			//User is adding one extra character to the selection
-			anchor = state->char_cur_sel.anchor;
-			cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + ((state->char_cur_sel.cursor == 0 && direction == -1) ? 0 : direction), state->char_text.length());
+			anchor = state->selection.anchor;
+			//cursor = clamp((char_sel::type)0, state->selection.cursor + ((state->selection.cursor == 0 && direction == -1) ? 0 : direction), state->char_text.length());
+			cursor = new_cursor();
 		}
 		else if (ctrl_is_down) {
-			anchor = cursor = find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,clamp(-1,direction,+1));
+			anchor = cursor = find_stopper(to_utf16_str(state->char_text),state->selection.cursor,clamp(-1,direction,+1));
 		}
 		else {
-			if (state->char_cur_sel.has_selection()) anchor = cursor = ((direction>=0) ? state->char_cur_sel.x_max() : state->char_cur_sel.x_min());
-			else anchor = cursor = clamp((char_sel::type)0, state->char_cur_sel.cursor + ((state->char_cur_sel.cursor==0 && direction == -1) ? 0 : direction) /*TODO(fran): safe_add(a, b, ret_on_underflow, ret_on_overflow)*/, state->char_text.length());
+			if (state->selection.has_selection()) anchor = cursor = ((direction >= 0) ? state->selection.x_max() : state->selection.x_min());
+			//else anchor = cursor = clamp((char_sel::type)0, state->selection.cursor + ((state->selection.cursor==0 && direction == -1) ? 0 : direction), state->char_text.length());
+			else anchor = cursor = new_cursor();
 		}
 
 		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 	}
 
-	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) { //TODO(fran): @multiline
+	/* TODO(fran): complete the implementation of this guys
+
+	//Examples:
+	// "Hello how are u doing\nFine" -> first_char_idx_past_line_idx(-1)      -> |Hello
+	// "Hello how are u doing\nFine" -> first_char_idx_past_line_idx(n >= 0)  -> doing\n|Fine
+	// "Hello how are u doing\n"     -> first_char_idx_past_line_idx(0)       -> \n|
+	//Important: as we can see the value returned can go past the last character of the string, and thus go over the size of arrays, therefore the value should be iterated up to but not including itself
+	size_t first_char_idx_past_line_idx(ProcState* state, size_t line_idx) {
+		size_t res;
+		if (line_idx == (size_t)-1) res = 0; //TODO(fran): start using i64 so we can encode the hidden first line at 0
+		else if (line_idx >= state->line_breaks.size()) res = state->char_text.size(); //char can be past the end of text, this will cause crashes because I dont think most arrays dependent on char_idx handle that case, TODO(fran): see what to do about that
+		else res = state->line_breaks[line_idx] + 1; //again, can be past the end of text, and could even not be a valid character for that line if the line is just made of a single \n, which leads me to believe the user should go up to but not including first_char_idx
+		return res;
+	}
+
+
+	//Cursor will be _behind_ the last letter of the line
+	//REMEMBER: line indexes are part of the line
+	//				eg "Hello how are u doing\nFine" -> last_char_idx_before_line_idx(0 or -1) will place the cursor in doin|g
+	//												    last_char_idx_before_line_idx(n>0) will place the cursor in Fin|e
+	//				eg "Hello how are u doing"		 -> last_char_idx_before_line_idx(any number) will place the cursor in doin|g
+	//Idx will be at the last letter of the line, state->char_text[idx] & state->char_dims[idx] is valid //TODO(fran): except for when char_text is empty
+	size_t last_char_idx_before_line_idx(ProcState* state, size_t line_idx) {
+		size_t res;
+		if (line_idx == (size_t)-1) res = state->line_breaks.size() ? safe_subtract0(state->line_breaks[0], 1) : safe_subtract0(state->char_text.size(), 1); //cursor will be behind the last letter of the line
+		else if (line_idx >= state->line_breaks.size()) res = safe_subtract0(state->char_text.size(),1);
+		else res = safe_subtract0(state->line_breaks[line_idx], 1);
+		return res; //TODO(fran): check that we dont move to the previous line, eg in the case of Hello\n\n -> last_char_idx_before_line_idx(1) should map to -> Hello\n|\n
+	}
+
+	//Cursor will be _after_ the last letter of the line
+	//				eg "Hello how are u doing\nFine" -> one_past_last_char_idx_before_line_idx(0 or -1) will place the cursor in doing|
+	//												    one_past_last_char_idx_before_line_idx(n>0) will place the cursor in Fine|
+	//				eg "Hello how are u doing"		 -> one_past_last_char_idx_before_line_idx(any number) will place the cursor in doing|
+	//				eg "Hello how are u doing\nFine" -> one_past_last_char_idx_before_line_idx(0 or -1) will place the cursor in doing|
+	size_t one_past_last_char_idx_before_line_idx(ProcState* state, size_t line_idx) {
+		size_t res = last_char_idx_before_line_idx(state, line_idx);
+		res = minimum(res + 1, state->char_text.size());
+		return res;
+
+	}
+
+	*/
+
+	//TODO(fran): combine with move_selection by sending a v2_i32 direction?
+	void move_selection_vertical(ProcState* state, int direction, bool shift_is_down, bool ctrl_is_down) {
+		Assert(direction == 1 || direction == -1);
+		size_t anchor, cursor;
+
+		auto new_cursor = [&]() {
+			size_t res=0;
+
+			auto [line_char_idx, line_idx] = char_idx_to_line_char_idx(state, state->selection.cursor);
+
+			//Special cases where it acts like pressing Home and End
+			if (!state->line_breaks.size() || (direction > 0 && line_idx >= state->line_breaks.size() || (direction < 0 && line_char_idx==0))) { 
+				res = direction > 0 ? state->char_text.size() : 0;
+				return res;
+			}
+			
+			i32 current_line_width=0;
+			for (auto i = line_char_idx; i < state->selection.cursor; i++)
+				current_line_width += state->char_dims[i];
+
+			if (state->vertical_selection_stored_width > current_line_width) current_line_width = state->vertical_selection_stored_width;
+			else state->vertical_selection_stored_width = current_line_width;
+
+			size_t target_line = (direction > 0) ? line_idx + direction : safe_subtract0(line_idx, abs(direction));
+
+			//TODO(fran): encode this repeating concepts of safe_subtract, finding line ends and so on into specific functions to make this easier to code and understand
+
+			auto idx_end = target_line < state->line_breaks.size() ? state->line_breaks[target_line] : state->char_text.size();
+			auto idx_start = char_idx_to_line_char_idx(state, idx_end).line_char_idx;
+
+			f32 test_width=0;
+			auto i = idx_start;
+
+			for (; i < idx_end; i++) {
+				f32 d = (f32)state->char_dims[i] / 2.f;
+				test_width += d;
+				if (test_width >= current_line_width) { res = i; return res; }
+				test_width += d;
+			}
+
+			if (i == idx_end) res = idx_end;
+
+			return res;
+		};
+
+		if (shift_is_down && ctrl_is_down) {
+			return;
+			//we do nothing, we dont have anything mapped to that. As a note Sublime switches lines when you do this, which is the same that Visual Studio does when pressing Alt + Up/Down. TODO(fran): create a key-to-action mapping table that can be user editable
+		}
+		else if (shift_is_down) {
+			//User is adding one extra character to the selection
+			anchor = state->selection.anchor;
+			cursor = new_cursor();
+		}
+		else if (ctrl_is_down) {
+			return;
+			//TODO(fran): scroll one line up or down
+		}
+		else {
+			if (state->selection.has_selection()) anchor = cursor = ((direction >= 0) ? state->selection.x_max() : state->selection.x_min()); //TODO(fran): I dont think this is what we want, we still want to move to the next or previous line that comes after or before the current selection block
+			//else anchor = cursor = clamp((char_sel::type)0, state->selection.cursor + ((state->selection.cursor==0 && direction == -1) ? 0 : direction), state->char_text.length());
+			else anchor = cursor = new_cursor();
+		}
+
+		SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
+	}
+
+	size_t point_to_char(ProcState* state, POINT mouse/*client coords*/) {
 		size_t res=0;
 		f32 x = (decltype(x))state->padding.x;
 
-		u64 line = clamp((u64)0, (u64)(mouse.y - state->padding.y) / calc_line_height_px(state), state->line_breaks.size());
+		u64 line = clamp((u64)0, (u64)(mouse.y - state->padding.y + state->scroll.y) / calc_line_height_px(state), state->line_breaks.size());
 
 		//IMPORTANT(fran): Line mapping is as follows:
 		//					line = 0 -> "line 0" -> char_idx = 0                
@@ -867,7 +1016,7 @@ namespace edit_oneline{
 		for (; i < line_end; i++) {
 			f32 d = (f32)state->char_dims[i] / 2.f;
 			x += d;
-			if ((f32)mouse.x+state->scrollx < x) { res = i; break; }
+			if ((f32)mouse.x+state->scroll.x < x) { res = i; break; }
 			x += d;
 		}
 		if (i == line_end) res = i;//if the mouse is rightmost of the last character then simply clip to there
@@ -918,7 +1067,7 @@ namespace edit_oneline{
 			st->wnd = hwnd;
 			st->parent = creation_nfo->hwndParent;
 			st->identifier = (u32)(UINT_PTR)creation_nfo->hMenu;
-			st->char_max_sz = 32767;//default established by windows
+			st->char_max_sz = -1;//default established by windows: 32767
 			*st->placeholder = 0;
 			st->char_text = str();//REMEMBER: this c++ objects dont like being calloc-ed, they need their constructor, or, in this case, someone else's, otherwise they are badly initialized
 			st->char_dims = std::vector<int>();
@@ -965,7 +1114,7 @@ namespace edit_oneline{
 			//NOTE: neat, here you resize your render target, if I had one or cared to resize windows' https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-size
 			//This msg is received _after_ the window was resized
 			update_char_pad(state);
-			reposition_caret(state);
+			reposition_caret(state, true);
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -1126,12 +1275,12 @@ namespace edit_oneline{
 				//TODO(fran): create clip region so the text cant go over the border
 
 				//TODO(fran): continue exploring world transformations for scrolling, 
-				POINT old_origin; SetViewportOrgEx(dc, -state->scrollx, 0, &old_origin); defer{ SetViewportOrgEx(dc, old_origin.x, old_origin.y, 0); };
+				POINT old_origin; SetViewportOrgEx(dc, -state->scroll.x, -state->scroll.y, &old_origin); defer{ SetViewportOrgEx(dc, old_origin.x, old_origin.y, 0); };
 				//NOTE: even if you dont reset the origin back to 0,0 windows automatically does
 
 				{ //Render Selection
-					if (state->char_cur_sel.has_selection() && (style & ES_PASSWORD)) {
-						render_selection(dc, selection_br, state->char_cur_sel, state, yPos, 0);
+					if (state->selection.has_selection() && (style & ES_PASSWORD)) {
+						render_selection(dc, selection_br, state->selection, state, yPos, 0);
 					}
 				}
 
@@ -1171,7 +1320,7 @@ namespace edit_oneline{
 
 						{
 							const size_t start = off, end = len+1 /*+1 so the user can visually select the \n character at the end of the line*/;
-							char_sel selection{ clamp(start,state->char_cur_sel.x_min(),end), clamp(start,state->char_cur_sel.x_max(),end) };
+							char_sel selection{ clamp(start,state->selection.x_min(),end), clamp(start,state->selection.x_max(),end) };
 							if (selection.has_selection())
 								render_selection(dc, selection_br, selection, state, yPos, start);
 						}
@@ -1194,6 +1343,10 @@ namespace edit_oneline{
 			min->cy = maximum(min_height(state),(i32)min->cy);
 			max->cy = minimum(maximum(desired_height(state),(i32)min->cy), (i32)max->cy);
 
+			//TODO(fran): this needs to be redone and we should return smth like this: struct{padding, increment, increment_cnt}
+			// where increment basically indicates the size of a line, and increment_cnt the number of desired lines.
+			// Or obviously even better would be if we, as the edit control, could manually select our size based on limitations imposed by our creator
+
 			return desired_size::flexible;
 		} break;
 		case WM_ENABLE:
@@ -1207,7 +1360,7 @@ namespace edit_oneline{
 		{
 			//Stop mouse capture, and similar input related things
 			ReleaseCapture();
-			state->OnMouseTracking = false;
+			state->on_mouse_tracking = false;
 			//Sent, for example, when the window gets disabled
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
@@ -1247,20 +1400,21 @@ namespace edit_oneline{
 			//wparam = test for virtual keys pressed
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 
-			if (state->OnMouseTracking) {
+			if (state->on_mouse_tracking) {
 				//user is trying to make a selection
 				size_t cursor = point_to_char(state, mouse);
-				SendMessage(state->wnd, EM_SETSEL, state->char_cur_sel.anchor, cursor);
+				SendMessage(state->wnd, EM_SETSEL, state->selection.anchor, cursor);
 			}
 
 			return DefWindowProc(hwnd, msg, wparam, lparam);
 		} break;
-		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received
+		case WM_MOUSEACTIVATE://When the user clicks on us this is 1st msg received (any click: left, right, etc)
 		{
 			HWND parent = (HWND)wparam;
 			WORD hittest = LOWORD(lparam);
 			WORD mouse_msg = HIWORD(lparam);
 			SetFocus(state->wnd);//set keyboard focus to us
+			reset_vertical_selection_stored_width(state);
 			return MA_ACTIVATE; //Activate our window and post the mouse msg
 		} break;
 		case WM_LBUTTONDOWN://When the user clicks on us this is 2nd msg received (possibly, maybe wm_setcursor again)
@@ -1269,7 +1423,7 @@ namespace edit_oneline{
 			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
 
 			SetCapture(state->wnd);//We want to keep capturing the mouse while the user is still pressing some button, even if the mouse leaves our client area
-			state->OnMouseTracking = true;
+			state->on_mouse_tracking = true;
 
 			size_t cursor = point_to_char(state, mouse);
 			SendMessage(state->wnd, EM_SETSEL, cursor, cursor);
@@ -1281,14 +1435,14 @@ namespace edit_oneline{
 			//TODO(fran): select entire word
 			auto text = to_utf16_str(state->char_text);
 			//HACK: We assume the mouse hasnt moved much since the first click, therefore we do not need to check the mouse position to find out where the cursor is since the first click already set the cursor position
-			auto left = find_stopper(text, state->char_cur_sel.cursor+1, -1);
-			auto right = find_stopper(text, state->char_cur_sel.cursor ? state->char_cur_sel.cursor-1 : 0 , +1);
+			auto left = find_stopper(text, state->selection.cursor+1, -1);
+			auto right = find_stopper(text, state->selection.cursor ? state->selection.cursor-1 : 0 , +1);
 			SendMessage(state->wnd, EM_SETSEL, left, right);
 		} break;
 		case WM_LBUTTONUP:
 		{
 			ReleaseCapture();
-			state->OnMouseTracking = false;
+			state->on_mouse_tracking = false;
 		} break;
 		case WM_SETFOCUS://SetFocus -> WM_IME_SETCONTEXT -> WM_SETFOCUS
 		{
@@ -1353,6 +1507,9 @@ namespace edit_oneline{
 			//Notifications:
 			bool en_change = false;
 
+			//Vertical Selection Stored Width:
+			bool reset_v_sel_stored_w = true;
+
 			//TODO(fran): here we process things like VK_HOME VK_NEXT VK_LEFT VK_RIGHT VK_DELETE
 			//NOTE: there are some keys that dont get sent to WM_CHAR, we gotta handle them here, also there are others that get sent to both, TODO(fran): it'd be nice to have all the key things in only one place
 			//NOTE: for things like _shortcuts_ you wanna handle them here cause on WM_CHAR things like Ctrl+V get translated to something else
@@ -1367,11 +1524,11 @@ namespace edit_oneline{
 				size_t anchor, cursor;
 
 				if (shift_is_down && ctrl_is_down) {//Make a selection to the start of the text
-					anchor = state->char_cur_sel.anchor;
+					anchor = state->selection.anchor;
 					cursor = 0;
 				}
 				else if (shift_is_down) {//Make a selection to the start of the line
-					anchor = state->char_cur_sel.anchor;
+					anchor = state->selection.anchor;
 					cursor = 0;
 				}
 				else if (ctrl_is_down) {//Remove selection and Go to the start of the text
@@ -1386,11 +1543,11 @@ namespace edit_oneline{
 				size_t anchor, cursor;
 
 				if (shift_is_down && ctrl_is_down) {//Make a selection to the end of the text
-					anchor = state->char_cur_sel.anchor;
+					anchor = state->selection.anchor;
 					cursor = state->char_text.length();
 				}
 				else if (shift_is_down) {//Make a selection to the end of the line
-					anchor = state->char_cur_sel.anchor;
+					anchor = state->selection.anchor;
 					cursor = state->char_text.length();
 				}
 				else if (ctrl_is_down) {//Remove selection and Go to the end of the text
@@ -1407,35 +1564,35 @@ namespace edit_oneline{
 			case VK_RIGHT://Right arrow
 			{
 				move_selection(state, +1, shift_is_down, ctrl_is_down);
-
 			} break;
 			case VK_DOWN://Down arrow
 			{
-				Assert(0); //TODO(fran)
+				move_selection_vertical(state, +1, shift_is_down, ctrl_is_down);
+				reset_v_sel_stored_w = false;
 			} break;
 			case VK_UP://Up arrow
 			{
-				Assert(0); //TODO(fran)
-
+				move_selection_vertical(state, -1, shift_is_down, ctrl_is_down);
+				reset_v_sel_stored_w = false;
 			} break;
 			//TODO(fran): do we want to update scrolling to the left when deleting causes the text to get shorter than the right side of the element?
 			case VK_DELETE://What in spanish is the "Supr" key (delete character ahead of you)
 			{
 				if (!state->char_text.empty()) {
-					if (state->char_cur_sel.has_selection())remove_selection(state);
+					if (state->selection.has_selection())remove_selection(state);
 					else {
 						if (ctrl_is_down && shift_is_down) {//delete everything til end of the line
-							remove_selection(state, state->char_cur_sel.cursor, state->char_text.length());
+							remove_selection(state, state->selection.cursor, state->char_text.length());
 						}
 						else if (ctrl_is_down) {//delete everything up to the next stopper
-							remove_selection(state, state->char_cur_sel.cursor, find_stopper(to_utf16_str(state->char_text),state->char_cur_sel.cursor,+1));
+							remove_selection(state, state->selection.cursor, find_stopper(to_utf16_str(state->char_text),state->selection.cursor,+1));
 						}
 						else if (shift_is_down) {//save whole line to clipboard and then delete it
 							SendMessage(state->wnd, EM_SETSEL, 0, -1);
 							SendMessage(state->wnd, WM_COPY, 0, 0);
 							remove_selection(state);
 						}
-						else remove_selection(state, state->char_cur_sel.cursor, state->char_cur_sel.cursor + 1);//delete character in front of the cursor
+						else remove_selection(state, state->selection.cursor, state->selection.cursor + 1);//delete character in front of the cursor
 					}
 					en_change = true;
 				}
@@ -1443,12 +1600,12 @@ namespace edit_oneline{
 			case VK_BACK://Backspace
 			{
 				if (!state->char_text.empty()) {
-					if (state->char_cur_sel.has_selection())remove_selection(state);
+					if (state->selection.has_selection())remove_selection(state);
 					else {
 
-						if(ctrl_is_down && shift_is_down) remove_selection(state, 0, state->char_cur_sel.cursor); //Remove every character from cursor to line start
-						else if(ctrl_is_down) remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, -1), state->char_cur_sel.cursor);
-						else remove_selection(state, state->char_cur_sel.cursor - 1, state->char_cur_sel.cursor);
+						if(ctrl_is_down && shift_is_down) remove_selection(state, 0, state->selection.cursor); //Remove every character from cursor to line start
+						else if(ctrl_is_down) remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->selection.cursor, -1), state->selection.cursor);
+						else remove_selection(state, state->selection.cursor - 1, state->selection.cursor);
 					}
 					en_change = true;
 				}
@@ -1481,17 +1638,24 @@ namespace edit_oneline{
 
 				//TODO(fran): check that the candidates window has some candidates, if it doesnt then we can simply continue as if nothing happened
 				if (scancode == 0x148/*up arrow*/) {
-					state->ignoreIMEcandidates = true;
+					state->ignore_IME_candidates = true;
 					PostMessage(state->wnd, WM_KEYDOWN, VK_UP, lparam);
+					reset_v_sel_stored_w = false;
 				}
 				if( scancode == 0x150/*down arrow*/) {
-					state->ignoreIMEcandidates = true;
+					state->ignore_IME_candidates = true;
 					PostMessage(state->wnd, WM_KEYDOWN, VK_DOWN, lparam);
+					reset_v_sel_stored_w = false;
 				}
 
 			} break;
+			default:
+			{
+				reset_v_sel_stored_w = false;
+			} break;
 			}
 
+			if (reset_v_sel_stored_w)  reset_vertical_selection_stored_width(state);
 			ask_for_repaint(state);//TODO(fran): dont invalidate everything, NOTE: also on each wm_paint the cursor will stop so we should add here a bool repaint; to avoid calling InvalidateRect when it isnt needed
 			if (en_change) notify_parent(state, EN_CHANGE); //There was a change in the text
 			return 0;
@@ -1500,7 +1664,7 @@ namespace edit_oneline{
 		{
 			bool en_change = false;
 			SendMessage(state->wnd, WM_COPY, 0, 0);
-			if (state->char_cur_sel.has_selection()) en_change = true;
+			if (state->selection.has_selection()) en_change = true;
 			remove_selection(state);
 			if (en_change) notify_parent(state, EN_CHANGE);
 		} break;
@@ -1512,16 +1676,16 @@ namespace edit_oneline{
 			UINT format = CF_TEXT;
 #endif
 			//Copy text from current selection to clipboard
-			if (state->char_cur_sel.has_selection()) {
+			if (state->selection.has_selection()) {
 				if (OpenClipboard(state->wnd)) {
 					defer{ CloseClipboard(); };
-					HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (state->char_cur_sel.sel_width() + 1) * sizeof(state->char_text[0])); Assert(mem);//TODO(fran): runtime_assert ?
+					HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (state->selection.sel_width() + 1) * sizeof(state->char_text[0])); Assert(mem);//TODO(fran): runtime_assert ?
 
 					{
 						void* txt = GlobalLock(mem); Assert(txt); defer{ GlobalUnlock(mem); };
 
-						memcpy(txt, state->char_text.c_str() + state->char_cur_sel.x_min(), state->char_cur_sel.sel_width() * sizeof(state->char_text[0]));//copy selection
-						((decltype(&state->char_text[0]))txt)[state->char_cur_sel.sel_width() + 1] = 0;//null terminate
+						memcpy(txt, state->char_text.c_str() + state->selection.x_min(), state->selection.sel_width() * sizeof(state->char_text[0]));//copy selection
+						((decltype(&state->char_text[0]))txt)[state->selection.sel_width() + 1] = 0;//null terminate
 					}
 					
 					EmptyClipboard();
@@ -1577,8 +1741,8 @@ namespace edit_oneline{
 			case 127://Ctrl + Backspace
 			{
 				/*if (!state->char_text.empty()) {
-					if (state->char_cur_sel.has_selection())remove_selection(state);
-					else remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->char_cur_sel.cursor, -1), state->char_cur_sel.cursor);
+					if (state->selection.has_selection())remove_selection(state);
+					else remove_selection(state, find_stopper(to_utf16_str(state->char_text), state->selection.cursor, -1), state->selection.cursor);
 
 					en_change = true;
 				}*/
@@ -1587,8 +1751,8 @@ namespace edit_oneline{
 			case VK_BACK://Backspace (for some reason it gets sent as WM_CHAR even though it can be handled in WM_KEYDOWN)
 			{
 				//if (!state->char_text.empty()) {
-				//	if (state->char_cur_sel.has_selection())remove_selection(state);
-				//	else remove_selection(state, state->char_cur_sel.cursor - 1, state->char_cur_sel.cursor);
+				//	if (state->selection.has_selection())remove_selection(state);
+				//	else remove_selection(state, state->selection.cursor - 1, state->selection.cursor);
 
 				//	en_change = true;
 				//}
@@ -1648,7 +1812,7 @@ namespace edit_oneline{
 
 				//We have some normal character
 				//TODO(fran): what happens with surrogate pairs? I dont even know what they are -> READ
-				if (safe_subtract0(state->char_text.length(), state->char_cur_sel.sel_width()) < state->char_max_sz) {
+				if (safe_subtract0(state->char_text.length(), state->selection.sel_width()) < state->char_max_sz) {
 					en_change = insert_character(state, c);
 					
 					//wprintf(L"%s\n", state->char_text.c_str());
@@ -1758,7 +1922,7 @@ namespace edit_oneline{
 			//TODO(fran): with this I get to hide the candidate window & in set_composition_pos I can "hide" the composition window, only problem left is the up and down arrow keys are still bound to the IME window and interact with the now hidden candidate window, I need to block the up&down arrows from getting to the IME and use them myself, or Create my own IME window that's more configurable
 			//TODO(fran): maybe I can intercept the "new candidate request" through WM_IME_NOTIFY or somewhere else, stop it from getting to the IME window and transforming it into a WM_LBUTTONDOWN with up or down arrow as key
 #if 1
-			if (state->hideIMEwnd) {
+			if (state->hide_IME_wnd) {
 				lparam = 0;//TODO(fran): after this is executed, it takes two WM_IME_SETCONTEXT from two other different controls that _do_ want IME visible for the IME window to fix itself
 			}
 #endif
@@ -1854,15 +2018,15 @@ namespace edit_oneline{
 			if (!lparam)						{change = "CANCEL IME"; printf("%s\n", change); }
 			#endif
 
-			if (state->hideIMEwnd && lparam & GCS_RESULTSTR) {//the content of the IME has been accepted by the user
-				SendMessage(state->wnd, EM_SETSEL, state->char_cur_sel.cursor, state->char_cur_sel.cursor);//clear selection
-				//TODO(fran): I think I should do state->ignoreIMEcandidates = false; here
-				state->ignoreIMEcandidates = false;
+			if (state->hide_IME_wnd && lparam & GCS_RESULTSTR) {//the content of the IME has been accepted by the user
+				SendMessage(state->wnd, EM_SETSEL, state->selection.cursor, state->selection.cursor);//clear selection
+				//TODO(fran): I think I should do state->ignore_IME_candidates = false; here
+				state->ignore_IME_candidates = false;
 				return 0;//we already have the result string in the editbox
 			}
 
-			if (state->hideIMEwnd && state->ignoreIMEcandidates) {
-				state->ignoreIMEcandidates = false;
+			if (state->hide_IME_wnd && state->ignore_IME_candidates) {
+				state->ignore_IME_candidates = false;
 				//TODO(fran): join this with the other cases, for example we probably want to have default handling on lparam==0
 				HIMC imc = ImmGetContext(state->wnd);
 				if (imc != NULL) {
@@ -1899,7 +2063,7 @@ namespace edit_oneline{
 			//TODO(fran): find a way to know when the IME was accepted, we dont really want to receive the accepted text as WM_CHAR messages since we already have the text written into the control
 			if (lparam == 0) {
 				//IME was cancelled, delete whatever was written with it
-				if (state->char_cur_sel.has_selection()) {
+				if (state->selection.has_selection()) {
 					remove_selection(state);
 					en_change = true;
 				}
@@ -1920,7 +2084,7 @@ namespace edit_oneline{
 
 						en_change = insert_character(state, txt);
 
-						SendMessage(state->wnd, EM_SETSEL, safe_subtract0(state->char_cur_sel.cursor, len), state->char_cur_sel.cursor);
+						SendMessage(state->wnd, EM_SETSEL, safe_subtract0(state->selection.cursor, len), state->selection.cursor);
 					}
 				}
 			}
@@ -1934,7 +2098,7 @@ namespace edit_oneline{
 	#ifndef UNICODE
 			Assert(0);//TODO(fran): DBCS
 	#endif 
-			if (!state->hideIMEwnd) {
+			if (!state->hide_IME_wnd) {
 				PostMessage(state->wnd, WM_CHAR, wparam, lparam);
 			}
 
@@ -2053,8 +2217,8 @@ namespace edit_oneline{
 
 			if (_start == (size_t)-1 || (i32)_start == (i32)-1) {//TODO(fran): find out the best check for this since -1 usually gets automapped to i32 and thus will be different from (size_t)-1 (I think)
 				//Remove current selection
-				if (state->char_cur_sel.anchor != state->char_cur_sel.cursor) {
-					state->char_cur_sel.anchor = state->char_cur_sel.cursor;
+				if (state->selection.anchor != state->selection.cursor) {
+					state->selection.anchor = state->selection.cursor;
 					ask_for_repaint(state);
 				}
 			}
@@ -2068,9 +2232,9 @@ namespace edit_oneline{
 				_end = clamp((size_t)0, _end, end_max);
 
 
-				if (state->char_cur_sel.anchor != _start || state->char_cur_sel.cursor != _end) {
-					state->char_cur_sel.anchor = _start;
-					state->char_cur_sel.cursor = _end;
+				if (state->selection.anchor != _start || state->selection.cursor != _end) {
+					state->selection.anchor = _start;
+					state->selection.cursor = _end;
 					ask_for_repaint(state);
 				}
 			}
@@ -2084,14 +2248,14 @@ namespace edit_oneline{
 			DWORD* start = (decltype(start))wparam;
 			DWORD* end = (decltype(end))lparam;
 
-			if (start) *start = (DWORD)state->char_cur_sel.x_min();
-			if (end) *end = (DWORD)state->char_cur_sel.x_max();
+			if (start) *start = (DWORD)state->selection.x_min();
+			if (end) *end = (DWORD)state->selection.x_max();
 
 			return -1;//TODO(fran): support for 16bit, should return zero-based value with the starting position of the selection in the LOWORD and the position of the first TCHAR after the last selected TCHAR in the HIWORD. If either of these values exceeds 65535 then the return value is -1.
 		} break;
 		case WM_CAPTURECHANGED://We're losing mouse capture
 		{
-			state->OnMouseTracking = false;
+			state->on_mouse_tracking = false;
 			return 0;
 		} break;
 		case WM_DESTROYCLIPBOARD:

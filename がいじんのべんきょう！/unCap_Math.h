@@ -265,6 +265,7 @@ static size_t distance(size_t a, size_t b) {
 
 //returns a - b if a >= b otherwise returns n
 static size_t safe_subtractN(size_t a, size_t b, size_t n) {
+	Assert(b >= 0);
 	size_t res;
 	if (a >= b) res = a - b;
 	else res = n;
