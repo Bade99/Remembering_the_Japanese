@@ -1519,7 +1519,7 @@ namespace edit_oneline{
 			bool shift_is_down = HIBYTE(GetKeyState(VK_SHIFT));
 			//printf("%c : %d\n", vk, (i32)vk);
 			switch (vk) {
-			case VK_HOME://Home
+			case VK_HOME://Home //TODO(fran): @multiline
 			{
 				size_t anchor, cursor;
 
@@ -1529,18 +1529,27 @@ namespace edit_oneline{
 				}
 				else if (shift_is_down) {//Make a selection to the start of the line
 					anchor = state->selection.anchor;
-					cursor = 0;
+					cursor = char_idx_to_line_char_idx(state, state->selection.cursor).line_char_idx;
+					//cursor = 0;
 				}
 				else if (ctrl_is_down) {//Remove selection and Go to the start of the text
 					anchor = cursor = 0;
 				}
-				else anchor = cursor = 0;//Remove selection and Go to the start of the line (since we're singleline go to start of text)
+				else {//Remove selection and Go to the start of the line (since we're singleline go to start of text)
+					//anchor = cursor = 0;
+					anchor = cursor = char_idx_to_line_char_idx(state, state->selection.cursor).line_char_idx;
+				}
 
 				SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 			} break;
-			case VK_END://End
+			case VK_END://End //TODO(fran): @multiline
 			{
 				size_t anchor, cursor;
+
+				auto last_cursor_in_line = [](ProcState* state) {
+					auto line_idx = char_idx_to_line_char_idx(state, state->selection.cursor).line_idx;
+					return line_idx < state->line_breaks.size() ? state->line_breaks[line_idx] : state->char_text.length();
+				};
 
 				if (shift_is_down && ctrl_is_down) {//Make a selection to the end of the text
 					anchor = state->selection.anchor;
@@ -1548,12 +1557,16 @@ namespace edit_oneline{
 				}
 				else if (shift_is_down) {//Make a selection to the end of the line
 					anchor = state->selection.anchor;
-					cursor = state->char_text.length();
+					//cursor = state->char_text.length();
+					cursor = last_cursor_in_line(state);
 				}
 				else if (ctrl_is_down) {//Remove selection and Go to the end of the text
 					anchor = cursor = state->char_text.length();
 				}
-				else anchor = cursor = state->char_text.length();//Remove selection and Go to the end of the line (since we're singleline go to start of text)
+				else {//Remove selection and Go to the end of the line (since we're singleline go to start of text)
+					//anchor = cursor = state->char_text.length();
+					anchor = cursor = last_cursor_in_line(state);
+				}
 
 				SendMessage(state->wnd, EM_SETSEL, anchor, cursor);
 			} break;
@@ -1639,12 +1652,12 @@ namespace edit_oneline{
 				//TODO(fran): check that the candidates window has some candidates, if it doesnt then we can simply continue as if nothing happened
 				if (scancode == 0x148/*up arrow*/) {
 					state->ignore_IME_candidates = true;
-					PostMessage(state->wnd, WM_KEYDOWN, VK_UP, lparam);
+					//PostMessage(state->wnd, WM_KEYDOWN, VK_UP, lparam); TODO(fran): uncomment this and find out what it was for
 					reset_v_sel_stored_w = false;
 				}
 				if( scancode == 0x150/*down arrow*/) {
 					state->ignore_IME_candidates = true;
-					PostMessage(state->wnd, WM_KEYDOWN, VK_DOWN, lparam);
+					//PostMessage(state->wnd, WM_KEYDOWN, VK_DOWN, lparam); TODO(fran): uncomment this and find out what it was for
 					reset_v_sel_stored_w = false;
 				}
 
