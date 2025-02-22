@@ -131,6 +131,43 @@ static u64 random_bit_set(u64 val) {
 	return res;
 }
 
+static constexpr u64 popcnt64(u64 x)
+{
+	//Thanks https://github.com/kimwalisch/libpopcnt/blob/master/libpopcnt.h
+	u64 m1 = 0x5555555555555555ull;
+	u64 m2 = 0x3333333333333333ull;
+	u64 m4 = 0x0F0F0F0F0F0F0F0Full;
+	u64 h01 = 0x0101010101010101ull;
+
+	x -= (x >> 1) & m1;
+	x = (x & m2) + ((x >> 2) & m2);
+	x = (x + (x >> 4)) & m4;
+
+	return (x * h01) >> 56;
+}
+
+static u32 get_bit_set_position(u32 val) {
+	u32 res = _tzcnt_u32(val);
+	return res;
+}
+
+static u64 get_bit_set_position(u64 val) {
+	u64 res = _tzcnt_u64(val);
+	return res;
+}
+
+static constexpr u32 get_last_bit_set_position_slow(u32 val) {
+	u32 res = 0;
+	for (u32 i = 0; i < 32; i++) {
+		if (val & 0x8000'0000) {
+			res = 31 - i;
+			break;
+		}
+		val = val << 1;
+	}
+	return res;
+}
+
 //f32
 
 //Ease in & out

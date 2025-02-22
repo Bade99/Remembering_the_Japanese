@@ -34,6 +34,9 @@ typedef i32 b32;
 
 typedef i64 time64;//64bit unixtime
 
+template <typename T>
+using multiflag = int;
+
 typedef char utf8;
 typedef wchar_t utf16;
 typedef char32_t utf32;

@@ -36,6 +36,50 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 		state = st;
 	}
 
+	const int DISTANCE_TO_SIDE = 5; //aka padding
+
+	//IMPORTANT: the user must free() the returned buffer if it is != null
+	struct _GetComboText_res {cstr* buf = 0; bool is_cuebanner = false; };
+	static auto GetComboText = [](HWND hwnd) {
+		_GetComboText_res res;
+		//TODO(fran): return text length
+		int index = ComboBox_GetCurSel(hwnd);
+		if (index >= 0)
+		{
+			int buflen = ComboBox_GetLBTextLen(hwnd, index);
+			res.buf = (decltype(res.buf))malloc((buflen + 1) * sizeof(*res.buf));
+			ComboBox_GetLBText(hwnd, index, res.buf);
+		}
+		else if (index == CB_ERR) {//No item has been selected yet
+			int max_buf_sz = 200;
+			res.buf = (decltype(res.buf))malloc((max_buf_sz) * sizeof(*res.buf));
+			//TODO(fran): I think that CB_GETCUEBANNER is the same as WM_GETTEXT
+			res.is_cuebanner = ComboBox_GetCueBannerText(hwnd, res.buf, max_buf_sz);//INFO: the only way to know if there's a cue banner is by the return value, it also doesnt seem like you can retrieve the required size of the buffer
+			if (!res.is_cuebanner) { free(res.buf); res.buf = 0; }
+		}
+		return res;
+	};
+
+	struct _GetBitmapPlacement_res { int bmp_align_width, bmp_align_height, bmp_width, bmp_height; };
+	static auto GetBitmapPlacement = [](ComboProcState* state, RECT rc, int DISTANCE_TO_SIDE) {
+		_GetBitmapPlacement_res res{0};
+		if (state->dropdown) {//TODO(fran): flicker free
+			HBITMAP bmp = state->dropdown;
+			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
+			if (bitmap.bmBitsPixel == 1) {
+
+				int max_sz = roundNdown(bitmap.bmWidth, (int)((float)RECTHEIGHT(rc) * .6f)); //HACK: instead use png + gdi+ + color matrices
+				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
+
+				res.bmp_height = max_sz;
+				res.bmp_width = res.bmp_height;
+				res.bmp_align_width = RECTWIDTH(rc) - res.bmp_width - DISTANCE_TO_SIDE;
+				res.bmp_align_height = (RECTHEIGHT(rc) - res.bmp_height) / 2;
+			}
+		}
+		return res;
+	};
+
 	switch (msg)
 	{
 #if 0
@@ -81,7 +125,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 		// perform the default action, minus painting
 		LRESULT ret = DefSubclassProc(hwnd, msg, wparam, lparam); //defproc for setcursel DOES DRAWING, we gotta do the good ol' trick of invisibility, also it seems that it stores a paint request instead, cause after I make it visible again it asks for wm_paint, as it should have in the first place
 
-		// turn on WS_VISIBLE
+		// turn WS_VISIBLE back on
 		SetWindowLongPtr(hwnd, GWL_STYLE, dwStyle);
 
 		//Notify parent (once again something that should be the default but isnt)
@@ -130,7 +174,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 		int border_thickness_pen = 0;//means 1px when creating pens
 		int border_thickness = 1;
 
-		BOOL ButtonState = (BOOL)SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0);
+		BOOL ButtonState = ComboBox_GetDroppedState(hwnd);
 		HBRUSH bk_br, border_br = global::colors.Img;
 		if (ButtonState) {
 			bk_br = global::colors.ControlBkPush;
@@ -150,7 +194,7 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 		HBRUSH oldbrush = SelectBrush(dc, (HBRUSH)GetStockObject(HOLLOW_BRUSH)); defer{ SelectObject(dc, oldbrush); };
 		HPEN oldpen = SelectPen(dc, pen);
 
-		SelectFont(dc, (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0));
+		SelectFont(dc, GetWindowFont(hwnd));
 		//SetBkColor(hdc, bkcolor);
 		SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt));
 
@@ -188,33 +232,18 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 			DrawFocusRect(hdc, &temp);
 		}
 		*/
-		int DISTANCE_TO_SIDE = 5;
 		{
-			cstr* buf=0;
-			bool cuebanner = false;
+			auto [buf, is_cuebanner] = GetComboText(hwnd);
 
-			int index = (int)SendMessage(hwnd, CB_GETCURSEL, 0, 0);
-			if (index >= 0)
-			{
-				int buflen = (int)SendMessage(hwnd, CB_GETLBTEXTLEN, index, 0);
-				buf = (decltype(buf))malloc((buflen + 1)*sizeof(*buf));
-				SendMessage(hwnd, CB_GETLBTEXT, index, (LPARAM)buf);
-			} 
-			else if( index == CB_ERR){//No item has been selected yet
-				buf = (decltype(buf))malloc((100) * sizeof(*buf));
-				//TODO(fran): I think that CB_GETCUEBANNER is the same as WM_GETTEXT
-				cuebanner = SendMessage(hwnd, CB_GETCUEBANNER, (WPARAM)buf, 100);//INFO: the only way to know it there's a cue banner is by the return value, it also doesnt seem like you can retrieve the required size of the buffer
-				if (!cuebanner) { free(buf); buf = 0; }
-			}
 			if (buf) {
 				RECT txt_rc = rc;
 				txt_rc.left += DISTANCE_TO_SIDE;
 				COLORREF prev_txt_clr;
-				if (cuebanner) {//TODO(fran): this double if is horrible
+				if (is_cuebanner) {//TODO(fran): this double if is horrible
 					prev_txt_clr = SetTextColor(dc, ColorFromBrush(global::colors.ControlTxt_Disabled));
 				}
 				DrawText(dc, buf, -1, &txt_rc, DT_EDITCONTROL | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-				if (cuebanner) {
+				if (is_cuebanner) {
 					SetTextColor(dc, prev_txt_clr);
 				}
 				free(buf);
@@ -226,13 +255,8 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
 			if (bitmap.bmBitsPixel == 1) {
 
-				int max_sz = roundNdown(bitmap.bmWidth, (int)((float)RECTHEIGHT(rc)*.6f)); //HACK: instead use png + gdi+ + color matrices
-				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
+				auto [bmp_align_width, bmp_align_height, bmp_width, bmp_height] = GetBitmapPlacement(state, rc, DISTANCE_TO_SIDE);
 
-				int bmp_height = max_sz;
-				int bmp_width = bmp_height;
-				int bmp_align_width = RECTWIDTH(rc) - bmp_width - DISTANCE_TO_SIDE;
-				int bmp_align_height = (RECTHEIGHT(rc) - bmp_height) / 2;
 				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric color
 			}
 		}
@@ -265,6 +289,95 @@ LRESULT CALLBACK ComboProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
 	{
 		//no reason for processing mousewheel input, some comboboxes change their index when being scrolled, I hate that behaviour since the user always ends up doing that by accident when trying to scroll the page
 		return DefWindowProc(hwnd, msg, wparam, lparam);//propagates the msg to the parent
+	} break;
+	case WM_DESIRED_SIZE: 
+	{
+		SIZE* min = (decltype(min))wparam;
+		SIZE* max = (decltype(max))lparam;
+
+		auto [buf, cuebanner] = GetComboText(hwnd);
+
+		RECT rc; GetClientRect(hwnd, &rc);
+		rc.right = rc.left + max->cx;
+		rc.bottom = rc.top + max->cy;
+		auto [bmp_align_width, bmp_align_height, bmp_width, bmp_height] = GetBitmapPlacement(state, rc, DISTANCE_TO_SIDE);
+
+		desired_size ret;
+		long cx;
+
+		if (buf) {
+			HDC dc = GetDC(hwnd); defer{ ReleaseDC(hwnd,dc); };
+			SIZE sz; GetTextExtentPoint32(dc, buf, (int)cstr_len(buf), &sz);
+			free(buf);
+
+			cx = sz.cx;
+			ret = desired_size::fixed;
+		}
+		else {
+			SIZE sz = avg_str_dim(GetWindowFont(hwnd), 10);
+
+			cx = sz.cx;
+			ret = desired_size::flexible;
+		}
+
+		cx +=  DISTANCE_TO_SIDE * 3 + bmp_width;
+
+		//TODO(fran): actually what I should do here is get the size of the biggest item and just return that, like in cb_insertstring, and I could avoid using cb_setdroppedwidth entirely
+
+		max->cx = minimum(max->cx, cx);
+
+		return ret;
+	} break;
+	case CB_INSERTSTRING: //TODO(fran): maybe we should only calculate the width of the listbox before it is shown, but idk which event to capture to find out when the lb is about to be shown
+	{
+		auto ret = DefSubclassProc(hwnd, msg, wparam, lparam);
+
+		HDC dc = GetDC(hwnd); defer{ ReleaseDC(hwnd,dc); };
+		HFONT font = GetWindowFont(hwnd);
+		HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc, oldfont); };
+
+		int cnt = ComboBox_GetCount(hwnd);
+
+		int listbox_width = 0;
+
+		for (int i = 0; i < cnt; i++) {
+			cstr txt[200];
+			
+			int txt_len = ComboBox_GetLBTextLen(hwnd, i);
+			
+			if (ARRAYSIZE(txt) < txt_len + 1) continue;
+
+			auto res = ComboBox_GetLBText(hwnd, i, txt);
+			
+			if (res == CB_ERR) continue;
+
+			SIZE sz; GetTextExtentPoint32(dc, txt, txt_len, &sz);
+
+			int w = sz.cx + DISTANCE_TO_SIDE * 2;
+
+			if (w > listbox_width)
+				listbox_width = w;
+		}
+		ComboBox_SetDroppedWidth(hwnd, listbox_width);
+
+		return ret;
+	} break;
+	case WM_COMMAND:
+	{
+		auto ret = DefSubclassProc(hwnd, msg, wparam, lparam);
+
+		switch (HIWORD(wparam)) {
+		case CBN_SELCHANGE:
+		{
+			//Selected item has changed
+
+			//We may need to update the size of the combobox to fit the new item in the editbox
+			AskForResize(GetParent(hwnd));
+
+		} break;
+		}
+
+		return ret;
 	} break;
 
 	}

@@ -85,6 +85,11 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(206,"Pronoun")
 	lang_entry(207,"Counter")
 	lang_entry(208,"Particle")
+	lang_entry(209,"Prefix")
+	lang_entry(210,"Radical")
+	lang_entry(211, "Numeric")
+	lang_entry(212, "Phrase")
+	lang_entry(213, "Suffix")
 	//IMPORTANT: range [199-250) is reserved for lexical categories
 
 	lang_entry(250,"Search Hiragana")
@@ -94,7 +99,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(270,"Created:")
 	lang_entry(271,"Practiced:")
 	lang_entry(272,"Score:")
-	lang_entry(273,"Modify") /*TODO(fran): maybe "Change" is better?*/
+	lang_entry(273,"Save")
 	lang_entry(274,"Never")
 	lang_entry(275,"Remember Me") //TODO(fran): better name
 	lang_entry(276,"This word will be shown more often on practices") //TODO(fran): better explanation
@@ -110,6 +115,10 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(354,"Progress")//TODO(fran): something clearer (progress of what)
 
 	lang_entry(360,"Add some words before you can practice")
+	lang_entry(361,"You must select at least one type of practice from the Settings tab")
+	lang_entry(362,"You must select at least one variant of the Writing Practice from the Settings tab")
+	lang_entry(363,"You must select at least one variant of the Multiple-Choice Practice from the Settings tab")
+	lang_entry(364,"You must select at least one variant of the Drawing Practice from the Settings tab")
 
 	lang_entry(380,"Answer")
 
@@ -121,7 +130,7 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(451,"Continue")
 
 	lang_entry(500,"I got it right")//TODO(fran): shorter text
-	lang_entry(501,"I got it wrong?!")
+	lang_entry(501,"I got it wrong")
 
 	lang_entry(600,"Successfully added")
 	lang_entry(601,"Error adding word")
@@ -150,6 +159,27 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(1107, "Lex: Counter")
 	lang_entry(1108, "Lex: Particle")
 	//IMPORTANT: range [1099-1200) is reserved for word filters
+	
+	lang_entry(1201, "Writing") //Available Types of Practices
+	lang_entry(1202, "Multiple Choice")
+	lang_entry(1203, "Drawing")
+
+	lang_entry(1250, "Hiragana to Meaning")
+	lang_entry(1251, "Meaning to Hiragana")
+	lang_entry(1252, "Kanji to Hiragana")
+	lang_entry(1253, "Kanji to Meaning")
+
+	lang_entry(1260, "Hiragana to Meaning")
+	lang_entry(1261, "Hiragana to Kanji")
+	lang_entry(1262, "Meaning to Hiragana")
+	lang_entry(1263, "Meaning to Kanji")
+	lang_entry(1264, "Kanji to Hiragana")
+	lang_entry(1265, "Kanji to Meaning")
+
+	lang_entry(1270, "Hiragana to Kanji")
+	lang_entry(1271, "Meaning to Kanji")
+
+	lang_entry(1300, "Settings")
 ;
 
 constexpr static utf16 lang_español_entries[] =

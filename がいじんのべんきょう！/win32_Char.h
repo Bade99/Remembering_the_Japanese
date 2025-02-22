@@ -18,6 +18,7 @@ bool is_katakana(utf16 c) {
 bool is_kanji(utf16 c) {//TODO(fran):Im pretty sure this has lots of korean too
 	bool res = between_inclusive(0x2E80, c, 0x2FD5) || between_inclusive(0x3400, c, 0x4DB5) || between_inclusive(0x4E00, c, 0x9FCB) || between_inclusive(0xF900, c, 0xFA6A);
 	//TODO(fran): im probably missing some stuff
+	//TODO(fran): jisho.org uses different codes for some of the kanji radicals, maybe I should add them
 	return res;
 }
 

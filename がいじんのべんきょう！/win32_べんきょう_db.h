@@ -46,6 +46,11 @@ enum lexical_category { //this value is stored on the db
 	pronoun,
 	counter,
 	particle,
+	prefix,
+	radical,
+	numeric,
+	phrase,
+	suffix,
 
 	__last
 };
@@ -997,7 +1002,7 @@ namespace べんきょう {
 		errcode = sqlite3_prepare_v2(db, select_matches.c_str(), (int)((select_matches.length() + 1) * sizeof(select_matches[0])), &stmt, nullptr);
 		sqliteok_runtime_assert(errcode, db);
 
-		match_str.sz -= sizeof(match_str[0]);//IMPORTANT: for some reason sql decided that it wont "remove" the null terminator from your string (cant really blame it since it shouldnt exist in the first place) which means that if you want to do string matching you must send strings _without_ the null terminator
+		//match_str.sz -= sizeof(match_str[0]);//IMPORTANT: for some reason sql decided that it wont "remove" the null terminator from your string (cant really blame it since it shouldnt exist in the first place) which means that if you want to do string matching you must send strings _without_ the null terminator
 		sqlite3_bind(stmt, sqlIdx(_match_str), match_str);
 
 		auto parse_match_result = [](void* extra_param, int column_cnt, char** results, char** column_names) -> int {
@@ -1155,7 +1160,7 @@ namespace べんきょう {
 			Assert(column_cnt == 1);
 			Assert(results);
 
-			(*res)[res->cnt++] = (std::remove_reference<decltype(*res)>::type::value_type)convert_utf8_to_utf16(*results, (int)strlen(*results) + 1).str;
+			(*res)[res->cnt++] = static_cast<std::remove_reference<decltype(*res)>::type::value_type>(convert_utf8_to_utf16(*results, (int)strlen(*results) + 1).str);
 
 			return 0;
 		};

@@ -279,7 +279,7 @@ namespace edit_oneline{
 
 		res.line_idx = 0;
 		if (res.line_char_idx) {
-			u64 line_idx_estimate = safe_ratio0((f64)res.line_char_idx, (f64)state->char_text.size()) * safe_subtract0(state->line_breaks.size(),1);
+			u64 line_idx_estimate = (u64)safe_ratio0((f64)res.line_char_idx, (f64)state->char_text.size()) * safe_subtract0(state->line_breaks.size(),1);
 			i64 increment = state->line_breaks[line_idx_estimate] < res.line_char_idx ? +1 : -1;
 
 			for (u64 i = line_idx_estimate; i < state->line_breaks.size(); i += increment) {
@@ -1269,6 +1269,7 @@ namespace edit_oneline{
 				// Calculate vertical position for the string so that it will be vertically centered
 				// We are single line so we want vertical alignment always
 				//TODO(fran): allow the user to select the vertical alignment (top, center, bottom)
+				//TODO(fran): BUG: vertical centering doesnt automatically occur when going from 2 lines to 1 by deleting the \n character, it remains with top centering until another letter is written by the user
 				int yPos = state->padding.y;
 				int xPos;
 
@@ -1612,6 +1613,8 @@ namespace edit_oneline{
 			} break;
 			case VK_BACK://Backspace
 			{
+				//TODO(fran): @feature: if an accent has been selected the delete should cancel the accent instead of deleting a character
+				//		eg: keyboard sequence: a´a -> aá ; a´backspace -> a
 				if (!state->char_text.empty()) {
 					if (state->selection.has_selection())remove_selection(state);
 					else {

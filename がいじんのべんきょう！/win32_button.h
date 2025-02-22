@@ -376,7 +376,7 @@ namespace button {
 				int len = (int)SendMessage(state->wnd, WM_GETTEXT, ARRAYSIZE(Text), (LPARAM)Text);
 
 				GetTextExtentPoint32(dc, Text, len, min);
-				min->cx = (int)((float)min->cx * 1.2f);
+				min->cx = (int)((float)min->cx * 1.2f) + tm.tmAveCharWidth*2;
 				min->cy = (int)((float)min->cy * 1.2f);
 
 				*max = *min;

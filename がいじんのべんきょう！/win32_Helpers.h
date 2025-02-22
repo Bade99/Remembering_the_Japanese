@@ -330,7 +330,7 @@ static RECT rect1pxB(RECT r) {
 #define BORDERBOTTOM	(1<<4)
 #define BORDERALL		(BORDERLEFT|BORDERTOP|BORDERRIGHT|BORDERBOTTOM)
 //NOTE: borders dont get centered, if you choose 5 it'll go 5 into the rc. TODO(fran): centered borders
-static void FillRectBorder(HDC dc, RECT r, int thickness, HBRUSH br, int borders) {
+static void FillRectBorder(HDC dc, RECT r, int thickness, HBRUSH br, int borders = BORDERALL) {
 	//TODO(fran): why the hell did I put thickness before br, FillRect has the br first!
 	RECT borderrc;
 	if (borders & BORDERLEFT) { borderrc = rectNpxL(r, thickness); FillRect(dc, &borderrc, br); }
@@ -424,6 +424,7 @@ union rect_i32 {
 	i32 bottom() const { return top + h; }
 	i32 center_x() const { return left + w / 2; }
 	i32 center_y() const { return top + h / 2; }
+	void cut_left(i32 w) { this->left += w; this->w -= w; }
 };
 
 RECT to_RECT(rect_i32 r) {
@@ -839,3 +840,9 @@ void print_string_msg(UINT msg) {
 		//After Alt+Shift to change the keyboard (and some WM_IMENOTIFY) we receive "MSIMEQueryPosition"
 	}
 }
+
+
+//----------------------Combobox-----------------------:
+#ifndef ComboBox_SetDroppedWidth
+#define ComboBox_SetDroppedWidth(hwnd, listbox_width) ((int)SendMessage(hwnd, CB_SETDROPPEDWIDTH, listbox_width, 0))
+#endif

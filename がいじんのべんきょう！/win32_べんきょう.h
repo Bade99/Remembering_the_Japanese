@@ -27,6 +27,8 @@
 #include "win32_notify.h"
 #include "win32_page.h"
 
+#include "basic_array.h"
+
 //#include "win32_eyecandy.h"
 
 #include <string>
@@ -46,6 +48,8 @@
 //TODO(fran): mascot: have some kind of character that interacts with the user, japanese kawaii style
 //TODO(fran): whole application: get rid of null terminator, or better said "do as if it doesnt exist" and store an extra parameter with the string size everywhere (utf8_str,...)
 //TODO(fran): whole application: double buffered rendering
+//TODO(fran): landing & new page: chart of activity github style, calendar showing in red the days where you either added words or practiced
+//TODO(fran): new_word: components section where you can link this word to others that form it
 
 //TODO(fran): IDEA: navbar: what if I used the WM_PARENTNOTIFY to allow for my childs to tell me when they are resized, maybe not using parent notify but some way of not having to manually resize the navbar. Instead of this I'd say it's better that a child that needs resizing sends that msg to its parent (WM_REQ_RESIZE), and that trickles up trough the parenting chain til someone handles it
 //TODO(fran): IDEA: all controls: we can add a crude transparency by making the controls layered windows and define a color as the color key, the better but much more expensive approach would be to use UpdateLayeredWindow to be able to also add semi-transparency though it may not be necessary. There also seems to be a supported way using WS_EX_COMPOSITED + WS_EX_TRANSPARENT
@@ -53,8 +57,11 @@
 
 //TODO(fran): BUG: practice writing/...: the edit control has no concept of its childs, therefore situations can arise were it is updated & redrawn but the children arent, which causes the space they occupy to be left blank (thanks to WS_CLIPCHILDREN), the edit control has to tell its childs to redraw after it does
 //TODO(fran):BUG searchbox: caret on the searchbox gets misplaced. howto reproduce: search for a word, then using the down arrow go to some option and then press enter, now the searchbox caret will be misplaced
-//TODO(fran): BUG: landing page: howto reproduce: press the recently added button to hide the elements, then press it again to show them, nothing will show cause we seem to not be sending a redraw request
 
+//TODO(fran): better word selector for practices, new words barely come up
+//TODO(fran): when showing the recently added words (and the same thing in the word book) we should show them in reverse order, with the word at the top of the list being the last one of the day. Instead of right now where the top word is the first one of the day.
+//TODO(fran): clicking on a listbox item from the "Recently Added" doesnt send the window to the top, it remains behind other windows. This must have smth to do with the way I handle ACTIVATE msgs in listbox.
+//TODO(fran): practice_writing with hiragana and meaning, make it clearer what you have to write, I usually make mistakes by writing the word in hiragana when I wanted it in meaning and viceversa
 
 
 //Leftover IDEAs:
@@ -72,21 +79,23 @@
 //INFO: dates on the db are stored in GMT, REMEMBER to convert them for the UI
 //INFO: use parameterized queries for any query that requires direct user input (avoid sql injection)
 
-//NOTE: on the subject of Disambiguation: one thing I realize now is that the disambiguation serves a kind of pointless purpose, if the user thinks there's more than one option then they probably know the both of them, making the disambiguation only a frustration removal device in case the user puts one of the valid answers and gets told it's wrong, and a cheating device for every other situation allowing the user to take a peek, is this good, is this bad, idk
-
 //REMEMBER: have checks in place to make sure the user cant execute operations twice by quickly pressing a button again
 
+enum class practice_writing_variant: i32 {
+	hiragana_to_meaning = 1 << 0,
+	meaning_to_hiragana = 1 << 1,
+	kanji_to_hiragana = 1 << 2,
+	kanji_to_meaning = 1 << 3,
+
+	_last_bit,
+	//NOTE: I could add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correctly
+};
 
 //Structures for different practice levels
 struct practice_writing_word {
 	learnt_word16 word;//TODO(fran): change name to 'question' and add extra param 'answer' that points to an element inside of 'question'
-	enum class type {//TODO(fran): the type differentiation is kinda pointless, instead I could bake all the differences into variables, eg to check the right answer have a separate pointer to the needed string inside the learnt_word
-		hiragana_to_meaning,
-		meaning_to_hiragana,
-		kanji_to_hiragana,
-		kanji_to_meaning,
-		//NOTE: I'd add translate_translation_to_kanji but it's basically translating to hiragana and then letting the IME answer correctly
-	}practice_type;
+	
+	practice_writing_variant practice_type; //TODO(fran): the type differentiation is kinda pointless, instead I could bake all the differences into variables, eg to check the right answer have a separate pointer to the needed string inside the learnt_word
 };
 
 HBRUSH brush_for(learnt_word_elem type) {
@@ -118,6 +127,24 @@ T str_for(_learnt_word<T>* word, learnt_word_elem type) {
 	return res;
 };
 
+enum class practice_multiplechoice_variant: i32{
+	hiragana_to_meaning = 1 << 0,
+	hiragana_to_kanji = 1 << 1,
+	meaning_to_hiragana = 1 << 2,
+	meaning_to_kanji = 1 << 3,
+	kanji_to_hiragana = 1 << 4,
+	kanji_to_meaning = 1 << 5,
+
+	_last_bit,
+};
+
+enum class practice_drawing_variant: i32 {
+	hiragana_to_kanji = 1 << 0,
+	meaning_to_kanji = 1 << 1,
+
+	_last_bit,
+};
+
 struct practice_multiplechoice_word {
 	learnt_word16 question;//#free
 	learnt_word_elem question_type;//NOTE: the type allows for choosing the correct color of the word in the UI
@@ -147,6 +174,26 @@ void languages_setup_combobox(HWND cb) {
 	}
 	InvalidateRect(cb, NULL, TRUE);
 }
+template <typename T>
+constexpr multiflag<T> get_filled_multiflag() { return (1u << (get_last_bit_set_position_slow((u32)T::_last_bit) + 1)) - 1u; }
+
+template <typename T>
+constexpr u32 get_enumflag_element_count() { return popcnt64(get_filled_multiflag<T>()); }
+
+
+enum class available_practices : i32 {
+	writing = 1 << 0,
+	multiplechoice = 1 << 1,
+	drawing = 1 << 2,
+
+	_last_bit
+};
+static constexpr multiflag<available_practices> filledAvailablePractices = get_filled_multiflag<available_practices>();
+static constexpr multiflag<practice_writing_variant> filledPracticeWritingVariants = get_filled_multiflag<practice_writing_variant>();
+static constexpr multiflag<practice_multiplechoice_variant> filledPracticeMultiplechoiceVariants = get_filled_multiflag<practice_multiplechoice_variant>();
+static constexpr multiflag<practice_drawing_variant> filledPracticeDrawingVariants = get_filled_multiflag<practice_drawing_variant>();
+static constexpr u32 countAvailablePractices = get_enumflag_element_count<available_practices>();
+
 
 //-------------Data retrieval from UI-----------------: (UI strings are always utf16)
 
@@ -173,11 +220,32 @@ void languages_setup_combobox(HWND cb) {
 #define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)
 
 
+//Drawing Functions
+int draw_bitmap_1bpp(HBITMAP bmp, HDC dc, rect_i32 r, int x_pad, HBRUSH color = global::colors.Img){
+	//TODO(fran): flicker free
+	BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
+	Assert(bitmap.bmBitsPixel == 1);
+	int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
+	if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
+
+	int bmp_height = max_sz;
+	int bmp_width = bmp_height;
+	int bmp_align_width = r.left + r.w - bmp_width - x_pad;
+	int bmp_align_height = r.top + (r.h - bmp_height) / 2;
+	urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, color);
+
+	return bmp_align_width;
+}
+
 
 struct べんきょうSettings {
 
 #define foreach_べんきょうSettings_member(op) \
 		op(RECT, rc,200,200,700,900 ) \
+		op(multiflag<available_practices>, practices, filledAvailablePractices ) \
+		op(multiflag<practice_writing_variant>, practice_writing_variants, filledPracticeWritingVariants ) \
+		op(multiflag<practice_multiplechoice_variant>, practice_multiplechoice_variants, filledPracticeMultiplechoiceVariants ) \
+		op(multiflag<practice_drawing_variant>, practice_drawing_variants, filledPracticeDrawingVariants ) \
 
 	foreach_べんきょうSettings_member(_generate_member);
 	sqlite3* db;
@@ -217,12 +285,16 @@ namespace べんきょう {
 		ACT(cb, lexical_category::pronoun, lexical_category_str_lang_id(lexical_category::pronoun));
 		ACT(cb, lexical_category::counter, lexical_category_str_lang_id(lexical_category::counter));
 		ACT(cb, lexical_category::particle, lexical_category_str_lang_id(lexical_category::particle));
+		ACT(cb, lexical_category::prefix, lexical_category_str_lang_id(lexical_category::prefix));
+		ACT(cb, lexical_category::radical, lexical_category_str_lang_id(lexical_category::radical));
+		ACT(cb, lexical_category::numeric, lexical_category_str_lang_id(lexical_category::numeric));
+		ACT(cb, lexical_category::phrase, lexical_category_str_lang_id(lexical_category::phrase));
+		ACT(cb, lexical_category::suffix, lexical_category_str_lang_id(lexical_category::suffix));
 	}
 
 	str word_filter_to_str(word_filter::type filter) {
 		return RS(1100 + filter); //NOTE: dont_care should never be shown
 	}
-	//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
 	u32 word_filter_str_lang_id(word_filter::type filter) {
 		return 1100 + filter; //NOTE: dont_care should never be shown
 	}
@@ -230,10 +302,11 @@ namespace べんきょう {
 	str word_order_to_str(word_order::type order) {
 		return RS(1000 + order); //NOTE: dont_care should never be shown
 	}
-	//usage example: RS(lexical_category_str_lang_id(lexical_category::verb))
 	u32 word_order_str_lang_id(word_order::type order) {
 		return 1000 + order; //NOTE: dont_care should never be shown
 	}
+
+
 
 	//TODO(fran): not yet sure whether to follow up on this or not
 	//struct word_order_modifier {
@@ -259,6 +332,13 @@ namespace べんきょう {
 	void apply_word_filter_element(int element_idx, word_filter::type* filter) {
 		*filter = element_idx!=-1 ? (word_filter::type)(word_filter::__first + element_idx) : word_filter::none;
 	}
+
+	//TODO(fran): add to windows helpers
+	void force_repaint(HWND wnd) {
+		PostMessage(wnd, WM_MOUSEMOVE, 0, MAKEWORD(-1, -1));
+	}
+
+	constexpr i32 sidebar_animation_time_ms = 150; //TODO(fran): decide where to put this
 
 	struct ProcState {
 		HWND wnd;
@@ -347,12 +427,14 @@ namespace べんきょう {
 			union practice_controls {
 				struct {
 					type page;
+					type settings_button_practices;
+					type settings_listbox_practices;
 					type button_start;
 
 					type button_words_practiced;//TODO(fran): should simply be a static control
 					type listbox_words_practiced;
 				};
-				type all[4];
+				type all[6];
 			private: void _() { static_assert(sizeof(all) == sizeof(*this), "Update the array's element count!"); }
 			} practice;
 
@@ -491,12 +573,6 @@ namespace べんきょう {
 
 		}pages;
 
-		enum class available_practices {
-			writing,
-			multiplechoice,
-			drawing,
-		};
-
 		struct practice_header {
 			available_practices type;
 		};
@@ -530,6 +606,10 @@ namespace べんきょう {
 			struct search_state {
 				learnt_word_elem search_type;
 			}search;
+
+			struct practice_state {
+				bool settings_visibility;
+			}practice;
 
 			struct practice_review_state {
 				std::vector<practice_header*> practices;
@@ -842,7 +922,7 @@ namespace べんきょう {
 		int border_thickness = 1;
 		int x_pad = avg_str_dim(font, 1).cx;
 
-		//Border an Bk
+		//Border and Bk
 		{
 			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
 			HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
@@ -853,24 +933,7 @@ namespace べんきょう {
 		}
 
 		//Dropbox icon
-		int icon_x=r.w;
-		{//TODO(fran): flicker free
-			HBITMAP bmp = global::bmps.dropdown;
-			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
-			if (bitmap.bmBitsPixel == 1) {
-
-				int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
-				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
-
-				int bmp_height = max_sz;
-				int bmp_width = bmp_height;
-				int bmp_align_width = r.w - bmp_width - x_pad;
-				int bmp_align_height = (r.h - bmp_height) / 2;
-				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, global::colors.Img);//TODO(fran): parametric color
-
-				icon_x = bmp_align_width;
-			}
-		}
+		int icon_x= draw_bitmap_1bpp(global::bmps.dropdown, dc, r, x_pad);
 		//TODO(fran): clamp txt rect to not go over the icon
 
 		//Text
@@ -1017,24 +1080,7 @@ namespace べんきょう {
 		}
 
 		//Dropbox icon
-		int icon_x = r.w;
-		{//TODO(fran): flicker free
-			HBITMAP bmp = global::bmps.dropdown;
-			BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
-			if (bitmap.bmBitsPixel == 1) {
-
-				int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
-				if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
-
-				int bmp_height = max_sz;
-				int bmp_width = bmp_height;
-				int bmp_align_width = r.w - bmp_width - x_pad;
-				int bmp_align_height = (r.h - bmp_height) / 2;
-				urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, icon_br);
-
-				icon_x = bmp_align_width;
-			}
-		}
+		int icon_x = draw_bitmap_1bpp(global::bmps.dropdown, dc, r, x_pad, icon_br);
 		//TODO(fran): clamp txt rect to not go over the icon
 
 		//Text
@@ -1059,6 +1105,16 @@ namespace べんきょう {
 		state->settings->rc = rc;
 	}
 
+	lexical_category get_lexical_category(const utf16_str& str_with_int) {
+		lexical_category res;
+		if (str_with_int.str) {
+			try { res = (lexical_category)std::stoi(str_with_int.str); }
+			catch (...) { res = (lexical_category)-1; }
+		}
+		else res = (lexical_category)-1;
+		return res;
+	}
+
 	//returns true if the input is valid and usable, returns false otherwise
 	bool check_new_word(ProcState* state) {
 		auto& page = state->pages.new_word;
@@ -1072,24 +1128,30 @@ namespace べんきょう {
 		}
 
 		//TODO(fran): we could build smth strange like an array of tuples in order to be able to repeat the same code but use different function calls and string notifs in each case
+		utf16_str lex_cat; defer{ free_any_str(lex_cat.str); };
+		_get_combo_sel_idx_as_str(page.combo_lexical_category, lex_cat);
+		
+		if (get_lexical_category(lex_cat) != lexical_category::radical)
 		{
-			HWND edit = page.edit_hiragana;
-			const auto& txt = edit_oneline::get_state(edit)->char_text;//quick HACK
-			if (!std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_katakana(c); })) {
-				edit_oneline::show_tip(edit, RCS(12), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
-				return false;
-			}
-		}
-
-		{
-			HWND edit = page.edit_kanji;
-			const auto& txt = edit_oneline::get_state(edit)->char_text;
-			if (!txt.empty()) {
-				if (!std::any_of(txt.begin(), txt.end(), [](utf16 c) {return is_kanji(c); })//must have at least one kanji
-					|| !std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_kanji(c); })
-					) {
-					edit_oneline::show_tip(edit, RCS(13), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
+			{
+				HWND edit = page.edit_hiragana;
+				const auto& txt = edit_oneline::get_state(edit)->char_text;//quick HACK
+				if (!std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_katakana(c); })) {
+					edit_oneline::show_tip(edit, RCS(12), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
 					return false;
+				}
+			}
+
+			{
+				HWND edit = page.edit_kanji;
+				const auto& txt = edit_oneline::get_state(edit)->char_text;
+				if (!txt.empty()) {
+					if (!std::any_of(txt.begin(), txt.end(), [](utf16 c) {return is_kanji(c); })//must have at least one kanji
+						|| !std::all_of(txt.begin(), txt.end(), [](utf16 c) {return is_hiragana(c) || is_kanji(c); })
+						) {
+						edit_oneline::show_tip(edit, RCS(13), EDITONELINE_default_tooltip_duration, edit_oneline::ETP::top);
+						return false;
+					}
 				}
 			}
 		}
@@ -1108,7 +1170,7 @@ namespace べんきょう {
 				return false;
 			}
 		}
-
+		//TODO(fran): avoid checks if it is a radical
 		{
 			HWND edit = page.edit_kanji;
 			const auto& txt = edit_oneline::get_state(edit)->char_text;
@@ -1188,7 +1250,7 @@ namespace べんきょう {
 			//SendMessage(controls.static_practice_cnt, WM_SETTEXT, 0, (LPARAM)to_str(stats->times_practiced).c_str());
 			//TODO(fran): timeline, we'll probably need to store that as blob or text in the db, this is were mongodb would be nice, just throw a js obj for each timepoint
 			//TODO(fran): if the timeline is empty we should simply put the current accuracy, or leave it empty idk
-			graph::set_points(controls.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt);
+			graph::set_points(controls.graph_accuracy_timeline, stats->accuracy_timeline.mem, stats->accuracy_timeline.cnt); //TODO(fran): change the accuracy graph into a per practice percentage of correct answers graph (I dont think the accuracy graph is too useful, we could keep it or throw it away)
 			graph::graph_dimensions grid_dims;
 			grid_dims.set_top_point(100);
 			grid_dims.set_bottom_point(0);
@@ -1221,11 +1283,7 @@ namespace べんきょう {
 			SendMessageW(controls.edit_mnemonic, WM_SETTEXT, 0, (LPARAM)new_word->attributes.mnemonic.str);
 			SendMessageW(controls.edit_notes, WM_SETTEXT, 0, (LPARAM)new_word->attributes.notes.str);
 			SendMessageW(controls.edit_example_sentence, WM_SETTEXT, 0, (LPARAM)new_word->attributes.example_sentence.str);
-			int lex_categ_sel;
-			if (new_word->attributes.lexical_category.str) {
-				try { lex_categ_sel = std::stoi(new_word->attributes.lexical_category.str); }
-				catch (...) { lex_categ_sel = -1; }
-			} else lex_categ_sel = -1;
+			int lex_categ_sel = get_lexical_category(new_word->attributes.lexical_category);
 			SendMessageW(controls.combo_lexical_category, CB_SETCURSEL, lex_categ_sel, 0);
 
 		} break;
@@ -1243,12 +1301,7 @@ namespace べんきょう {
 			SendMessageW(controls.edit_notes, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.notes.str);
 			SendMessageW(controls.edit_example_sentence, WM_SETTEXT, 0, (LPARAM)word_to_show->user_defined.attributes.example_sentence.str);
 
-			int lex_categ_sel;
-			if (word_to_show->user_defined.attributes.lexical_category.str) {
-				try { lex_categ_sel = std::stoi((utf16*)word_to_show->user_defined.attributes.lexical_category.str); }
-				catch (...) { lex_categ_sel = -1; }
-			}
-			else lex_categ_sel = -1;
+			int lex_categ_sel = get_lexical_category(word_to_show->user_defined.attributes.lexical_category);
 			SendMessageW(controls.combo_lexical_category, CB_SETCURSEL, lex_categ_sel, 0);
 
 			if(word_to_show->application_defined.attributes.creation_date.str)
@@ -1716,7 +1769,7 @@ namespace べんきょう {
 		}
 	}
 
-	void resize_controls(ProcState* state);//HACK
+	void resize_page(ProcState* state);//HACK
 
 	void wordbook_all__update_wordlist(ProcState* state) {
 		auto& controls = state->pages.wordbook_all;
@@ -1737,9 +1790,13 @@ namespace べんきょう {
 		listbox::set_elements(controls.listbox_words, elems.mem, elems.cnt);
 	}
 
+	void animate_hide_sidebar(ProcState* state, u32 ms); //HACK: put sidebar code onto separate .h file
+
 	void set_current_page(ProcState* state, ProcState::page new_page) {
 		show_page(state, state->current_page, SW_HIDE);
 		state->current_page = new_page;
+
+		animate_hide_sidebar(state, sidebar_animation_time_ms);
 
 		switch (new_page) {
 		case decltype(new_page)::practice_writing:
@@ -1829,7 +1886,7 @@ namespace べんきょう {
 			wordbook_all__update_wordlist(state);
 		} break;
 		}
-		resize_controls(state);
+		resize_page(state);
 		show_page(state, state->current_page, SW_SHOW);
 		set_default_focus(state, state->current_page);
 	}
@@ -2040,25 +2097,22 @@ namespace べんきょう {
 		return res;
 	}
 
-
 	struct practice_data {
 		ProcState::page page;
 		void* data;
 	};
 	practice_data prepare_practice(ProcState* state) {
 		practice_data res;
-		ProcState::available_practices practices[]{
-			ProcState::available_practices::writing,
-			ProcState::available_practices::multiplechoice,
-			ProcState::available_practices::drawing,
-		};
-		
-		ProcState::available_practices practice = practices[random_between(0u,(u32)ARRAYSIZE(practices)-1)];
+		auto& practices = state->settings->practices;
+		Assert(practices);
+		available_practices practice = (available_practices)random_bit_set(practices);
 
-		auto get_hiragana_kanji_meaning = [](learnt_word16* w)->u32 { /*Says which parts of the word are filled/valid*/
+		auto get_hiragana_kanji_meaning = [](learnt_word16* w)->u32 { //Indicates which parts of the word are filled/valid
 			u32 res = 0;
 			if (w) {
-				if (w->attributes.hiragana.str && *w->attributes.hiragana.str) res |= (u32)learnt_word_elem::hiragana;
+				bool is_radical = get_lexical_category(w->attributes.lexical_category) == lexical_category::radical;
+
+				if (!is_radical && w->attributes.hiragana.str && *w->attributes.hiragana.str) res |= (u32)learnt_word_elem::hiragana;
 				if (w->attributes.kanji.str && *w->attributes.kanji.str) res |= (u32)learnt_word_elem::kanji;
 				if (w->attributes.meaning.str && *w->attributes.meaning.str) res |= (u32)learnt_word_elem::meaning;
 			}
@@ -2066,37 +2120,48 @@ namespace べんきょう {
 		};
 
 		switch (practice) {
-		case ProcState::available_practices::writing:
+		case available_practices::writing:
 		{
 			//NOTE: writing itself has many different practices
 			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): MEMLEAK practice_writing page will take care of freeing this once the page completes its practice
 			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
+
 			data->word = std::move(practice_word);
 
-			std::vector<practice_writing_word::type> practice_types;
+			multiflag<practice_writing_variant> practice_types{};
 			auto word_types = get_hiragana_kanji_meaning(&data->word); Assert(word_types);
 			//bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
-			practice_types.push_back(practice_writing_word::type::hiragana_to_meaning);//we always add a default to make sure there can never be no items
 			if (word_types & (u32)learnt_word_elem::hiragana) {
-				if (word_types & (u32)learnt_word_elem::meaning) 
-					practice_types.push_back(practice_writing_word::type::meaning_to_hiragana);
+				if (word_types & (u32)learnt_word_elem::meaning) {
+					practice_types |= (i32)practice_writing_variant::hiragana_to_meaning;
+					practice_types |= (i32)practice_writing_variant::meaning_to_hiragana;
+				}
 				if (word_types & (u32)learnt_word_elem::kanji) 
-					practice_types.push_back(practice_writing_word::type::kanji_to_hiragana);
+					practice_types |= (i32)practice_writing_variant::kanji_to_hiragana;
 			}
 			if (word_types & (u32)learnt_word_elem::kanji && word_types & (u32)learnt_word_elem::meaning) 
-				practice_types.push_back(practice_writing_word::type::kanji_to_meaning);
+				practice_types |= (i32)practice_writing_variant::kanji_to_meaning;
 
-			data->practice_type = practice_types[random_between(0, (i32)(practice_types.size() - 1))];
+			practice_types &= state->settings->practice_writing_variants;
+
+			//add a default in case there are no items
+			if (!practice_types) //TODO: instead of adding a default we should reject the word and look for a new one
+				practice_types |= (i32)practice_writing_variant::hiragana_to_meaning;
+
+			data->practice_type = (practice_writing_variant)random_bit_set(practice_types);
 			res.page = ProcState::page::practice_writing;
 			res.data = data;
 		} break;
-		case ProcState::available_practices::multiplechoice:
+		case available_practices::multiplechoice:
 		{
 			practice_multiplechoice_word* data = (decltype(data))malloc(sizeof(*data));
-
+			
 			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
+
 			data->question = std::move(practice_word);
 			u32 q_and_a = get_hiragana_kanji_meaning(&data->question);//NOTE: the type of the question and choices is limited by our target word
+
+			//TODO: filter by the allowed practice variants configured in state->settings
 			data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
 			data->choices_type = (decltype(data->question_type))random_bit_set(q_and_a & (~(u32)data->question_type));
 			
@@ -2117,15 +2182,23 @@ namespace べんきょう {
 			res.page = ProcState::page::practice_multiplechoice;
 			res.data = data;
 		} break;
-		case ProcState::available_practices::drawing:
+		case available_practices::drawing:
 		{
 			practice_drawing_word* data = (decltype(data))malloc(sizeof(*data));
 			learnt_word16 practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
 			//TODO(fran): check the word is valid, otherwise recursively call this function (cut recursion after say 5 tries and simply end the practice)
+			
 			data->question = std::move(practice_word);
 			
-			u32 q_elems = get_hiragana_kanji_meaning(&data->question);
-			data->question_type = (decltype(data->question_type))random_bit_set(q_elems & (~(u32)learnt_word_elem::kanji));
+			u32 q_elems = get_hiragana_kanji_meaning(&data->question) & (~(u32)learnt_word_elem::kanji);
+			if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::hiragana_to_kanji))
+				q_elems &= ~(u32)learnt_word_elem::hiragana;
+			if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::meaning_to_kanji))
+				q_elems &= ~(u32)learnt_word_elem::meaning;
+			if (!q_elems) {
+				//TODO: reject the word and look for a new one
+			}
+			data->question_type = (decltype(data->question_type))random_bit_set(q_elems);
 			data->question_str = str_for(&data->question, data->question_type).str;
 
 			res.page = ProcState::page::practice_drawing;
@@ -2143,7 +2216,7 @@ namespace べんきょう {
 
 	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
 
-	//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it chages the color of the edit box
+	//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it changes the color of the edit box
 
 
 	void reset_page(ProcState* state, ProcState::page page) {
@@ -2258,10 +2331,10 @@ namespace べんきょう {
 		f32 dt;//increment for 't' per frame
 	};
 
+	static constexpr utf16 sidebar_state_key[] = L"sidebar_state_animate";//NOTE: I need to make this static so the lambda below can capture it
 	void animate_sidebar(ProcState* state, u32 ms) {
-		static constexpr utf16 state_key[] = L"sidebar_state_animate";//NOTE: I need to make this static so the lambda below can capture it
 		HWND sidebar = state->pages.sidebar;
-		sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(sidebar, state_key);
+		sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(sidebar, sidebar_state_key);
 		const bool show = !IsWindowVisible(sidebar);
 		const f32 duration_sec = (f32)ms/1000.f;
 		const u32 total_frames = (u32)ceilf(duration_sec / (1.f/win32_get_refresh_rate_hz(sidebar)));
@@ -2283,7 +2356,7 @@ namespace べんきょう {
 		}
 		else {
 			sidebar_state = (decltype(sidebar_state))malloc(sizeof(sidebar_state_animate));
-			SetPropW(sidebar, state_key, sidebar_state);
+			SetPropW(sidebar, sidebar_state_key, sidebar_state);
 
 			sidebar_state->t = 0.f;
 			sidebar_state->origin = show ? origin : target;
@@ -2299,7 +2372,7 @@ namespace べんきょう {
 
 		static void (*sidebar_anim)(HWND, UINT, UINT_PTR, DWORD) =
 			[](HWND hwnd, UINT, UINT_PTR anim_id, DWORD) {
-			sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(hwnd, state_key);
+			sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(hwnd, sidebar_state_key);
 			if (sidebar_state) {
 				f32 delta = ParametricBlend(sidebar_state->t);
 				v2_i32 pos = lerp(sidebar_state->origin.xy, delta, sidebar_state->target.xy);
@@ -2317,7 +2390,7 @@ namespace べんきょう {
 				}
 				else {
 					if (!sidebar_state->show) ShowWindow(hwnd, SW_HIDE);
-					RemovePropW(hwnd, state_key);
+					RemovePropW(hwnd, sidebar_state_key);
 					free(sidebar_state);
 					KillTimer(hwnd, anim_id);
 				}
@@ -2332,6 +2405,16 @@ namespace べんきょう {
 			//NOTE: if I cant get this to work I can also hack it like youtube does, simply offset the page x position to not cover the sidebar
 		}
 		SetTimer(sidebar, timer_id, 0, sidebar_anim);
+	}
+
+	//Only performs the animation if the sidebar is visible
+	void animate_hide_sidebar(ProcState* state, u32 ms) {
+		HWND sidebar = state->pages.sidebar;
+		const bool hide = IsWindowVisible(sidebar);
+		sidebar_state_animate* sidebar_state = (decltype(sidebar_state))GetPropW(sidebar, sidebar_state_key);
+
+		if(hide || (sidebar_state && sidebar_state->show))
+			animate_sidebar(state, ms);
 	}
 
 	void button_function_on_click_goto_page_new(void* element, void* user_extra) {
@@ -2349,7 +2432,62 @@ namespace べんきょう {
 		set_current_page(state, ProcState::page::practice);
 	}
 
-	void create_controls(ProcState* state) {
+	str GetStringPracticeType(available_practices practice) {
+		return RS(1201 + get_bit_set_position((u32)practice));
+	}
+
+	str GetStringPracticeWritingVariant(practice_writing_variant practiceType) {
+		return RS(1250 + get_bit_set_position((u32)practiceType));
+	}
+
+	str GetStringPracticeMultiplechoiceVariant(practice_multiplechoice_variant practiceType) {
+		return RS(1260 + get_bit_set_position((u32)practiceType));
+	}
+
+	str GetStringPracticeDrawingVariant(practice_drawing_variant practiceType) {
+		return RS(1270 + get_bit_set_position((u32)practiceType));
+	}
+
+	template <typename DataType, typename ChildType, u64 childCount = 0>
+	struct treeview_element {
+		u8 level;
+		bool open;
+		DataType data;
+		fixed_array<ChildType, childCount> children;
+
+		void add_child(ChildType child, bool open) {
+			child.level = this->level + 1;
+			this->children.add(child);
+		}
+
+		void build_treeview(std::vector<void*>& treeview, u8 level = -1) {
+			this->level = level;
+			if (this->open) {
+				for (auto& e : this->children) {
+					treeview.push_back(&e);
+					e.build_treeview(treeview, this->level + 1);
+				}
+			}
+		}
+	};
+	struct treeview_practice_data {
+		u8 type_header;
+		u8 practice_type;
+	};
+
+	struct dummy_treeview_element {
+		void build_treeview(std::vector<void*>& treeview, u8 level) {}
+	};
+
+	typedef treeview_element<treeview_practice_data, dummy_treeview_element, 0> treeview_practice_variation;
+	typedef treeview_element<treeview_practice_data, treeview_practice_variation, 8> treeview_practice;
+	
+	enum treeview_practice_type : u8 {
+		treeview_practice_type_root, treeview_practice_type_writing_variant, treeview_practice_type_multiplechoice_variant, treeview_practice_type_drawing_variant
+	};
+
+
+	void create_pages(ProcState* state) {
 		DWORD style_button_txt = WS_CHILD | WS_TABSTOP | button::style::roundrect;
 		DWORD style_button_bmp = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_BITMAP;
 		DWORD style_button_icon = WS_CHILD | WS_TABSTOP | button::style::roundrect | BS_ICON;
@@ -2461,7 +2599,7 @@ namespace べんきょう {
 			button::set_function_on_click(button_three_lines,
 				[](void* element, void* user_extra) {
 					ProcState* state = (decltype(state))user_extra;
-					animate_sidebar(state, 200);
+					animate_sidebar(state, sidebar_animation_time_ms);
 				}
 			);
 			navbar::attach(navbar, button_three_lines, navbar::attach_point::left, -1);
@@ -2498,7 +2636,7 @@ namespace べんきょう {
 			searchbox::set_function_perform_search(search, searchbox_func_perform_search);
 			searchbox::set_function_show_element_on_editbox(search, searchbox_func_show_on_editbox);
 			searchbox::set_function_render_listbox_element(search, searchbox_func_listbox_render);
-			searchbox::maintain_placerholder_when_focussed(search, true);
+			searchbox::maintain_placerholder_when_focussed(search, false);
 			edit_oneline::set_IME_wnd(searchbox::get_controls(search).editbox, true);
 			navbar::attach(navbar, search, navbar::attach_point::center, -1);
 			SendMessage(search, WM_SETFONT, (WPARAM)global::fonts.General, TRUE);
@@ -2643,7 +2781,7 @@ namespace べんきょう {
 					//flip_visibility(listbox);
 					ask_for_resize(state);
 					ask_for_repaint(state);
-					//TODO(fran): BUG: listbox doesnt re-render when being shown after being hidden
+					force_repaint(listbox);
 				}
 			);
 
@@ -2709,8 +2847,8 @@ namespace べんきょう {
 
 			controls.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			lexical_category_setup_combobox(controls.combo_lexical_category);
 			SetWindowSubclass(controls.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+			lexical_category_setup_combobox(controls.combo_lexical_category);
 			SendMessage(controls.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.combo_lexical_category, 123);
 
@@ -2720,19 +2858,22 @@ namespace べんきょう {
 			edit_oneline::maintain_placerholder_when_focussed(controls.edit_meaning, true);
 			AWDT(controls.edit_meaning, 122);
 
-			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
+			controls.edit_mnemonic = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_mnemonic, &base_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.edit_mnemonic, true);
 			AWDT(controls.edit_mnemonic, 125);
 
-			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
+			controls.edit_example_sentence = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_example_sentence, &base_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.edit_example_sentence, true);
 			AWDT(controls.edit_example_sentence, 127);
 
-			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE
+			controls.edit_notes = CreateWindowW(edit_oneline::wndclass, NULL, WS_CHILD | ES_LEFT | WS_TABSTOP | ES_ROUNDRECT | ES_MULTILINE | ES_EXPANSIBLE
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			edit_oneline::set_theme(controls.edit_notes, &base_editoneline_theme);
+			edit_oneline::maintain_placerholder_when_focussed(controls.edit_notes, true);
 			AWDT(controls.edit_notes, 126);
 			//NOTE: remember that the window switching order because of tabstop is the same as the window creation order
 
@@ -2784,8 +2925,8 @@ namespace べんきょう {
 
 			controls.combo_lexical_category = CreateWindowW(L"ComboBox", NULL, WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_ROUNDRECT
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
-			lexical_category_setup_combobox(controls.combo_lexical_category);
 			SetWindowSubclass(controls.combo_lexical_category, ComboProc, 0, 0);//TODO(fran): create my own cb control (edit + list probably)
+			lexical_category_setup_combobox(controls.combo_lexical_category);
 			SendMessage(controls.combo_lexical_category, CB_SETDROPDOWNIMG, (WPARAM)global::bmps.dropdown, 0);
 			ACC(controls.combo_lexical_category, 123);
 
@@ -2880,6 +3021,7 @@ namespace べんきょう {
 		//---------------------Practice----------------------:
 		{
 			auto& controls = state->pages.practice;
+			auto& pagestate = state->pagestate.practice;
 
 			controls.page = create_page(state, base_page_theme);
 
@@ -2937,6 +3079,232 @@ namespace べんきょう {
 				}
 			);
 
+			controls.settings_listbox_practices = CreateWindowW(listbox::wndclass, 0, WS_CHILD
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			listbox::set_user_extra(controls.settings_listbox_practices, state);
+			static const auto drawListboxPracticeSettingsItem = [](HDC dc, rect_i32 r, listbox::renderflags flags, treeview_practice_data element, void* user_extra) {
+				ProcState* state = (decltype(state))user_extra;
+
+
+				bool selected;
+				std::wstring txt;
+				if (element.type_header == treeview_practice_type_root) {
+					available_practices practiceType = (available_practices)element.practice_type;
+					auto& practices_to_perform = state->settings->practices;
+					selected = practices_to_perform & (i32)practiceType;
+					txt = GetStringPracticeType(practiceType);
+				}
+				else if (element.type_header == treeview_practice_type_writing_variant) {
+					practice_writing_variant practiceType = (practice_writing_variant)element.practice_type;
+					auto& practice_variants_to_perform = state->settings->practice_writing_variants;
+					selected = practice_variants_to_perform & (i32)practiceType;
+					txt = GetStringPracticeWritingVariant(practiceType);
+				}
+				else if (element.type_header == treeview_practice_type_multiplechoice_variant) {
+					practice_multiplechoice_variant practiceType = (practice_multiplechoice_variant)element.practice_type;
+					auto& practice_variants_to_perform = state->settings->practice_multiplechoice_variants;
+					selected = practice_variants_to_perform & (i32)practiceType;
+					txt = GetStringPracticeMultiplechoiceVariant(practiceType);
+				}
+				else if (element.type_header == treeview_practice_type_drawing_variant) {
+					practice_drawing_variant practiceType = (practice_drawing_variant)element.practice_type;
+					auto& practice_variants_to_perform = state->settings->practice_drawing_variants;
+					selected = practice_variants_to_perform & (i32)practiceType;
+					txt = GetStringPracticeDrawingVariant(practiceType);
+				}
+				else {
+					Assert(0);
+				}
+
+				int w = r.w, h = r.h;
+
+				//Draw bk
+				HBRUSH bk_br = global::colors.CaptionBk;
+				if (flags.onSelected || flags.onMouseover)
+					bk_br = global::colors.ControlBkMouseOver;
+				if (flags.onClicked)
+					bk_br = global::colors.ControlBkPush;
+
+				RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+				FillRect(dc, &bk_rc, bk_br);
+
+				HBRUSH txt_br = global::colors.ControlTxt;
+
+				//Draw Checkbox
+
+				f32 box_dim = minimum(w, h);
+				f32 box_pad_percentage = .2f;
+				f32 box_w = box_dim * (1 - box_pad_percentage);
+				i32 box_pad = (box_dim * box_pad_percentage) / 2;
+
+				rect_i32 boxr = r;
+				boxr.left += box_pad;
+				boxr.top += box_pad;
+				boxr.w = box_w;
+				boxr.h = box_w;
+				int box_roundedness = maximum(1, (i32)roundf((f32)box_w * .2f));
+				int box_thickness = 1;
+				{
+					HPEN pen = CreatePen(PS_SOLID, box_thickness, ColorFromBrush(txt_br)); defer{ DeletePen(pen); };
+					HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
+					HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+					RoundRect(dc, boxr.left, boxr.top, boxr.right(), boxr.bottom(), box_roundedness, box_roundedness);
+
+					if (selected)
+					{
+						SelectBrush(dc, txt_br);
+						RECT check_rc = to_RECT(boxr);
+						i32 delta_dim = -maximum(1, (i32)roundf((f32)box_w * .15f));
+						InflateRect(&check_rc, delta_dim, delta_dim);
+						RoundRect(dc, check_rc.left, check_rc.top, check_rc.right, check_rc.bottom, box_roundedness, box_roundedness);
+					}
+				}
+				//urender::RoundRectangleBorder_smooth(dc, txt_br, to_RECT(boxr), 10, box_thickness);
+
+				//Draw Text
+
+				HFONT font = global::fonts.General; //TODO(fran): get font from listbox
+				RECT txt_rc = to_RECT(r);
+				txt_rc.left += box_dim;
+
+				urender::draw_text(dc, txt_rc, to_utf16_str(txt), font, txt_br, bk_br, urender::txt_align::left, (int)avg_str_dim(font, 1).cx);
+				};
+			auto drawTreeviewPracticeSettingsItem = [](HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+				treeview_practice* treeview = (treeview_practice*)element;
+				const int rem = avg_str_dim(global::fonts.General, 1).cx;
+				const int treeview_w = 4*rem;
+				auto treeview_r = r;
+				auto treeview_displacement = treeview_w * treeview->level;
+				treeview_r.left += treeview_displacement;
+				treeview_r.w = treeview_w;
+
+				RECT bk_rc = to_RECT(r);
+				FillRect(dc, &bk_rc, global::colors.CaptionBk);
+				if (treeview->children.cnt)
+					if (treeview->open)
+						draw_bitmap_1bpp(global::bmps.dropdown, dc, treeview_r, 1 * rem);
+					else 
+						draw_bitmap_1bpp(global::bmps.arrow_right, dc, treeview_r, 1 * rem);
+				//else 
+					//draw_bitmap_1bpp(global::bmps.minimize, dc, treeview_r, 1 * rem);
+
+				r.cut_left(treeview_displacement + treeview_w);
+				drawListboxPracticeSettingsItem(dc, r, flags, treeview->data, user_extra);
+			};
+			listbox::set_function_render(controls.settings_listbox_practices, drawTreeviewPracticeSettingsItem);
+
+			static const auto listbox_practices_set_elements = [](HWND control, treeview_element<bool, treeview_practice, countAvailablePractices>& root) {
+				std::vector<void*> elements;
+				root.build_treeview(elements);
+				void* a = (void*)&elements;
+				std::vector<treeview_practice*> b = *(std::vector<treeview_practice*>*)a;
+				listbox::set_elements(control, elements.data(), elements.size());
+			};
+
+			static auto onClickListboxPracticeSettingsItem = [](treeview_practice_data element, void* user_extra) {
+				ProcState* state = (decltype(state))user_extra;
+
+
+				switch (element.type_header) {
+				case treeview_practice_type_root: {
+					auto& practices_to_perform = state->settings->practices;
+					available_practices practiceType = (available_practices)element.practice_type;
+					practices_to_perform ^= (int)practiceType;
+				} break;
+				case treeview_practice_type_writing_variant: {
+					auto& practice_variants_to_perform = state->settings->practice_writing_variants;
+					practice_writing_variant variant = (practice_writing_variant)element.practice_type;
+					practice_variants_to_perform ^= (int)variant;
+				} break;
+				case treeview_practice_type_multiplechoice_variant: {
+					auto& practice_variants_to_perform = state->settings->practice_multiplechoice_variants;
+					practice_multiplechoice_variant variant = (practice_multiplechoice_variant)element.practice_type;
+					practice_variants_to_perform ^= (int)variant;
+				} break;
+				case treeview_practice_type_drawing_variant: {
+					auto& practice_variants_to_perform = state->settings->practice_drawing_variants;
+					practice_drawing_variant variant = (practice_drawing_variant)element.practice_type;
+					practice_variants_to_perform ^= (int)variant;
+				} break;
+				default:
+					Assert(0);
+				}
+
+			};
+
+			static treeview_element<bool, treeview_practice, countAvailablePractices> settings_practices_root{ -1, true, 0, {} }; //TODO: move to page state
+
+			static_assert(settings_practices_root.children.cnt_allocd() >= countAvailablePractices, "Enlarge the array");
+			static_assert(countAvailablePractices == 3, "Add the new practice to the list");
+
+			static auto onClickTreeviewPracticeSettingsItem = [](void* element, void* user_extra) {
+				ProcState* state = (decltype(state))user_extra;
+				treeview_practice* treeview = (treeview_practice*)element;
+
+				//TODO: only pass click if it didnt hit the open/close section (right now we have no way to know this, which would indicate that we need to either provide that info from the listbox, or create a treeview component)
+				if (treeview->children.cnt) {
+					treeview->open = !treeview->open;
+					listbox_practices_set_elements(state->pages.practice.settings_listbox_practices, settings_practices_root);
+					ask_for_resize(state);
+					ask_for_repaint(state);
+				}
+
+				onClickListboxPracticeSettingsItem(treeview->data, user_extra);
+				};
+			listbox::set_function_on_click(controls.settings_listbox_practices, onClickTreeviewPracticeSettingsItem);
+			
+
+			
+			treeview_practice practice_writing{ 0, 0, treeview_practice_data{treeview_practice_type_root, (u8)available_practices::writing}, {} };
+			settings_practices_root.add_child(practice_writing, false);
+			treeview_practice practice_multiplechoice{ 0, 0, treeview_practice_data{treeview_practice_type_root, (u8)available_practices::multiplechoice}, {} };
+			settings_practices_root.add_child(practice_multiplechoice, false);
+			treeview_practice practice_drawing{ 0, 0, treeview_practice_data{treeview_practice_type_root, (u8)available_practices::drawing}, {} };
+			settings_practices_root.add_child(practice_drawing, false);
+
+			
+			constexpr u32 countWritingVariants = get_enumflag_element_count<practice_writing_variant>();
+			static_assert(practice_writing.children.cnt_allocd() >= countWritingVariants, "Enlarge the array");
+			for (u8 i = 0; i < countWritingVariants; i++)
+			{
+				settings_practices_root.children[0].add_child(treeview_practice_variation{0, 0, treeview_practice_data{treeview_practice_type_writing_variant, (u8)(1 << i)} }, false);
+			}
+
+			constexpr u32 countMultipleChoiceVariants = get_enumflag_element_count<practice_multiplechoice_variant>();
+			static_assert(practice_multiplechoice.children.cnt_allocd() >= countMultipleChoiceVariants, "Enlarge the array");
+			for (u8 i = 0; i < countMultipleChoiceVariants; i++)
+			{
+				settings_practices_root.children[1].add_child(treeview_practice_variation{ 0, 0, treeview_practice_data{treeview_practice_type_multiplechoice_variant, (u8)(1 << i)} }, false);
+			}
+
+			constexpr u32 countDrawingVariants = get_enumflag_element_count<practice_drawing_variant>();
+			static_assert(practice_drawing.children.cnt_allocd() >= countDrawingVariants, "Enlarge the array");
+			for (u8 i = 0; i < countDrawingVariants; i++)
+			{
+				settings_practices_root.children[2].add_child(treeview_practice_variation{ 0, 0, treeview_practice_data{treeview_practice_type_drawing_variant, (u8)(1 << i)} }, false);
+			}
+			//TODO(fran): actually assigning the level at this point is pointless, we know the levels here cause we have the entire array of childrens structure, the level is something only to be added when inserting the object into the listbox
+
+			listbox_practices_set_elements(controls.settings_listbox_practices, settings_practices_root);
+
+			controls.settings_button_practices = CreateWindowW(button::wndclass, NULL, style_button_txt
+				, 0, 0, 0, 0, page, 0, NULL, NULL);
+			AWT(controls.settings_button_practices, 1300);
+			button::set_theme(controls.settings_button_practices, &dark_btn_theme);
+			button::set_user_extra(controls.settings_button_practices, state);
+			button::set_function_render(controls.settings_button_practices, button_recents_func_render);
+			button::set_function_on_click(controls.settings_button_practices,
+				[](void* element, void* user_extra) {
+					ProcState* state = (decltype(state))user_extra;
+					HWND listbox = state->pages.practice.settings_listbox_practices;
+					state->pagestate.practice.settings_visibility = !state->pagestate.practice.settings_visibility;
+
+					ask_for_resize(state);
+					force_repaint(listbox);
+					ask_for_repaint(state);
+				}
+			);
+
 			controls.button_start = CreateWindowW(button::wndclass, NULL, style_button_txt
 				, 0, 0, 0, 0, controls.page, 0, NULL, NULL);
 			AWT(controls.button_start, 350);
@@ -2945,12 +3313,21 @@ namespace べんきょう {
 			button::set_function_on_click(controls.button_start,
 				[](void* element, void* user_extra) {
 					ProcState* state = (decltype(state))user_extra;
+					auto& pagestate = state->pagestate.practice;
 					i64 word_cnt = get_user_stats(state->settings->db).word_cnt; //TODO(fran): I dont know if this is the best way to do it but it is the most accurate
-					if (word_cnt > 0) {
+					if (!word_cnt) 
+						MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
+					else if (!state->settings->practices) 
+						MessageBoxW(state->wnd, RCS(361), 0, MB_OK, MBP::center);
+					else if ((state->settings->practices & (u32)available_practices::writing) && !state->settings->practice_writing_variants)
+						MessageBoxW(state->wnd, RCS(362), 0, MB_OK, MBP::center);
+					else if ((state->settings->practices & (u32)available_practices::multiplechoice) && !state->settings->practice_multiplechoice_variants)
+						MessageBoxW(state->wnd, RCS(363), 0, MB_OK, MBP::center);
+					else if ((state->settings->practices & (u32)available_practices::drawing) && !state->settings->practice_drawing_variants)
+						MessageBoxW(state->wnd, RCS(364), 0, MB_OK, MBP::center);
+					else 
+					{
 						int practice_cnt = 10;
-#if 0 && defined(_DEBUG)
-						practice_cnt = 2;
-#endif
 						state->practice_cnt = (u32)min(word_cnt, practice_cnt);//set the practice counter (and if there arent enough words reduce the practice size, not sure how useful this is)
 						store_previous_page(state, state->current_page);
 
@@ -2961,7 +3338,6 @@ namespace べんきょう {
 
 						next_practice_level(state, false);
 					}
-					else MessageBoxW(state->wnd, RCS(360), 0, MB_OK, MBP::center);
 				}
 			);
 
@@ -3322,7 +3698,7 @@ namespace べんきょう {
 
 	}
 
-	void resize_controls(ProcState* state, ProcState::page page) {
+	void resize_page(ProcState* state, ProcState::page page) {
 		static int rez = 0; printf("Resize calls: %d\n", ++rez);
 		RECT r; GetClientRect(state->wnd, &r);
 
@@ -3520,7 +3896,7 @@ namespace べんきょう {
 				{&edit_kanji,wnd_h} };
 
 			ssizer combo_lexical_category{ controls.combo_lexical_category };
-			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			hsizer lexical_category{ {&combo_lexical_category,GetWindowDesiredSize(combo_lexical_category.wnd, { 0,wnd_h }, { (int)(.55f * layout_bounds.cx),wnd_h}).max.cx}};
 			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
 			ssizer edit_notes{ controls.edit_notes };
@@ -3533,14 +3909,14 @@ namespace べんきょう {
 				{&lvpad,half_wnd_h},
 				{&edit_meaning,wnd_h},
 				{&lvpad,half_wnd_h},
-				{&edit_mnemonic,wnd_h},
+				{&edit_mnemonic,GetWindowDesiredSize(edit_mnemonic.wnd, { 0,wnd_h }, { 0,wnd_h * 5 }).max.cy},
 				{&lvpad,half_wnd_h},
-				{&edit_example_sentence,wnd_h}, //TODO(fran): first 'example sentence' or 'notes'?
+				{&edit_example_sentence,GetWindowDesiredSize(edit_example_sentence.wnd, { 0,wnd_h }, {0,wnd_h * 5}).max.cy},
 				{&lvpad,half_wnd_h},
-				{&edit_notes,wnd_h},
+				{&edit_notes,GetWindowDesiredSize(edit_notes.wnd, { 0,wnd_h }, {0,wnd_h * 5}).max.cy},
+				//TODO(fran): BUG: text editor's sizing is retained after pressing Add (ie if it occupied 3 lines it still does), it should restart the page correctly
 				{&lvpad,half_wnd_h},
 				{&save,wnd_h} };
-
 
 			hsizer layout{
 				{&jp_sizer,(int)(.4f * (f32)layout_bounds.cx)},
@@ -3565,11 +3941,15 @@ namespace べんきょう {
 
 			listbox::set_dimensions(controls.listbox_words_practiced, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
 
+			listbox::set_dimensions(controls.settings_listbox_practices, listbox::dimensions().set_border_thickness(0).set_element_h(wnd_h));
+
 			HFONT font = GetWindowFont(controls.button_start);
-			SIZE layout_bounds = avg_str_dim(font, 100);
-			layout_bounds.cx = minimum((int)layout_bounds.cx, max_w);
+			i32 _rem = avg_str_dim(font, 1).cx;
+			static const auto rem = [=](f32 n) {return n * _rem; };
+			f32 layout_bounds_w = minimum((int)rem(100), max_w);
 
 			hpsizer lhpad{};
+			vpsizer lvpad{};
 
 			ssizer button_words_practiced{ controls.button_words_practiced};
 			ssizer listbox_words_practiced{ controls.listbox_words_practiced};
@@ -3577,18 +3957,28 @@ namespace べんきょう {
 				{&button_words_practiced,wnd_h},
 				{&listbox_words_practiced, wnd_h * (int)listbox::get_element_cnt(controls.listbox_words_practiced)}, };
 
+			ssizer settings_button_practices{ controls.settings_button_practices };
+			ssizer settings_listbox_practices{ controls.settings_listbox_practices};
 			ssizer button_start{ controls.button_start };
-			hcsizer start{ {&button_start,avg_str_dim(font, 10).cx} };
-			vsizer practice_column{
+			hcsizer start{ {&button_start,rem(10)} };
+
+			i32 settings_w = (i32)minimum(rem(35), layout_bounds_w / 2);
+			hcsizer settings_button{ {&settings_button_practices,settings_w} }; //TODO(fran): have I got no way of declaring a general w for both?
+			hcsizer settings_list{ {&settings_listbox_practices,settings_w} }; //TODO(fran): ability to define a percentage instead of a fixed number, what I would like here would be 50% of the parent's width
+
+			vsizer start_practice_column{
+				{&settings_button,wnd_h},
+				{&settings_list, state->pagestate.practice.settings_visibility ? wnd_h * (int)listbox::get_element_cnt(controls.settings_listbox_practices) : 0},
+				{&lvpad, h_pad},
 				{&start,wnd_h}, };
 
 			hsizer layout{
-				{&practiced_column,(int)(.4f * (f32)layout_bounds.cx)},
-				{&lhpad,(int)(.05f * (f32)layout_bounds.cx)},
-				{&practice_column,(int)(.55f * (f32)layout_bounds.cx)} };
+				{&practiced_column,(int)(.4f * (f32)layout_bounds_w)},
+				{&lhpad,(int)(.05f * (f32)layout_bounds_w)},
+				{&start_practice_column,(int)(.55f * (f32)layout_bounds_w)} };
 
 			rect_i32 layout_rc;
-			layout_rc.w = layout_bounds.cx;
+			layout_rc.w = layout_bounds_w;
 			layout_rc.y = 0;
 			layout_rc.h = h;
 			layout_rc.x = (w - layout_rc.w) / 2;
@@ -3894,7 +4284,7 @@ namespace べんきょう {
 			};
 
 			ssizer combo_lexical_category{ controls.combo_lexical_category };
-			hsizer lexical_category{ {&combo_lexical_category,avg_str_dim(font, 10).cx} };//TODO(fran): request desired size
+			hsizer lexical_category{ {&combo_lexical_category,GetWindowDesiredSize(combo_lexical_category.wnd, { 0,wnd_h }, { (int)(.55f * layout_bounds.cx),wnd_h}).max.cx} };
 			ssizer edit_meaning{ controls.edit_meaning };
 			ssizer edit_mnemonic{ controls.edit_mnemonic };
 			ssizer edit_notes{ controls.edit_notes };
@@ -3970,17 +4360,17 @@ namespace べんきょう {
 		case ProcState::page::review_practice_writing:
 		{
 			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_writing);
+			resize_page(state, ProcState::page::practice_writing);
 		} break;
 		case ProcState::page::review_practice_multiplechoice:
 		{
 			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_multiplechoice);
+			resize_page(state, ProcState::page::practice_multiplechoice);
 		} break;
 		case ProcState::page::review_practice_drawing:
 		{
 			//TODO(fran): different layout?
-			resize_controls(state, ProcState::page::practice_drawing);
+			resize_page(state, ProcState::page::practice_drawing);
 		} break;
 		case ProcState::page::wordbook:
 		{
@@ -4077,8 +4467,8 @@ namespace べんきょう {
 		default:Assert(0);
 		}
 	}
-	void resize_controls(ProcState* state) {
-		resize_controls(state, state->current_page);
+	void resize_page(ProcState* state) {
+		resize_page(state, state->current_page);
 	}
 	
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -4101,7 +4491,7 @@ namespace べんきょう {
 		{
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
 
-			create_controls(state);
+			create_pages(state);
 
 			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
@@ -4190,7 +4580,7 @@ namespace べんきょう {
 		} break;
 		case WM_SIZE:
 		{
-			resize_controls(state);
+			resize_page(state);
 			return 0;
 		} break;
 		case WM_CLOSE:
@@ -4249,6 +4639,7 @@ namespace べんきょう {
 					WORD notif = HIWORD(wparam);
 					if (child == page.button_next || (child == page.edit_answer && notif == EN_ENTER)) {
 						bool already_answered = IsWindowEnabled(page.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
+
 						if (!already_answered) {
 							utf16_str user_answer; _get_edit_str(page.edit_answer, user_answer);
 							if (user_answer.cnt()) {
@@ -4439,6 +4830,7 @@ namespace べんきょう {
 							ShowWindow(page.static_correct_answer, SW_SHOW);
 							ShowWindow(page.button_wrong, SW_SHOW);
 							ShowWindow(page.button_right, SW_SHOW);
+							ShowWindow(page.embedded_show_word_disambiguation, SW_HIDE);
 						}
 					}
 					else if (child == page.button_right || child == page.button_wrong) {
@@ -4674,7 +5066,7 @@ namespace べんきょう {
 		} break;
 		case WM_ASK_FOR_RESIZE:
 		{
-			resize_controls(state); //TODO(fran): only process resizes every X milliseconds (later on we should get rid of this concept entirely and provide resize info to the control directly so it knows when it can send the ask_for_resize msg)
+			resize_page(state); //TODO(fran): only process resizes every X milliseconds (later on we should get rid of this concept entirely and provide resize info to the control directly so it knows when it can send the ask_for_resize msg)
 			ask_for_repaint(state); //TODO(fran): controls dont re-render otherwise, even though Im resizing them, maybe because they only change position and not size? also maybe because I dont ask the page to be resized?
 			return 0;
 		} break;
@@ -4738,4 +5130,5 @@ namespace べんきょう {
 		}
 	};
 	static const pre_post_main PREMAIN_POSTMAIN;
+
 }
