@@ -13,38 +13,35 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Controls">
+      <UniqueIdentifier>{3d93aa92-d5f0-4e40-ba9b-83fddb4d1bf8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Windows Core">
+      <UniqueIdentifier>{c171fa18-ff54-4204-ac88-7c807c0edf47}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Utils">
+      <UniqueIdentifier>{f1d4c894-e398-46d3-bd6c-723073f85661}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Sqlite">
+      <UniqueIdentifier>{6996f80d-81a5-4b9d-b15d-92d6dbda487d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Core">
+      <UniqueIdentifier>{a7d513ae-26d6-4def-972d-4bf583ebb74f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{e448b19f-421c-463e-aa04-6bcacb8349a5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="sqlite3.c">
-      <Filter>Source Files</Filter>
+      <Filter>Sqlite</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="windows_sdk.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_Math.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_Vector.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="windows_msg_mapper.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_Reflection.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="unCap_Serialization.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="LANGUAGE_MANAGER.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="sqlite3.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="lang.h">
@@ -53,58 +50,10 @@
     <ClInclude Include="img.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="resource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_static_oneline.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_graph.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_gridview.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Platform.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Helpers.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_button.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_edit_oneline.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_nonclient.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32_score.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_searchbox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_listbox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_printmsg.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_page.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_Global.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_multibutton.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_paint.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="win32_Char.h">
@@ -113,41 +62,110 @@
     <ClInclude Include="win32_べんきょう.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32_navbar.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_べんきょう_db.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="windows_extra_msgs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_combobox_subclass.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_combobox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_べんきょう_embedded.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_notify.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Pix_RingLifeBar.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="win32_Sizer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="win32_eyecandy.h">
-      <Filter>Header Files</Filter>
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_static_oneline.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_button.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_combobox.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_combobox_subclass.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_edit_oneline.h">
+      <Filter>Controls</Filter>
     </ClInclude>
     <ClInclude Include="win32_edit_oneline_subclass.h">
-      <Filter>Header Files</Filter>
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_graph.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_gridview.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_listbox.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_multibutton.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_navbar.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_searchbox.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_paint.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_page.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_score.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_nonclient.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="windows_sdk.h">
+      <Filter>Windows Core</Filter>
+    </ClInclude>
+    <ClInclude Include="windows_extra_msgs.h">
+      <Filter>Windows Core</Filter>
+    </ClInclude>
+    <ClInclude Include="windows_msg_mapper.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_printmsg.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_notify.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="sqlite3.h">
+      <Filter>Sqlite</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Helpers.h">
+      <Filter>Utils</Filter>
     </ClInclude>
     <ClInclude Include="basic_array.h">
-      <Filter>Header Files</Filter>
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="unCap_Math.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="unCap_Vector.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Platform.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="unCap_Serialization.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="unCap_Reflection.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="Pix_RingLifeBar.h">
+      <Filter>Shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Resource Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -161,6 +179,8 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="Pix_RingLifeBar.hlsl" />
+    <FxCompile Include="Pix_RingLifeBar.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

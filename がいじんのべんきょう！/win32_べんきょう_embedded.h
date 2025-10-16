@@ -280,13 +280,6 @@ namespace embedded {
 	}
 
 
-
-
-
-
-
-
-
 	namespace show_word_disambiguation {
 		//---------------Creation Example---------------:
 		// CreateWindowW(embedded::show_word_disambiguation::wndclass, 0, WS_CHILD | embedded::show_word_disambiguation::style::roundrect, 0, 0, 0, 0, parent, 0, 0, 0);
