@@ -79,6 +79,12 @@ union _learnt_word { //contains utf16 when getting data from the UI, and utf8 wh
 	} attributes;
 	type all[sizeof(attributes) / sizeof(type)];
 
+	void free() {for (auto& word : this->all)free_any_str(word.str);}
+
+	void free_pks() {for (int i = 0; i < this->pk_count; i++) free_any_str(this->all[i]);}
+
+	void free_non_pks() {for (int i = this->pk_count; i < ARRAYSIZE(this->all); i++) free_any_str(this->all[i]);}
+
 	static constexpr int pk_count = 1;//number of primary keys, primary keys are the first members in the attributes list
 };
 

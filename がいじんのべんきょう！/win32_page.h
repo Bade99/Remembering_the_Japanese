@@ -487,10 +487,9 @@ namespace page {
 
 		default:
 #ifdef _DEBUG
-		Assert(0);
-#else 
-		return DefWindowProc(hwnd, msg, wparam, lparam);
+		//Assert(0);
 #endif
+		return DefWindowProc(hwnd, msg, wparam, lparam);
 		}
 		return 0;//TODO(fran): or sendmessage(parent)
 	}

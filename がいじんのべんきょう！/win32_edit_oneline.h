@@ -324,7 +324,7 @@ namespace edit_oneline{
 	}
 
 	i32 desired_height(ProcState* state) {
-		i32 res = state->padding.y + calc_line_height_px(state) * (state->line_breaks.size() + 1);
+		i32 res = state->padding.y + calc_line_height_px(state) * ((i32)state->line_breaks.size() + 1);
 		return res;
 	}
 
@@ -946,7 +946,7 @@ namespace edit_oneline{
 				return res;
 			}
 			
-			i32 current_line_width=0;
+			f32 current_line_width=0;
 			for (auto i = line_char_idx; i < state->selection.cursor; i++)
 				current_line_width += state->char_dims[i];
 

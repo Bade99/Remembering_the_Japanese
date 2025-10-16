@@ -178,7 +178,7 @@ template <typename T>
 constexpr multiflag<T> get_filled_multiflag() { return (1u << (get_last_bit_set_position_slow((u32)T::_last_bit) + 1)) - 1u; }
 
 template <typename T>
-constexpr u32 get_enumflag_element_count() { return popcnt64(get_filled_multiflag<T>()); }
+constexpr u32 get_enumflag_element_count() { return (u32)popcnt64(get_filled_multiflag<T>()); }
 
 
 enum class available_practices : i32 {
@@ -791,7 +791,7 @@ namespace べんきょう {
 		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing
 		//for(auto& e : elements) free_any_str(e);
 
-		for(auto e : elements) for(auto& m : ((learnt_word16*)e)->all) free_any_str(m.str);
+		for(auto e : elements) ((learnt_word16*)e)->free();
 
 		//TODO(fran): MEMLEAK, BUG: Im pretty sure I need to free the first element of 'elements' in order for the dynamic array to be freed, but it crashes right now, Im pretty sure there's a bug higher in the chain, and also the array idea is good from a performance standpoint but doesnt look too good for my needs here, there are never gonna be more than say 15 elements so speed isnt really an issue
 		if(elements.cnt)free(elements[0]); //memleak solved, for now
@@ -1202,20 +1202,20 @@ namespace べんきょう {
 			{
 				ProcState::practice_writing* data = (decltype(data))p;
 				if (data->user_answer.str) { free_any_str(data->user_answer.str); data->user_answer.sz = 0; }
-				for (auto& _ : data->practice->word.all)free_any_str(_.str);
+				data->practice->word.free();
 				free(data->practice);
 			} break;
 			case decltype(p->type)::multiplechoice:
 			{
 				ProcState::practice_multiplechoice* data = (decltype(data))p;
 				data->practice->choices.free();
-				for (auto& _ : data->practice->question.all)free_any_str(_.str);
+				data->practice->question.free();
 				free(data->practice);
 			} break;
 			case decltype(p->type)::drawing:
 			{
 				ProcState::practice_drawing* data = (decltype(data))p;
-				for (auto& _ : data->practice->question.all)free_any_str(_.str);
+				data->practice->question.free();
 				DeleteBitmap(data->user_answer);
 				free(data->practice);
 			} break;
@@ -1783,7 +1783,7 @@ namespace べんきょう {
 
 		{//Free previous elements
 			ptr<void*> elements = listbox::get_all_elements(controls.listbox_words);//HACK
-			for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
+			for (auto e : elements) ((decltype(words.mem))e)->free();
 			if (elements.cnt)free(elements[0]);
 		}
 
@@ -1823,7 +1823,7 @@ namespace べんきょう {
 
 			{//Free previous elements
 				ptr<void*> elements = listbox::get_all_elements(controls.listbox_recents);//HACK
-				for (auto e : elements) for (auto& m : ((decltype(recents.mem))e)->all) free_any_str(m.str);
+				for (auto e : elements) ((decltype(recents.mem))e)->free();
 				if (elements.cnt)free(elements[0]);
 			}
 
@@ -1850,7 +1850,7 @@ namespace べんきょう {
 
 			{//Free previous elements
 				ptr<void*> elements = listbox::get_all_elements(controls.listbox_words_practiced);//HACK
-				for (auto e : elements) for (auto& m : ((decltype(practiced.mem))e)->word.all) free_any_str(m.str);
+				for (auto e : elements) ((decltype(practiced.mem))e)->word.free();
 				if (elements.cnt)free(elements[0]);
 			}
 
@@ -1874,7 +1874,7 @@ namespace べんきょう {
 				HWND listbox = controls.listbox_last_days_words[i];
 				{//Free previous elements
 					ptr<void*> elements = listbox::get_all_elements(listbox);//HACK
-					for (auto e : elements) for (auto& m : ((decltype(words.mem))e)->all) free_any_str(m.str);
+					for (auto e : elements) ((decltype(words.mem))e)->free();
 					if (elements.cnt)free(elements[0]);
 				}
 
@@ -1970,7 +1970,7 @@ namespace べんきょう {
 	bool modify_word(ProcState* state) {
 		bool res = false;
 		if (check_show_word(state)) {
-			learnt_word16 w16; defer{ for (auto& _ : w16.all) free_any_str(_.str); };
+			learnt_word16 w16; defer{ w16.free(); };
 			auto& page = state->pages.show_word;
 
 			_get_edit_str(page.static_id, w16.attributes.id);
@@ -2003,8 +2003,7 @@ namespace べんきょう {
 	bool remove_word(ProcState* state) {
 		bool res = false;
 		
-		learnt_word8 word = show_word_getPks(state);
-		defer{ for (int i = 0; i < word.pk_count; i++) free_any_str(word.all[i]); };
+		learnt_word8 word = show_word_getPks(state); defer{ word.free_pks(); };
 
 		res = delete_word(state->settings->db, word);
 		return res;
@@ -2013,10 +2012,9 @@ namespace べんきょう {
 	bool prioritize_word(ProcState* state) {
 		//TODO(fran): should accept any word, not manually take it from the UI
 		bool res = false;
-		learnt_word8 word = show_word_getPks(state);
-		defer{ for (int i = 0; i < word.pk_count; i++) free_any_str(word.all[i]); };
+		learnt_word8 word = show_word_getPks(state); defer{ word.free_pks(); };
 
-		res = reset_word_priority(state->settings->db,word);
+		res = reset_word_priority(state->settings->db, word);
 
 		return res;
 	}
@@ -2024,7 +2022,7 @@ namespace べんきょう {
 	bool save_new_word(ProcState* state) {
 		bool res = false;
 		if (check_new_word(state)) {
-			learnt_word16 w16; defer{ for (int i = w16.pk_count; i < ARRAYSIZE(w16.all); i++) free_any_str(w16.all[i]); };
+			learnt_word16 w16; defer{ w16.free_non_pks(); };
 
 			auto& page = state->pages.new_word;
 			_get_edit_str(page.edit_hiragana, w16.attributes.hiragana);
@@ -2107,8 +2105,9 @@ namespace べんきょう {
 		Assert(practices);
 		available_practices practice = (available_practices)random_bit_set(practices);
 
-		auto get_hiragana_kanji_meaning = [](learnt_word16* w)->u32 { //Indicates which parts of the word are filled/valid
-			u32 res = 0;
+		auto get_hiragana_kanji_meaning = [](learnt_word16* w)->multiflag<learnt_word_elem> { 
+			//Indicates which parts of the word are filled/valid
+			multiflag<learnt_word_elem> res = 0;
 			if (w) {
 				bool is_radical = get_lexical_category(w->attributes.lexical_category) == lexical_category::radical;
 
@@ -2118,52 +2117,104 @@ namespace べんきょう {
 			}
 			return res;
 		};
+		i32 max_retries = 5; //TODO(fran): improvement: improve the sql logic to select the proper words straight from the db to avoid needing to retry
 
 		switch (practice) {
 		case available_practices::writing:
 		{
 			//NOTE: writing itself has many different practices
 			practice_writing_word* data = (decltype(data))malloc(sizeof(*data));//TODO(fran): MEMLEAK practice_writing page will take care of freeing this once the page completes its practice
-			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
-
-			data->word = std::move(practice_word);
-
-			multiflag<practice_writing_variant> practice_types{};
-			auto word_types = get_hiragana_kanji_meaning(&data->word); Assert(word_types);
-			//bool hiragana = has_hiragana(&data->word), translation = has_translation(&data->word), kanji = has_kanji(&data->word);
-			if (word_types & (u32)learnt_word_elem::hiragana) {
-				if (word_types & (u32)learnt_word_elem::meaning) {
-					practice_types |= (i32)practice_writing_variant::hiragana_to_meaning;
-					practice_types |= (i32)practice_writing_variant::meaning_to_hiragana;
+			for (i32 tries = 1; tries <= max_retries; tries++) {
+				learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
+		
+				multiflag<practice_writing_variant> practice_types{};
+				auto word_types = get_hiragana_kanji_meaning(&practice_word); Assert(word_types);
+				if (word_types & (u32)learnt_word_elem::hiragana) {
+					if (word_types & (u32)learnt_word_elem::meaning) {
+						practice_types |= (i32)practice_writing_variant::hiragana_to_meaning;
+						practice_types |= (i32)practice_writing_variant::meaning_to_hiragana;
+					}
+					if (word_types & (u32)learnt_word_elem::kanji) 
+						practice_types |= (i32)practice_writing_variant::kanji_to_hiragana;
 				}
-				if (word_types & (u32)learnt_word_elem::kanji) 
-					practice_types |= (i32)practice_writing_variant::kanji_to_hiragana;
+				if (word_types & (u32)learnt_word_elem::kanji && word_types & (u32)learnt_word_elem::meaning) 
+					practice_types |= (i32)practice_writing_variant::kanji_to_meaning;
+
+				auto original_practice_types = practice_types;
+				practice_types &= state->settings->practice_writing_variants;
+	
+				if (!practice_types && tries != max_retries) {
+					practice_word.free();
+					continue;
+				} else if (!practice_types) {
+					//Give up and take whatever practice that we can
+					practice_types = original_practice_types;
+				}
+	
+				data->word = std::move(practice_word);
+				data->practice_type = (practice_writing_variant)random_bit_set(practice_types);
+				res.page = ProcState::page::practice_writing;
+				res.data = data;
+				break;
 			}
-			if (word_types & (u32)learnt_word_elem::kanji && word_types & (u32)learnt_word_elem::meaning) 
-				practice_types |= (i32)practice_writing_variant::kanji_to_meaning;
-
-			practice_types &= state->settings->practice_writing_variants;
-
-			//add a default in case there are no items
-			if (!practice_types) //TODO: instead of adding a default we should reject the word and look for a new one
-				practice_types |= (i32)practice_writing_variant::hiragana_to_meaning;
-
-			data->practice_type = (practice_writing_variant)random_bit_set(practice_types);
-			res.page = ProcState::page::practice_writing;
-			res.data = data;
 		} break;
 		case available_practices::multiplechoice:
 		{
 			practice_multiplechoice_word* data = (decltype(data))malloc(sizeof(*data));
 			
-			learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
+			for (i32 tries = 1; tries <= max_retries; tries++) {
+				learnt_word16 practice_word = get_practice_word(state->settings->db);//get a target word
 
-			data->question = std::move(practice_word);
-			u32 q_and_a = get_hiragana_kanji_meaning(&data->question);//NOTE: the type of the question and choices is limited by our target word
+				multiflag<learnt_word_elem> q_and_a = get_hiragana_kanji_meaning(&practice_word);//NOTE: the type of the question and choices is limited by our target word
+				
+				auto variants = state->settings->practice_multiplechoice_variants;
+				if (!(q_and_a & (u32)learnt_word_elem::hiragana)) variants ^= (i32)practice_multiplechoice_variant::hiragana_to_kanji | (i32)practice_multiplechoice_variant::hiragana_to_meaning | (i32)practice_multiplechoice_variant::kanji_to_hiragana | (i32)practice_multiplechoice_variant::meaning_to_hiragana;
+				if (!(q_and_a & (u32)learnt_word_elem::kanji)) variants ^= (i32) practice_multiplechoice_variant::kanji_to_hiragana | (i32) practice_multiplechoice_variant::kanji_to_meaning | (i32) practice_multiplechoice_variant::meaning_to_kanji | (i32) practice_multiplechoice_variant::hiragana_to_kanji;
+				if (!(q_and_a & (u32)learnt_word_elem::meaning)) variants ^= (i32) practice_multiplechoice_variant::meaning_to_hiragana | (i32) practice_multiplechoice_variant::meaning_to_kanji | (i32) practice_multiplechoice_variant::kanji_to_meaning | (i32) practice_multiplechoice_variant::hiragana_to_meaning;
 
-			//TODO: filter by the allowed practice variants configured in state->settings
-			data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
-			data->choices_type = (decltype(data->question_type))random_bit_set(q_and_a & (~(u32)data->question_type));
+				if (variants) {
+					auto variant = random_bit_set(variants);
+					
+					switch (variant) {
+						case (u64)practice_multiplechoice_variant::hiragana_to_meaning: 
+						data->question_type = learnt_word_elem::hiragana;
+						data->choices_type = learnt_word_elem::meaning;
+						break;
+						case (u64)practice_multiplechoice_variant::hiragana_to_kanji: 
+						data->question_type = learnt_word_elem::hiragana;
+						data->choices_type = learnt_word_elem::kanji;
+						break;
+						case (u64)practice_multiplechoice_variant::meaning_to_hiragana: 
+						data->question_type = learnt_word_elem::meaning;
+						data->choices_type = learnt_word_elem::hiragana;
+						break;
+						case (u64)practice_multiplechoice_variant::meaning_to_kanji: 
+						data->question_type = learnt_word_elem::meaning;
+						data->choices_type = learnt_word_elem::kanji;
+						break;
+						case (u64)practice_multiplechoice_variant::kanji_to_hiragana: 
+						data->question_type = learnt_word_elem::kanji;
+						data->choices_type = learnt_word_elem::hiragana;
+						break;
+						case (u64)practice_multiplechoice_variant::kanji_to_meaning: 
+						data->question_type = learnt_word_elem::kanji;
+						data->choices_type = learnt_word_elem::meaning;
+						break;
+						default: Assert(0); break;
+					}
+				} else if (tries != max_retries) {
+					practice_word.free();
+					continue;
+				}
+				else {
+					//Give up and take whatever practice that we can
+					data->question_type = (decltype(data->question_type))random_bit_set(q_and_a);
+					data->choices_type = (decltype(data->question_type))random_bit_set(q_and_a & (~(u32)data->question_type));
+				}
+
+				data->question = std::move(practice_word);
+				break;
+			}
 			
 			ptr<utf16*> _choices = get_word_choices(state->settings->db, data->choices_type, 5, &data->question); defer{ _choices.free(); };
 			data->idx_answer = random_between(0u, (u32)_choices.cnt);
@@ -2185,24 +2236,33 @@ namespace べんきょう {
 		case available_practices::drawing:
 		{
 			practice_drawing_word* data = (decltype(data))malloc(sizeof(*data));
-			learnt_word16 practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
-			//TODO(fran): check the word is valid, otherwise recursively call this function (cut recursion after say 5 tries and simply end the practice)
-			
-			data->question = std::move(practice_word);
-			
-			u32 q_elems = get_hiragana_kanji_meaning(&data->question) & (~(u32)learnt_word_elem::kanji);
-			if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::hiragana_to_kanji))
-				q_elems &= ~(u32)learnt_word_elem::hiragana;
-			if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::meaning_to_kanji))
-				q_elems &= ~(u32)learnt_word_elem::meaning;
-			if (!q_elems) {
-				//TODO: reject the word and look for a new one
-			}
-			data->question_type = (decltype(data->question_type))random_bit_set(q_elems);
-			data->question_str = str_for(&data->question, data->question_type).str;
+			for (i32 tries = 1; tries <= max_retries; tries++) {
+				learnt_word16 practice_word = get_practice_word(state->settings->db, false,true,false);//get a target word
 
-			res.page = ProcState::page::practice_drawing;
-			res.data = data;
+				//TODO(fran): practice_word could be empty if there are no words with kanji, handle this case
+				
+				u32 q_elems = get_hiragana_kanji_meaning(&practice_word) & (~(u32)learnt_word_elem::kanji);
+				auto original_q_elems = q_elems;
+				if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::hiragana_to_kanji))
+				q_elems &= ~(u32)learnt_word_elem::hiragana;
+				if (!(state->settings->practice_drawing_variants & (u32)practice_drawing_variant::meaning_to_kanji))
+				q_elems &= ~(u32)learnt_word_elem::meaning;
+
+				if (!q_elems && tries != max_retries) {
+					practice_word.free();
+					continue;
+				} else if (!q_elems) {
+					//Give up and take whatever practice that we can
+					q_elems = original_q_elems;
+				}
+				
+				data->question = std::move(practice_word);
+				data->question_type = (decltype(data->question_type))random_bit_set(q_elems);
+				data->question_str = str_for(&data->question, data->question_type).str;
+				res.page = ProcState::page::practice_drawing;
+				res.data = data;
+				break;
+			}
 		} break;
 
 		default: Assert(0);
@@ -3116,7 +3176,7 @@ namespace べんきょう {
 					Assert(0);
 				}
 
-				int w = r.w, h = r.h;
+				i32 w = r.w, h = r.h;
 
 				//Draw bk
 				HBRUSH bk_br = global::colors.CaptionBk;
@@ -3132,16 +3192,16 @@ namespace べんきょう {
 
 				//Draw Checkbox
 
-				f32 box_dim = minimum(w, h);
+				f32 box_dim = (f32)minimum(w, h);
 				f32 box_pad_percentage = .2f;
 				f32 box_w = box_dim * (1 - box_pad_percentage);
-				i32 box_pad = (box_dim * box_pad_percentage) / 2;
+				i32 box_pad = (i32)((box_dim * box_pad_percentage) / 2);
 
 				rect_i32 boxr = r;
 				boxr.left += box_pad;
 				boxr.top += box_pad;
-				boxr.w = box_w;
-				boxr.h = box_w;
+				boxr.w = (i32)box_w;
+				boxr.h = (i32)box_w;
 				int box_roundedness = maximum(1, (i32)roundf((f32)box_w * .2f));
 				int box_thickness = 1;
 				{
@@ -3165,7 +3225,7 @@ namespace べんきょう {
 
 				HFONT font = global::fonts.General; //TODO(fran): get font from listbox
 				RECT txt_rc = to_RECT(r);
-				txt_rc.left += box_dim;
+				txt_rc.left += (i32)box_dim;
 
 				urender::draw_text(dc, txt_rc, to_utf16_str(txt), font, txt_br, bk_br, urender::txt_align::left, (int)avg_str_dim(font, 1).cx);
 				};
@@ -3232,7 +3292,7 @@ namespace べんきょう {
 
 			};
 
-			static treeview_element<bool, treeview_practice, countAvailablePractices> settings_practices_root{ -1, true, 0, {} }; //TODO: move to page state
+			static treeview_element<bool, treeview_practice, countAvailablePractices> settings_practices_root{ (u8)-1, true, 0, {}}; //TODO: move to page state
 
 			static_assert(settings_practices_root.children.cnt_allocd() >= countAvailablePractices, "Enlarge the array");
 			static_assert(countAvailablePractices == 3, "Add the new practice to the list");
@@ -3946,7 +4006,7 @@ namespace べんきょう {
 			HFONT font = GetWindowFont(controls.button_start);
 			i32 _rem = avg_str_dim(font, 1).cx;
 			static const auto rem = [=](f32 n) {return n * _rem; };
-			f32 layout_bounds_w = minimum((int)rem(100), max_w);
+			f32 layout_bounds_w = (f32)minimum((i32)rem(100), max_w);
 
 			hpsizer lhpad{};
 			vpsizer lvpad{};
@@ -3978,7 +4038,7 @@ namespace べんきょう {
 				{&start_practice_column,(int)(.55f * (f32)layout_bounds_w)} };
 
 			rect_i32 layout_rc;
-			layout_rc.w = layout_bounds_w;
+			layout_rc.w = (i32)layout_bounds_w;
 			layout_rc.y = 0;
 			layout_rc.h = h;
 			layout_rc.x = (w - layout_rc.w) / 2;
