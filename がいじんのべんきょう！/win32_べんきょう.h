@@ -27,21 +27,16 @@
 #include "win32_notify.h"
 #include "win32_page.h"
 #include "win32_Animation.h"
+//#include "win32_eyecandy.h"
 #include "basic_array.h"
 
 HBRUSH brush_for(learnt_word_elem type) {
 	HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
 	switch (type) {
-	case decltype(type)::hiragana: {
-		res = global::colors.hiragana;
-	} break;
-	case decltype(type)::kanji: {
-		res = global::colors.kanji;
-	} break;
-	case decltype(type)::meaning: {
-		res = global::colors.meaning;
-	} break;
-	default:Assert(0);
+	case decltype(type)::hiragana: res = global::colors.hiragana; break;
+	case decltype(type)::kanji: res = global::colors.kanji; break;
+	case decltype(type)::meaning: res = global::colors.meaning; break;
+	default: Assert(0);
 	}
 	return res;
 };
@@ -63,22 +58,6 @@ int draw_bitmap_1bpp(HBITMAP bmp, HDC dc, rect_i32 r, int x_pad, HBRUSH color = 
 	return bmp_align_width;
 }
 
-void languages_setup_combobox(HWND cb) {
-	auto langs = LANGUAGE_MANAGER::Instance().GetAllLanguages();
-	auto current_lang = LANGUAGE_MANAGER::Instance().GetCurrentLanguage();
-
-	for (const auto& lang : *langs) {
-		utf16_str* l = (decltype(l))malloc(sizeof(*l)); *l = alloc_any_str(lang);
-		listbox::add_elements(combobox::get_controls(cb).listbox, (void**)l, 1);
-		//SendMessage(cb, CB_INSERTSTRING, -1, (LPARAM)lang.c_str());
-
-		//if(!lang.compare(current_lang)) SendMessage(cb, CB_SETCURSEL, (int)SendMessage(cb,CB_GETCOUNT,0,0)-1, 0);
-		if (!lang.compare(current_lang)) combobox::set_cur_sel(cb, combobox::get_count(cb) - 1);
-	}
-	InvalidateRect(cb, NULL, TRUE);
-}
-
-//#include "win32_eyecandy.h"
 #include "study_lexical_category.h"
 #include "style.h"
 #include "study_page_landing_types.h"
@@ -98,11 +77,11 @@ constexpr multiflag<T> get_filled_multiflag() { return (1u << (get_last_bit_set_
 template <typename T>
 constexpr u32 get_enumflag_element_count() { return (u32)popcnt64(get_filled_multiflag<T>()); }
 
-static constexpr multiflag<べんきょう::practice::available_practices> filledAvailablePractices = get_filled_multiflag<べんきょう::practice::available_practices>();
-static constexpr multiflag<べんきょう::practice::writing::variant> filledPracticeWritingVariants = get_filled_multiflag<べんきょう::practice::writing::variant>();
-static constexpr multiflag<べんきょう::practice::multiplechoice::variant> filledPracticeMultiplechoiceVariants = get_filled_multiflag<べんきょう::practice::multiplechoice::variant>();
-static constexpr multiflag<べんきょう::practice::drawing::variant> filledPracticeDrawingVariants = get_filled_multiflag<べんきょう::practice::drawing::variant>();
-static constexpr u32 countAvailablePractices = get_enumflag_element_count<べんきょう::practice::available_practices>();
+constexpr multiflag<べんきょう::practice::available_practices> filledAvailablePractices = get_filled_multiflag<べんきょう::practice::available_practices>();
+constexpr multiflag<べんきょう::practice::writing::variant> filledPracticeWritingVariants = get_filled_multiflag<べんきょう::practice::writing::variant>();
+constexpr multiflag<べんきょう::practice::multiplechoice::variant> filledPracticeMultiplechoiceVariants = get_filled_multiflag<べんきょう::practice::multiplechoice::variant>();
+constexpr multiflag<べんきょう::practice::drawing::variant> filledPracticeDrawingVariants = get_filled_multiflag<べんきょう::practice::drawing::variant>();
+constexpr u32 countAvailablePractices = get_enumflag_element_count<べんきょう::practice::available_practices>();
 
 struct べんきょうSettings {
 
@@ -222,6 +201,11 @@ namespace べんきょう {
 		}
 	}
 
+	void save_settings(ProcState* state) {
+		RECT rc; GetWindowRect(state->wnd, &rc);
+		state->settings->rc = rc;
+	}
+
 	HWND create_empty_page(ProcState* state, const page::Theme& theme) {
 		HWND page = CreateWindowW(page::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
 			, 0, 0, 0, 0, state->pages.page_space, 0, NULL, NULL);
@@ -238,24 +222,16 @@ namespace べんきょう {
 		case decltype(type)::hiragana: res = (decltype(res))word->attributes.hiragana; break;
 		case decltype(type)::kanji: res = (decltype(res))word->attributes.kanji; break;
 		case decltype(type)::meaning: res = (decltype(res))word->attributes.meaning; break;
-		default:res = { 0 }; Assert(0);
+		default: res = { 0 }; Assert(0);
 		}
 		return res;
 	};
 
-	str word_filter_to_str(word_filter::type filter) {
-		return RS(1100 + filter); //NOTE: dont_care should never be shown
-	}
-	u32 word_filter_str_lang_id(word_filter::type filter) {
-		return 1100 + filter; //NOTE: dont_care should never be shown
-	}
-
-	str word_order_to_str(word_order::type order) {
-		return RS(1000 + order); //NOTE: dont_care should never be shown
-	}
-	u32 word_order_str_lang_id(word_order::type order) {
-		return 1000 + order; //NOTE: dont_care should never be shown
-	}
+	//NOTE: For these enums the value of dont_care should never be shown
+	str word_filter_to_str(word_filter::type filter) { return RS(1100 + filter); } 
+	u32 word_filter_str_lang_id(word_filter::type filter) { return 1100 + filter; }
+	str word_order_to_str(word_order::type order) { return RS(1000 + order); }
+	u32 word_order_str_lang_id(word_order::type order) { return 1000 + order; }
 
 	void word_order_setup_combobox(HWND cb) {
 		for (int i = word_order::__first; i < word_order::__last; i++)
@@ -398,10 +374,31 @@ namespace べんきょう {
 
 	void preload_page(ProcState* state, page_type page, void* data);
 	void set_current_page(ProcState* state, page_type new_page);
-	void show_backbtn(ProcState* state, bool show);
-	void goto_previous_page(ProcState* state);
-	void store_previous_page(ProcState* state, page_type prev_page);
 	void reset_page(ProcState* state, page_type page);
+
+	void show_backbtn(ProcState* state, bool show) { PostMessage(state->nc_parent, WM_SHOWBACKBTN, show, 0); }
+
+	void goto_previous_page(ProcState* state) {
+		if (state->previous_pages.cnt > 0) {
+			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
+			if (state->previous_pages.cnt == 0) show_backbtn(state, false);
+		}
+	}
+
+	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
+	void store_previous_page(ProcState* state, page_type prev_page) {
+		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
+			//cnt stays the same
+			//we move all the entries one position down and place the new one on top
+			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
+			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
+			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
+		}
+		else {
+			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
+		}
+		show_backbtn(state, true);
+	}
 
 	void page_scroll(HWND page_wnd, i32 w, i32 page_space_h, i32 used_h) {
 		//TODO(fran): this is good but not perfect, inconsistencies occur when resizing, mainly with the starting position of the page
@@ -454,196 +451,6 @@ namespace べんきょう {
 
 		store_previous_page(state, state->current_page);
 		set_current_page(state, page_type::practice);
-	}
-
-	//Page Search: Searchbox functions
-	void searchbox_func_free_elements(ptr<void*> elements, void* user_extra) {
-		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing
-		//for(auto& e : elements) free_any_str(e);
-
-		for (auto e : elements) ((learnt_word16*)e)->free();
-
-		//TODO(fran): MEMLEAK, BUG: Im pretty sure I need to free the first element of 'elements' in order for the dynamic array to be freed, but it crashes right now, Im pretty sure there's a bug higher in the chain, and also the array idea is good from a performance standpoint but doesnt look too good for my needs here, there are never gonna be more than say 15 elements so speed isnt really an issue
-		if (elements.cnt)free(elements[0]); //memleak solved, for now
-		//elements.free(); //NOTE: again, all the elements are allocated continually in memory as an array, so we only need to deallocate the first one and the whole mem section is freed
-	}
-
-	ptr<void*> searchbox_func_retrieve_search_options(utf16_str user_input, void* user_extra) {
-		ptr<void*> res{ 0 };
-		ProcState* state = (decltype(state))user_extra;
-		if (user_input.cnt()) {
-
-			if (any_kanji(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::kanji;
-			else if (any_hiragana_katakana(user_input)) state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::hiragana;
-			else state->pagestate.search.search_type = decltype(state->pagestate.search.search_type)::meaning;
-
-			auto search_res = search_word_matches(state->settings->db, state->pagestate.search.search_type, user_input, 8); //defer{ free(search_res.matches);/*free the dinamically allocated array*/ };
-			//TODO(fran): search_word_matches should return a ptr
-			res.alloc(search_res.cnt);//TODO(fran): am I ever freeing this?
-			for (size_t i = 0; i < search_res.cnt; i++)
-				//res[i] = search_res.matches[i];
-				res[i] = &search_res[i];
-		}
-		return res;
-	}
-
-	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra);
-
-	void searchbox_func_show_on_editbox(HWND editbox, void* element, void* user_extra) {
-		learnt_word16* word = (decltype(word))element;
-		ProcState* state = (decltype(state))user_extra;
-
-		utf16_str txt = str_for(word, state->pagestate.search.search_type);
-
-		SendMessage(editbox, WM_SETTEXT_NO_NOTIFY, 0, (LPARAM)txt.str);
-	}
-
-	void searchbox_func_listbox_render(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
-		int w = r.w, h = r.h;
-		learnt_word16* txt = (decltype(txt))element;
-
-		//Draw bk
-		HBRUSH bk_br = global::colors.ControlBk;
-		if (flags.onSelected || flags.onMouseover)bk_br = global::colors.ControlBkMouseOver;
-		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
-
-		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
-		FillRect(dc, &bk_rc, bk_br);
-
-		//Draw text
-		i32 third_w = r.w / 3;
-		rect_i32 tempr = r; tempr.w = third_w;
-
-		RECT hira_rc = to_RECT(tempr);
-
-		tempr.left += tempr.w;
-
-		RECT kanji_rc = to_RECT(tempr);
-
-		tempr.left += tempr.w;
-
-		RECT meaning_rc = to_RECT(tempr);
-
-		urender::draw_text(dc, hira_rc, txt->attributes.hiragana, global::fonts.General, brush_for(learnt_word_elem::hiragana), bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, kanji_rc, txt->attributes.kanji, global::fonts.General, brush_for(learnt_word_elem::kanji), bk_br, urender::txt_align::left, 3);
-		urender::draw_text(dc, meaning_rc, txt->attributes.meaning, global::fonts.General, brush_for(learnt_word_elem::meaning), bk_br, urender::txt_align::left, 3);
-	}
-
-	void langbox_func_free_elements(ptr<void*> elements, void* user_extra) {
-		for (auto& e : elements) { free_any_str(((utf16_str*)e)->str); free(e); }
-	}
-
-	void langbox_func_render_listbox_element(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
-
-		int w = r.w, h = r.h;
-		utf16_str* txt = (decltype(txt))element;
-
-		//Draw bk
-		HBRUSH bk_br = global::colors.ControlBk, txt_br = global::colors.ControlTxt;
-		if (flags.onMouseover || flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
-		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
-
-		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
-		FillRect(dc, &bk_rc, bk_br);
-
-		//Draw text
-		HFONT font = global::fonts.General;
-		RECT txt_rc = to_RECT(r);
-
-		urender::draw_text(dc, txt_rc, *txt, font, txt_br, bk_br, urender::txt_align::left, avg_str_dim(font, 1).cx);
-	}
-
-	void langbox_func_on_selection_accepted(void* element, void* user_extra) {
-		utf16_str* lang = (decltype(lang))element;
-		LANGUAGE_MANAGER::Instance().ChangeLanguage(lang->str);
-		ProcState* state = (decltype(state))user_extra;
-
-		navbar::ask_for_resize(state->pages.navbar);
-		navbar::ask_for_repaint(state->pages.navbar);
-		//TODO(fran): ask for resize and repaint to the entire page too
-		//TODO(fran):I dont like having to do this manually
-	}
-
-	void langbox_func_on_listbox_opening(HWND combo, HWND listbox, void* user_extra) {
-		listbox::clear_selected_noNotify(listbox);
-	}
-
-	void langbox_func_render_combobox(HDC dc, rect_i32 r, combobox::render_flags flags, void* element, void* user_extra) {
-
-		HFONT font = global::fonts.General;
-		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br;
-		if (flags.isListboxOpen) {
-			bk_br = global::colors.ControlBk;
-		}
-		else if (flags.onClicked) {
-			bk_br = global::colors.ControlBkPush;
-		}
-		else if (flags.onMouseover) {
-			bk_br = global::colors.ControlBkMouseOver;
-		}
-		else {
-			bk_br = global::colors.ControlBk_Disabled;
-		}
-		border_br = bk_br;
-
-
-		int border_thickness_pen = 0;//means 1px when creating pens
-		int border_thickness = 1;
-		int x_pad = avg_str_dim(font, 1).cx;
-
-		//Border and Bk
-		{
-			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
-			HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
-			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
-			i32 extent = min(r.w, r.h);
-			i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
-			RoundRect(dc, r.left, r.top, r.right(), r.bottom(), roundedness, roundedness);
-		}
-
-		//Dropbox icon
-		int icon_x = draw_bitmap_1bpp(global::bmps.dropdown, dc, r, x_pad);
-		//TODO(fran): clamp txt rect to not go over the icon
-
-		//Text
-		if (element) {
-			SelectFont(dc, font);
-			utf16_str* s = (decltype(s))element;
-
-			SetBkColor(dc, ColorFromBrush(bk_br));
-			SetTextColor(dc, ColorFromBrush(txt_br));
-
-			RECT txt_rc = to_RECT(r);
-			txt_rc.left += x_pad;
-			txt_rc.right = icon_x;
-
-			txt_rc.right -= avg_str_dim(font, 1).cx;//Add spacing between txt & icon for right aligned
-
-			DrawTextW(dc, s->str, (int)s->cnt(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-		}
-	}
-
-	int langbox_func_desired_size(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra) {
-		SIZE sz;
-		HFONT font = global::fonts.General;
-
-		if (element) {
-			utf16_str* s = (decltype(s))element;
-			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
-			GetTextExtentPoint32W(dc, s->str, (int)s->cnt(), &sz);
-			int char_cnt = 2 + 3;//icon, spacing
-			sz.cx += avg_str_dim(font, char_cnt).cx;
-		}
-		else {
-			int char_cnt = 8 + 2 + 3;//chars, icon, spacing
-			sz = avg_str_dim(font, char_cnt);
-		}
-
-		min->cx = minimum((int)min->cx, (int)((float)sz.cx * 1.f));
-		min->cy = minimum((int)min->cy, (int)((float)sz.cy * 1.2f));
-
-		*max = *min;
-		return 2;
 	}
 }
 
@@ -719,11 +526,6 @@ namespace べんきょう {
 //TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it changes the color of the edit box
 
 namespace べんきょう {
-	void save_settings(ProcState* state) {
-		RECT rc; GetWindowRect(state->wnd, &rc);
-		state->settings->rc = rc;
-	}
-
 	//Sets the items in the corresponding page to the values on *data, prepares the page so it can be shown to the user
 	void preload_page(ProcState* state, page_type page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
@@ -740,7 +542,7 @@ namespace べんきょう {
 		} break;
 		case decltype(page)::show_word:
 		{
-			stored_word16* word_to_show = (decltype(word_to_show))data;
+			auto word_to_show = (stored_word16*)data;
 			show_word::preload_page(state, state->pages.show_word, word_to_show);
 		} break;
 		case decltype(page)::practice_writing:
@@ -771,12 +573,12 @@ namespace べんきょう {
 		} break;
 		case decltype(page)::practice_drawing:
 		{
-			practice::drawing::word* practice = (decltype(practice))data;
+			auto practice = (practice::drawing::word*)data;
 			practice::drawing::preload_page(state, state->pages.practice_drawing, practice);
 		} break;
 		case decltype(page)::review_practice_drawing:
 		{
-			practice::practice_drawing* pagedata = (decltype(pagedata))data;
+			auto pagedata = (practice::practice_drawing*)data;
 			practice::review::drawing::preload_page(state, state->pages.practice_drawing, pagedata);
 		} break;
 		default: Assert(0);
@@ -863,6 +665,10 @@ namespace べんきょう {
 		RECT r; GetClientRect(state->wnd, &r);
 
 		const int w = RECTWIDTH(r);
+		const int half_w = w / 2;
+		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
+		const int max_w = w - w_pad * 2;
+
 		const int wnd_h = (int)((f32)avg_str_dim(global::fonts.General, 1).cy * 1.5f);
 		const int half_wnd_h = wnd_h / 2;
 
@@ -876,10 +682,7 @@ namespace べんきょう {
 		}
 
 		const int h = RECTHEIGHT(r) - navbar.h; //correct height to subtract navbar
-		const int half_w = w / 2;
-		const int w_pad = (int)((f32)w * .05f);//TODO(fran): hard limit for max padding
 		const int h_pad = (int)((f32)h * .05f);
-		const int max_w = w - w_pad * 2;
 
 		rect_i32 sidebar;
 		{//sidebar
@@ -938,16 +741,8 @@ namespace べんきょう {
 	void set_current_page(ProcState* state, page_type new_page) {
 		show_page(state, state->current_page, SW_HIDE);
 		state->current_page = new_page;
-
 		study_sidebar::animate_hide(state);
-
 		switch (new_page) {
-		case decltype(new_page)::practice_writing:
-		{
-			//TODO(fran): idk where to put this, I'd put it in preload but preload doesnt guarantee we're switching pages, even though it's mostly true currently
-			auto& controls = state->pages.practice_writing;
-			//SetFocus(controls.edit_answer);//TODO(fran): problem is now we cant see in which lang we have to write, we have two options, either give the edit control an extra flag of show placeholder even if cursor is visible; option 2 setfocus to us (main wnd) wait for the user to press something, redirect the msg to the edit box and setfocus. INFO: wanikani shows the placeholder and the caret at the same time, lets do that
-		} break;
 		case decltype(new_page)::landing: landing::set_current_page(state); break;
 		case decltype(new_page)::practice: practice::set_current_page(state); break;
 		case decltype(new_page)::wordbook: wordbook::set_current_page(state); break;
@@ -956,79 +751,6 @@ namespace べんきょう {
 		resize_page(state);
 		show_page(state, state->current_page, SW_SHOW);
 		set_default_focus(state, state->current_page);
-	}
-
-	void show_backbtn(ProcState* state, bool show) { PostMessage(state->nc_parent, WM_SHOWBACKBTN, show, 0); }
-
-	void goto_previous_page(ProcState* state) {
-		if (state->previous_pages.cnt > 0) {
-			set_current_page(state, state->previous_pages.pages[--state->previous_pages.cnt]);
-			if (state->previous_pages.cnt == 0) show_backbtn(state, false);
-		}
-	}
-
-	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
-	void store_previous_page(ProcState* state, page_type prev_page) {
-		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
-			//cnt stays the same
-			//we move all the entries one position down and place the new one on top
-			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
-			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
-			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
-		}
-		else {
-			state->previous_pages.pages[state->previous_pages.cnt++] = prev_page;
-		}
-
-		show_backbtn(state, true);
-	}
-
-	void searchbox_func_perform_search(void* element, bool is_element, void* user_extra) {
-		ProcState* state = (decltype(state))user_extra;
-
-		learnt_word16 search{0};
-
-		stored_word16_res res; defer{ if(res.found) free_stored_word(res.word); };
-		if (is_element) {
-			//TODO(fran): at this point we already know which word to find on the db, the problem is we dont have its ID, we gotta search by string (hiragana) again, we need to retrieve and store IDs on the db. And add a function get_word(ID)
-			search = *(decltype(&search))element;
-			
-			res = get_stored_word(state->settings->db, search);
-		}
-		else {
-			//NOTE: here we dont know the "ID" so the search will simply take the first word it finds that matches the requirements //TODO(fran): we could present multiple results and ask the user which one to open
-			learnt_word_elem search_type = state->pagestate.search.search_type;
-			switch (search_type) {
-			case decltype(search_type)::hiragana: search.attributes.hiragana = *((utf16_str*)element); break;
-			case decltype(search_type)::kanji:    search.attributes.kanji    = *((utf16_str*)element); break;
-			case decltype(search_type)::meaning:  search.attributes.meaning  = *((utf16_str*)element); break;
-			default:Assert(0);//TODO
-			}
-			//search = ((utf16_str*)element)->str;
-
-			res = get_word(state->settings->db, search_type, str_for(&search,search_type)); 
-		}
-
-		if (res.found) {
-			preload_page(state, page_type::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
-			store_previous_page(state, state->current_page);
-			set_current_page(state, page_type::show_word);
-		}
-		else {
-			HWND focuswnd = GetFocus();
-			int ret = MessageBoxW(state->nc_parent, RCS(300), L"", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);
-			if (ret == IDYES) {
-				//learnt_word2<utf16_str> new_word{ 0 };
-				//new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
-				//preload_page(state, ProcState::page::new_word, &new_word);
-				preload_page(state, page_type::new_word, &search);
-				store_previous_page(state, state->current_page);
-				set_current_page(state, page_type::new_word);
-			}
-			else SetFocus(focuswnd);//Restore focus to the edit window since messagebox takes it away 
-			//TODO(fran): a way to make this more streamlined would be to implement:
-			//int MessageBoxW(...){ oldfocus=getfocus(); messagebox(); setfocus(oldfocus); }
-		}
 	}
 
 	void init_cpp_objects(ProcState* state) {
@@ -1119,19 +841,17 @@ namespace べんきょう {
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
 
 			create_pages(state);
-			set_current_page(state, page_type::landing);//TODO(fran): page:: would be nicer than ProcState::page::
+			set_current_page(state, page_type::landing);
 
-//#define TEST_SCORE_ANIM
-#if defined(TEST_SCORE_ANIM)
-			static void (*testp)(HWND, UINT, UINT_PTR, DWORD) = [](HWND wnd, UINT, UINT_PTR id, DWORD) {
-				static int c;
-				flip_visibility(get_state(wnd)->controls.landingpage.score_accuracy);
-				flip_visibility(get_state(wnd)->controls.landingpage.score_accuracy);
-				SetTimer(wnd, id, 3000, testp);
-			};
-			SetTimer(state->wnd, 5555, 0, testp);
-#endif
-
+			if constexpr (constexpr bool TEST_SCORE_ANIM = false; TEST_SCORE_ANIM) {
+				static void (*testp)(HWND, UINT, UINT_PTR, DWORD) = [](HWND wnd, UINT, UINT_PTR id, DWORD) {
+					auto state = get_state(wnd);
+					flip_visibility(state->pages.landing.score_accuracy);
+					flip_visibility(state->pages.landing.score_accuracy);
+					SetTimer(wnd, id, 3000, testp);
+				};
+				SetTimer(state->wnd, 5555, 0, testp);
+			}
 
 //#define TEST_IME_MODE_SWITCH
 #if defined(TEST_IME_MODE_SWITCH)
@@ -1197,7 +917,6 @@ namespace べんきょう {
 					break;
 #endif
 				}
-
 			}
 			//ActivateKeyboardLayout(currenthkl, KLF_SETFORPROCESS);
 #endif
@@ -1259,12 +978,8 @@ namespace べんきょう {
 					Assert(0);
 				}
 			}
-			else {
-				//switch (LOWORD(wparam)) {//Menu notifications
-				//default:
-					Assert(0);
-				//}
-			}
+			else //switch (LOWORD(wparam)) { //Menu notifications
+				Assert(0);
 			return 0;
 		} break;
 		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
@@ -1272,7 +987,6 @@ namespace べんきょう {
 			HDC listboxDC = (HDC)wparam;
 			SetBkColor(listboxDC, ColorFromBrush(global::colors.ControlBk));
 			SetTextColor(listboxDC, ColorFromBrush(global::colors.ControlTxt));
-
 			return (INT_PTR)global::colors.ControlBk;
 		} break;
 		case WM_BACK:
@@ -1406,11 +1120,9 @@ namespace べんきょう {
 	}
 
 	struct pre_post_main {
-		pre_post_main() {
-			init_wndclass(GetModuleHandleW(NULL));
-		}
-		~pre_post_main() { //INFO: you can also use the atexit function
-			//Classes are de-registered automatically by the os
-		}
+		pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
+		//INFO: you can also use the atexit function
+		//Classes are de-registered automatically by the os
+		~pre_post_main() { } 
 	} static const PREMAIN_POSTMAIN;
 }

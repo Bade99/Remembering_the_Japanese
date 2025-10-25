@@ -12,6 +12,140 @@ namespace べんきょう::study_sidebar {
 		f32 dt;//increment for 't' per frame
 	};
 
+
+	void langbox_func_free_elements(ptr<void*> elements, void* user_extra) {
+		for (auto& e : elements) { free_any_str(((utf16_str*)e)->str); free(e); }
+	}
+
+	void langbox_func_render_listbox_element(HDC dc, rect_i32 r, listbox::renderflags flags, void* element, void* user_extra) {
+
+		int w = r.w, h = r.h;
+		utf16_str* txt = (decltype(txt))element;
+
+		//Draw bk
+		HBRUSH bk_br = global::colors.ControlBk, txt_br = global::colors.ControlTxt;
+		if (flags.onMouseover || flags.onSelected)bk_br = global::colors.ControlBkMouseOver;
+		if (flags.onClicked) bk_br = global::colors.ControlBkPush;
+
+		RECT bk_rc = to_RECT(r);//TODO(fran): I should be using rect_i32 otherwise I should change the func to use RECT
+		FillRect(dc, &bk_rc, bk_br);
+
+		//Draw text
+		HFONT font = global::fonts.General;
+		RECT txt_rc = to_RECT(r);
+
+		urender::draw_text(dc, txt_rc, *txt, font, txt_br, bk_br, urender::txt_align::left, avg_str_dim(font, 1).cx);
+	}
+
+	void langbox_func_on_selection_accepted(void* element, void* user_extra) {
+		utf16_str* lang = (decltype(lang))element;
+		LANGUAGE_MANAGER::Instance().ChangeLanguage(lang->str);
+		ProcState* state = (decltype(state))user_extra;
+
+		navbar::ask_for_resize(state->pages.navbar);
+		navbar::ask_for_repaint(state->pages.navbar);
+		//TODO(fran): ask for resize and repaint to the entire page too
+		//TODO(fran):I dont like having to do this manually
+	}
+
+	void langbox_func_on_listbox_opening(HWND combo, HWND listbox, void* user_extra) {
+		listbox::clear_selected_noNotify(listbox);
+	}
+
+	void langbox_func_render_combobox(HDC dc, rect_i32 r, combobox::render_flags flags, void* element, void* user_extra) {
+
+		HFONT font = global::fonts.General;
+		HBRUSH bk_br, txt_br = global::colors.ControlTxt, border_br;
+		if (flags.isListboxOpen) {
+			bk_br = global::colors.ControlBk;
+		}
+		else if (flags.onClicked) {
+			bk_br = global::colors.ControlBkPush;
+		}
+		else if (flags.onMouseover) {
+			bk_br = global::colors.ControlBkMouseOver;
+		}
+		else {
+			bk_br = global::colors.ControlBk_Disabled;
+		}
+		border_br = bk_br;
+
+
+		int border_thickness_pen = 0;//means 1px when creating pens
+		int border_thickness = 1;
+		int x_pad = avg_str_dim(font, 1).cx;
+
+		//Border and Bk
+		{
+			HPEN pen = CreatePen(PS_SOLID, border_thickness_pen, ColorFromBrush(border_br)); defer{ DeletePen(pen); };
+			HPEN oldpen = SelectPen(dc, pen); defer{ SelectObject(dc, oldpen); };
+			HBRUSH oldbr = SelectBrush(dc, bk_br); defer{ SelectBrush(dc,oldbr); };
+			i32 extent = min(r.w, r.h);
+			i32 roundedness = max(1, (i32)roundf((f32)extent * .2f));
+			RoundRect(dc, r.left, r.top, r.right(), r.bottom(), roundedness, roundedness);
+		}
+
+		//Dropbox icon
+		int icon_x = draw_bitmap_1bpp(global::bmps.dropdown, dc, r, x_pad);
+		//TODO(fran): clamp txt rect to not go over the icon
+
+		//Text
+		if (element) {
+			SelectFont(dc, font);
+			utf16_str* s = (decltype(s))element;
+
+			SetBkColor(dc, ColorFromBrush(bk_br));
+			SetTextColor(dc, ColorFromBrush(txt_br));
+
+			RECT txt_rc = to_RECT(r);
+			txt_rc.left += x_pad;
+			txt_rc.right = icon_x;
+
+			txt_rc.right -= avg_str_dim(font, 1).cx;//Add spacing between txt & icon for right aligned
+
+			DrawTextW(dc, s->str, (int)s->cnt(), &txt_rc, DT_EDITCONTROL | DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+		}
+	}
+
+	int langbox_func_desired_size(SIZE* min, SIZE* max, HDC dc, void* element, void* user_extra) {
+		SIZE sz;
+		HFONT font = global::fonts.General;
+
+		if (element) {
+			utf16_str* s = (decltype(s))element;
+			HFONT oldfont = SelectFont(dc, font); defer{ SelectFont(dc,oldfont); };
+			GetTextExtentPoint32W(dc, s->str, (int)s->cnt(), &sz);
+			int char_cnt = 2 + 3;//icon, spacing
+			sz.cx += avg_str_dim(font, char_cnt).cx;
+		}
+		else {
+			int char_cnt = 8 + 2 + 3;//chars, icon, spacing
+			sz = avg_str_dim(font, char_cnt);
+		}
+
+		min->cx = minimum((int)min->cx, (int)((float)sz.cx * 1.f));
+		min->cy = minimum((int)min->cy, (int)((float)sz.cy * 1.2f));
+
+		*max = *min;
+		return 2;
+	}
+
+	void languages_setup_combobox(HWND cb) {
+		auto langs = LANGUAGE_MANAGER::Instance().GetAllLanguages();
+		auto current_lang = LANGUAGE_MANAGER::Instance().GetCurrentLanguage();
+
+		for (const auto& lang : *langs) {
+			utf16_str* l = (decltype(l))malloc(sizeof(*l)); *l = alloc_any_str(lang);
+			listbox::add_elements(combobox::get_controls(cb).listbox, (void**)l, 1);
+			//SendMessage(cb, CB_INSERTSTRING, -1, (LPARAM)lang.c_str());
+
+			//if(!lang.compare(current_lang)) SendMessage(cb, CB_SETCURSEL, (int)SendMessage(cb,CB_GETCOUNT,0,0)-1, 0);
+			if (!lang.compare(current_lang)) combobox::set_cur_sel(cb, combobox::get_count(cb) - 1);
+		}
+		InvalidateRect(cb, NULL, TRUE);
+	}
+
+
 	void create(ProcState* state) {
 		auto& sidebar = state->pages.sidebar;
 		sidebar = CreateWindowW(navbar::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
