@@ -130,6 +130,24 @@ namespace べんきょう {
 		i32 next_practice_level = 0x5;
 	} constexpr timerIDs;
 
+	enum class page_type {
+		landing,
+		new_word,
+		practice,
+		practice_writing,
+		practice_multiplechoice,
+		practice_drawing,//drawing kanji
+		review_practice,
+		show_word,
+		wordbook,
+		wordbook_all,
+
+		//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
+		review_practice_writing,
+		review_practice_multiplechoice,
+		review_practice_drawing,
+	};
+
 	struct ProcState {
 		HWND wnd;
 		HWND nc_parent;
@@ -139,26 +157,10 @@ namespace べんきょう {
 			HBRUSH bk;
 		} brushes;
 
-		enum class page {
-			landing,
-			new_word,
-			practice,
-			practice_writing,
-			practice_multiplechoice,
-			practice_drawing,//drawing kanji
-			review_practice,
-			show_word,
-			wordbook,
-			wordbook_all,
-
-			//-----Virtual Pages-----: (dont have controls of their own, show some other page and steal what they need from it
-			review_practice_writing,
-			review_practice_multiplechoice,
-			review_practice_drawing,
-		} current_page;
+		page_type current_page;
 
 		struct prev_page_fifo_queue {
-			page pages[10];
+			page_type pages[10];
 			u32 cnt;
 		} previous_pages;
 
@@ -185,7 +187,7 @@ namespace べんきょう {
 		struct {
 			landing::page_state landing;
 
-			struct search_state { learnt_word_elem search_type; }search;
+			struct search_state { learnt_word_elem search_type; } search;
 
 			practice::page_state practice;
 			practice::review::page_state practice_review;
@@ -203,14 +205,13 @@ namespace べんきょう {
 		} pageanim;
 	};
 
-	ProcState* get_state(HWND wnd) {
-		ProcState* state = (ProcState*)GetWindowLongPtr(wnd, 0);//INFO: windows recomends to use GWL_USERDATA https://docs.microsoft.com/en-us/windows/win32/learnwin32/managing-application-state-
-		return state;
-	}
+	ProcState* get_state(HWND wnd) { return (ProcState*)GetWindowLongPtr(wnd, 0); }
+	void set_state(HWND wnd, ProcState* state) { SetWindowLongPtr(wnd, 0, (LONG_PTR)state); }
 
-	void set_state(HWND wnd, ProcState* state) {
-		SetWindowLongPtr(wnd, 0, (LONG_PTR)state);
-	}
+	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
+	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
+	//TODO(fran): add to windows helpers
+	void force_repaint(HWND wnd) { PostMessage(wnd, WM_MOUSEMOVE, 0, MAKEWORD(-1, -1)); }
 
 	//NOTE: a null HBRUSH means dont change the current one
 	void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk) {
@@ -220,11 +221,6 @@ namespace べんきょう {
 			if (repaint)InvalidateRect(state->wnd, NULL, TRUE);
 		}
 	}
-
-	void ask_for_repaint(ProcState* state) { InvalidateRect(state->wnd, NULL, TRUE); }
-	void ask_for_resize(ProcState* state) { PostMessage(state->wnd, WM_SIZE, 0, 0); }
-	//TODO(fran): add to windows helpers
-	void force_repaint(HWND wnd) { PostMessage(wnd, WM_MOUSEMOVE, 0, MAKEWORD(-1, -1)); }
 
 	HWND create_empty_page(ProcState* state, const page::Theme& theme) {
 		HWND page = CreateWindowW(page::wndclass, NULL, WS_CHILD //TODO(fran): WS_CLIPCHILDREN?
@@ -400,12 +396,12 @@ namespace べんきょう {
 		}
 	}
 
-	void preload_page(ProcState* state, ProcState::page page, void* data);
-	void set_current_page(ProcState* state, ProcState::page new_page);
+	void preload_page(ProcState* state, page_type page, void* data);
+	void set_current_page(ProcState* state, page_type new_page);
 	void show_backbtn(ProcState* state, bool show);
 	void goto_previous_page(ProcState* state);
-	void store_previous_page(ProcState* state, ProcState::page prev_page);
-	void reset_page(ProcState* state, ProcState::page page);
+	void store_previous_page(ProcState* state, page_type prev_page);
+	void reset_page(ProcState* state, page_type page);
 
 	void page_scroll(HWND page_wnd, i32 w, i32 page_space_h, i32 used_h) {
 		//TODO(fran): this is good but not perfect, inconsistencies occur when resizing, mainly with the starting position of the page
@@ -421,7 +417,7 @@ namespace べんきょう {
 	}
 
 	enum class notification_relevance { success, error };
-	void notify(ProcState* state, ProcState::page page, notification_relevance category, const utf16* notif) {
+	void notify(ProcState* state, page_type page, notification_relevance category, const utf16* notif) {
 		HBRUSH notif_br;
 		switch (category) {
 		case decltype(category)::success: notif_br = global::colors.Bk_right_answer; break;
@@ -449,15 +445,15 @@ namespace べんきょう {
 		ProcState* state = (decltype(state))user_extra;
 
 		store_previous_page(state, state->current_page);
-		reset_page(state, ProcState::page::new_word);
-		set_current_page(state, ProcState::page::new_word);
+		reset_page(state, page_type::new_word);
+		set_current_page(state, page_type::new_word);
 	}
 
 	void button_function_on_click_goto_page_practice(void* element, void* user_extra) {
 		ProcState* state = (decltype(state))user_extra;
 
 		store_previous_page(state, state->current_page);
-		set_current_page(state, ProcState::page::practice);
+		set_current_page(state, page_type::practice);
 	}
 
 	//Page Search: Searchbox functions
@@ -659,6 +655,9 @@ namespace べんきょう {
 #include "study_page_practice_multiplechoice.h"
 #include "study_page_practice_drawing.h"
 #include "study_page_review_practice.h"
+#include "study_page_review_practice_writing.h"
+#include "study_page_review_practice_multiplechoice.h"
+#include "study_page_review_practice_drawing.h"
 #include "study_page_show_word.h"
 #include "study_page_wordbook.h"
 #include "study_page_wordbook_all.h"
@@ -715,6 +714,10 @@ namespace べんきょう {
 
 //REMEMBER: have checks in place to make sure the user cant execute operations twice by quickly pressing a button again
 
+//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
+
+//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it changes the color of the edit box
+
 namespace べんきょう {
 	void save_settings(ProcState* state) {
 		RECT rc; GetWindowRect(state->wnd, &rc);
@@ -722,7 +725,7 @@ namespace べんきょう {
 	}
 
 	//Sets the items in the corresponding page to the values on *data, prepares the page so it can be shown to the user
-	void preload_page(ProcState* state, ProcState::page page, void* data) {
+	void preload_page(ProcState* state, page_type page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
 		switch (page) {
 		case decltype(page)::landing:
@@ -748,130 +751,23 @@ namespace べんきょう {
 		} break;
 		case decltype(page)::review_practice:
 		{
-			std::vector<practice::practice_header*>* practices = (decltype(practices))data;
+			auto practices = (std::vector<practice::practice_header*>*)data;
 			practice::review::preload_page(state, state->pages.review_practice, practices);
 		} break;
 		case decltype(page)::review_practice_writing:
 		{
-			practice::practice_writing* pagedata = (decltype(pagedata))data;
-			auto& controls = state->pages.practice_writing;
-			utf16* question = pagedata->question->str;
-			HBRUSH question_br{ 0 };
-			brush_group answer_bk;
-			if (pagedata->answered_correctly) {
-				answer_bk.normal = global::colors.Bk_right_answer;
-				answer_bk.mouseover = global::colors.BkMouseover_right_answer;
-				answer_bk.clicked = global::colors.BkPush_right_answer;
-			}
-			else {
-				answer_bk.normal = global::colors.Bk_wrong_answer;
-				answer_bk.mouseover = global::colors.BkMouseover_wrong_answer;
-				answer_bk.clicked = global::colors.BkPush_wrong_answer;
-			}
-
-			switch (pagedata->practice->practice_type) {//TODO(fran): should be a common function call
-			case decltype(pagedata->practice->practice_type)::hiragana_to_meaning:
-			{
-				question_br = brush_for(learnt_word_elem::hiragana);
-			} break;
-			case decltype(pagedata->practice->practice_type)::kanji_to_hiragana:
-			{
-				question_br = brush_for(learnt_word_elem::kanji);
-			} break;
-			case decltype(pagedata->practice->practice_type)::kanji_to_meaning:
-			{
-				question_br = brush_for(learnt_word_elem::kanji);
-			} break;
-			case decltype(pagedata->practice->practice_type)::meaning_to_hiragana:
-			{
-				question_br = brush_for(learnt_word_elem::meaning);
-			} break;
-			default:Assert(0);
-			}
-			
-			SendMessageW(controls.static_test_word, WM_SETTEXT, 0, (LPARAM)question);
-			static_oneline::Theme static_theme;
-			static_theme.brushes.foreground.normal = question_br;
-			static_oneline::set_theme(controls.static_test_word, &static_theme);
-
-			//TODO(fran): controls.edit_answer should be disabled
-
-			edit_oneline::Theme editoneline_theme;
-			editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
-			editoneline_theme.brushes.bk.normal = answer_bk.normal;
-			editoneline_theme.brushes.border.normal = answer_bk.normal;
-
-			edit_oneline::set_theme(controls.edit_answer, &editoneline_theme);
-
-			SendMessageW(controls.edit_answer, WM_SETTEXT, 0, (LPARAM)pagedata->user_answer.str);
-
-			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk = answer_bk;
-			btn_next_theme.brushes.border = answer_bk;
-			btn_next_theme.brushes.foreground.normal = global::colors.ControlTxt;
-			button::set_theme(controls.button_next, &btn_next_theme);
-
-			EnableWindow(controls.button_show_word, TRUE);
-
-			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->word);
-			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->word);
-
+			auto pagedata = (practice::practice_writing*)data;
+			practice::review::writing::preload_page(state, state->pages.practice_writing, pagedata);
 		} break;
 		case decltype(page)::practice_multiplechoice:
 		{
-			practice::multiplechoice::word* practice = (decltype(practice))data;
+			auto practice = (practice::multiplechoice::word*)data;
 			practice::multiplechoice::preload_page(state, state->pages.practice_multiplechoice, practice);
 		} break;
 		case decltype(page)::review_practice_multiplechoice:
 		{
-			practice::practice_multiplechoice* pagedata = (decltype(pagedata))data;
-			auto& controls = state->pages.practice_multiplechoice;
-
-			HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
-			HBRUSH choice_txt_br = brush_for(pagedata->practice->choices_type);
-			HBRUSH user_choice_txt_br = global::colors.ControlTxt;
-			//TODO(fran): use brush_group
-			brush_group user_choice_bk;
-			if (pagedata->answered_correctly) {
-				user_choice_bk.normal = global::colors.Bk_right_answer;
-				user_choice_bk.mouseover = global::colors.BkMouseover_right_answer;
-				user_choice_bk.clicked = global::colors.BkPush_right_answer;
-			}
-			else {
-				user_choice_bk.normal = global::colors.Bk_wrong_answer;
-				user_choice_bk.mouseover = global::colors.BkMouseover_wrong_answer;
-				user_choice_bk.clicked = global::colors.BkPush_wrong_answer;
-			}
-
-			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
-			static_oneline::Theme static_theme;
-			static_theme.brushes.foreground.normal = question_txt_br;
-			static_oneline::set_theme(controls.static_question, &static_theme);
-			
-			//TODO(fran): borders for the right/wrong button dont seem to match when the button is pressed
-			//TODO(fran): controls.multibutton_choices should be disabled
-			multibutton::set_buttons(controls.multibutton_choices, pagedata->practice->choices);
-			button::Theme multibutton_button_theme;
-			multibutton_button_theme.brushes.foreground.normal = choice_txt_br;
-			multibutton::set_button_theme(controls.multibutton_choices, &multibutton_button_theme);
-
-			button::Theme multibutton_user_choice_button_theme;
-			multibutton_user_choice_button_theme.brushes.foreground.normal = user_choice_txt_br;
-			multibutton_user_choice_button_theme.brushes.bk = user_choice_bk;
-			multibutton_user_choice_button_theme.brushes.border = user_choice_bk;
-			multibutton::set_button_theme(controls.multibutton_choices, &multibutton_user_choice_button_theme,pagedata->user_answer_idx);
-
-			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk = user_choice_bk;
-			btn_next_theme.brushes.border = user_choice_bk;
-			btn_next_theme.brushes.foreground.normal = global::colors.Img;
-			button::set_theme(controls.button_next, &btn_next_theme);
-
-			EnableWindow(controls.button_show_word, TRUE);
-
-			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
-			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->question);
-
+			auto pagedata = (practice::practice_multiplechoice*)data;
+			practice::review::multiplechoice::preload_page(state, state->pages.practice_multiplechoice, pagedata);
 		} break;
 		case decltype(page)::practice_drawing:
 		{
@@ -881,50 +777,13 @@ namespace べんきょう {
 		case decltype(page)::review_practice_drawing:
 		{
 			practice::practice_drawing* pagedata = (decltype(pagedata))data;
-			auto& controls = state->pages.practice_drawing;
-
-			HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
-			brush_group user_choice_bk;
-			if (pagedata->answered_correctly) {
-				user_choice_bk.normal = global::colors.Bk_right_answer;
-				user_choice_bk.mouseover = global::colors.BkMouseover_right_answer;
-				user_choice_bk.clicked = global::colors.BkPush_right_answer;
-			}
-			else {
-				user_choice_bk.normal = global::colors.Bk_wrong_answer;
-				user_choice_bk.mouseover = global::colors.BkMouseover_wrong_answer;
-				user_choice_bk.clicked = global::colors.BkPush_wrong_answer;
-			}
-
-			SendMessageW(controls.static_question, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question_str);
-			static_oneline::Theme static_theme;
-			static_theme.brushes.foreground.normal = question_txt_br;
-			static_oneline::set_theme(controls.static_question, &static_theme);
-
-			paint::clear_canvas(controls.paint_answer);
-			paint::set_placeholder(controls.paint_answer, pagedata->user_answer);
-
-			button::Theme btn_next_theme;
-			btn_next_theme.brushes.bk = user_choice_bk;
-			btn_next_theme.brushes.border = user_choice_bk;
-			btn_next_theme.brushes.foreground.normal = global::colors.Img;
-			button::set_theme(controls.button_next, &btn_next_theme);
-
-			SendMessageW(controls.static_correct_answer, WM_SETTEXT, 0, (LPARAM)pagedata->practice->question.attributes.kanji.str /*TODO(fran): add answer_str*/);
-
-			EnableWindow(controls.paint_answer, FALSE);
-			EnableWindow(controls.button_show_word, TRUE);
-			EnableWindow(controls.button_next, TRUE);
-
-			embedded::show_word_reduced::set_word(controls.embedded_show_word_reduced, &pagedata->practice->question);
-			embedded::show_word_disambiguation::set_word(controls.embedded_show_word_disambiguation, &pagedata->practice->question);
-
+			practice::review::drawing::preload_page(state, state->pages.practice_drawing, pagedata);
 		} break;
 		default: Assert(0);
 		}
 	}
 
-	void show_page(ProcState* state, ProcState::page p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
+	void show_page(ProcState* state, page_type p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
 		case decltype(p)::landing: 
 			for (auto ctl : state->pages.landing.all) ShowWindow(ctl, ShowWindow_cmd);
@@ -969,13 +828,13 @@ namespace べんきょう {
 			ShowWindow(state->pages.review_practice.page, ShowWindow_cmd);
 			break;
 		case decltype(p)::review_practice_writing: 
-			show_page(state, ProcState::page::practice_writing, ShowWindow_cmd); 
+			show_page(state, page_type::practice_writing, ShowWindow_cmd); 
 			break;
 		case decltype(p)::review_practice_multiplechoice: 
-			show_page(state, ProcState::page::practice_multiplechoice, ShowWindow_cmd); 
+			show_page(state, page_type::practice_multiplechoice, ShowWindow_cmd); 
 			break;
 		case decltype(p)::review_practice_drawing: 
-			show_page(state, ProcState::page::practice_drawing, ShowWindow_cmd); 
+			show_page(state, page_type::practice_drawing, ShowWindow_cmd); 
 			break;
 		case decltype(p)::wordbook:
 			for (auto ctl : state->pages.wordbook.all) ShowWindow(ctl, ShowWindow_cmd);
@@ -989,7 +848,7 @@ namespace べんきょう {
 		}
 	}
 
-	void set_default_focus(ProcState* state, ProcState::page p) {
+	void set_default_focus(ProcState* state, page_type p) {
 		switch (p) {
 		case decltype(p)::new_word:SetFocus(state->pages.new_word.edit_hiragana); break;
 		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it
@@ -999,7 +858,7 @@ namespace べんきょう {
 		}
 	}
 
-	void resize_page(ProcState* state, ProcState::page page) {
+	void resize_page(ProcState* state, page_type page) {
 		static int rez = 0; printf("Resize calls: %d\n", ++rez);
 		RECT r; GetClientRect(state->wnd, &r);
 
@@ -1042,41 +901,41 @@ namespace べんきょう {
 		}
 
 		switch (page) {
-		case ProcState::page::landing:
+		case page_type::landing:
 			landing::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::new_word:
+		case page_type::new_word:
 			new_word::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::practice:
+		case page_type::practice:
 			practice::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::practice_writing:
+		case page_type::practice_writing:
 			practice::writing::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::practice_multiplechoice:
+		case page_type::practice_multiplechoice:
 			practice::multiplechoice::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::practice_drawing:
+		case page_type::practice_drawing:
 			practice::drawing::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::review_practice:
+		case page_type::review_practice:
 			practice::review::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::show_word:
+		case page_type::show_word:
 			show_word::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::review_practice_writing:
+		case page_type::review_practice_writing:
 			//TODO(fran): different layout?
-			resize_page(state, ProcState::page::practice_writing); break;
-		case ProcState::page::review_practice_multiplechoice:
+			resize_page(state, page_type::practice_writing); break;
+		case page_type::review_practice_multiplechoice:
 			//TODO(fran): different layout?
-			resize_page(state, ProcState::page::practice_multiplechoice); break;
-		case ProcState::page::review_practice_drawing:
+			resize_page(state, page_type::practice_multiplechoice); break;
+		case page_type::review_practice_drawing:
 			//TODO(fran): different layout?
-			resize_page(state, ProcState::page::practice_drawing); break;
-		case ProcState::page::wordbook:
+			resize_page(state, page_type::practice_drawing); break;
+		case page_type::wordbook:
 			wordbook::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		case ProcState::page::wordbook_all:
+		case page_type::wordbook_all:
 			wordbook_all::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
 		default:Assert(0);
 		}
 	}
 	void resize_page(ProcState* state) { resize_page(state, state->current_page); }
 
-	void set_current_page(ProcState* state, ProcState::page new_page) {
+	void set_current_page(ProcState* state, page_type new_page) {
 		show_page(state, state->current_page, SW_HIDE);
 		state->current_page = new_page;
 
@@ -1109,7 +968,7 @@ namespace べんきょう {
 	}
 
 	//TODO(fran): maybe set_current_page should store the page it's replacing into the queue, problem there would be with goto_previous_page, which will cause a store that we dont want, but maybe some better defined functions with the goto_previous distinction in mind could work well
-	void store_previous_page(ProcState* state, ProcState::page prev_page) {
+	void store_previous_page(ProcState* state, page_type prev_page) {
 		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
 			//cnt stays the same
 			//we move all the entries one position down and place the new one on top
@@ -1151,10 +1010,9 @@ namespace べんきょう {
 		}
 
 		if (res.found) {
-			
-			preload_page(state, ProcState::page::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
+			preload_page(state, page_type::show_word, &res.word);//NOTE: considering we no longer have separate pages this might be a better idea than sending the struct at the time of creating the window
 			store_previous_page(state, state->current_page);
-			set_current_page(state, ProcState::page::show_word);
+			set_current_page(state, page_type::show_word);
 		}
 		else {
 			HWND focuswnd = GetFocus();
@@ -1163,9 +1021,9 @@ namespace べんきょう {
 				//learnt_word2<utf16_str> new_word{ 0 };
 				//new_word.attributes.hiragana = { search, (cstr_len(search)+1)*sizeof(*search) };
 				//preload_page(state, ProcState::page::new_word, &new_word);
-				preload_page(state, ProcState::page::new_word, &search);
+				preload_page(state, page_type::new_word, &search);
 				store_previous_page(state, state->current_page);
-				set_current_page(state, ProcState::page::new_word);
+				set_current_page(state, page_type::new_word);
 			}
 			else SetFocus(focuswnd);//Restore focus to the edit window since messagebox takes it away 
 			//TODO(fran): a way to make this more streamlined would be to implement:
@@ -1177,12 +1035,7 @@ namespace べんきょう {
 		state->pagestate.practice_review.practices = decltype(state->pagestate.practice_review.practices)();
 	}
 
-	//IMPORTANT: handling the review page, we'll have two vectors, one floating in space to which each practice level will add to each time it completes, once the whole practice is complete we'll preload() review_practice with std::move(this vector), this page has it's own vector which at this point will be emptied and its contents freed and replaced with the new vector (the floating in space one). This guarantees the review page is always on a valid state. //TODO(fran): idk if std::move works when I actually need to send the vector trough a pointer, it may be better to allocate an array and send it together with its size (which makes the vector pointless all together), I do think allocating arrays is beter, we simply alloc when the start button is pressed on the practice page and at the end of the practice send that same pointer to review. The single annoying problem is the back button, solution: we'll go simple for now, hide the back button until the practice is complete, the review page will have the back button active and that will map back to the practice page (at least at the time Im writing this). This way we guarantee valid states for everything, the only semi problem would be if the user decides to close the application, in that case we could, if we wanted, ask for confirmation depending on the page, but once the user says yes we care no more about memory, yes there will be some mem leaks but at that point it no longer matters since that memory will be removed automatically by the OS
-
-	//TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it changes the color of the edit box
-
-
-	void reset_page(ProcState* state, ProcState::page page) {
+	void reset_page(ProcState* state, page_type page) {
 		//NOTE: one solution here would be to destroy all the controls remove_controls(page) and then call addcontrols(page)
 		switch (page) {
 		case decltype(page)::new_word:
@@ -1256,7 +1109,7 @@ namespace べんきょう {
 			state->nc_parent = GetParent(hwnd);
 			state->wnd = hwnd;
 			state->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
-			state->current_page = ProcState::page::landing;
+			state->current_page = page_type::landing;
 			init_cpp_objects(state);
 			set_state(hwnd, state);
 			return TRUE;
@@ -1266,8 +1119,7 @@ namespace べんきょう {
 			CREATESTRUCT* createnfo = (CREATESTRUCT*)lparam;
 
 			create_pages(state);
-
-			set_current_page(state, ProcState::page::landing);//TODO(fran): page:: would be nicer than ProcState::page::
+			set_current_page(state, page_type::landing);//TODO(fran): page:: would be nicer than ProcState::page::
 
 //#define TEST_SCORE_ANIM
 #if defined(TEST_SCORE_ANIM)
@@ -1379,302 +1231,32 @@ namespace べんきょう {
 		case WM_COMMAND:
 		{
 			HWND child = (HWND)lparam;
+			WORD notif = HIWORD(wparam);
 			if (child) {//Notifs from our childs
 				switch (state->current_page) {
-				case ProcState::page::landing:
-				case ProcState::page::new_word:
-				case ProcState::page::practice:
-				case ProcState::page::show_word:
-				case ProcState::page::review_practice:
-				case ProcState::page::wordbook:
-				{
-				} break;
-				case ProcState::page::wordbook_all:
-				{
-					auto& page = state->pages.wordbook_all;
-					
-					if (WORD notif = HIWORD(wparam); (child == page.combo_filterby || child == page.combo_orderby) && notif == CBN_SELENDOK) {
-						wordbook_all::update_wordlist(state);
-					}
-				} break;
-				case ProcState::page::practice_writing:
-				{
-					auto& page = state->pages.practice_writing;
-					auto& pagestate = state->pagestate.practice_writing;
-					WORD notif = HIWORD(wparam);
-					if (child == page.button_next || (child == page.edit_answer && notif == EN_ENTER)) {
-						bool already_answered = IsWindowEnabled(page.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
-
-						if (!already_answered) {
-							utf16_str user_answer; _get_edit_str(page.edit_answer, user_answer);
-							if (user_answer.cnt()) {
-								const utf16_str* correct_answer{ 0 };
-								const utf16_str* question{ 0 };//TODO(fran); this should already come calculated at this point
-								switch (pagestate.practice->practice_type) {
-								case decltype(pagestate.practice->practice_type)::hiragana_to_meaning:
-								{
-									correct_answer = &pagestate.practice->word.attributes.meaning;
-									question = &pagestate.practice->word.attributes.hiragana;
-								} break;
-								case decltype(pagestate.practice->practice_type)::kanji_to_meaning:
-								{
-									correct_answer = &pagestate.practice->word.attributes.meaning;
-									question = &pagestate.practice->word.attributes.kanji;
-								} break;
-								case decltype(pagestate.practice->practice_type)::kanji_to_hiragana:
-								{
-									correct_answer = &pagestate.practice->word.attributes.hiragana;
-									question = &pagestate.practice->word.attributes.kanji;
-
-								} break;
-								case decltype(pagestate.practice->practice_type)::meaning_to_hiragana:
-								{
-									correct_answer = &pagestate.practice->word.attributes.hiragana;
-									question = &pagestate.practice->word.attributes.meaning;
-								} break;
-								default:Assert(0);
-								}
-
-								bool answered_correctly = !StrCmpIW(correct_answer->str, user_answer.str);
-
-								//NOTE: we can also change text color here, if we set it to def text color then we can change the bk without fear of the text not being discernible from the bk
-								HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-								HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
-								HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
-
-								edit_oneline::Theme editoneline_theme;
-								editoneline_theme.brushes.foreground.normal = global::colors.ControlTxt;
-								editoneline_theme.brushes.bk.normal = bk;
-								editoneline_theme.brushes.border.normal = bk;
-
-								edit_oneline::set_theme(page.edit_answer, &editoneline_theme);
-
-								button::Theme btn_theme;
-								btn_theme.brushes.bk.normal = bk;
-								btn_theme.brushes.bk.mouseover = bk_mouseover;
-								btn_theme.brushes.bk.clicked = bk_push;
-								btn_theme.brushes.border.normal = bk;
-								btn_theme.brushes.border.mouseover = bk_mouseover;
-								btn_theme.brushes.border.clicked = bk_push;
-								btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
-								button::set_theme(page.button_next, &btn_theme);
-
-								//Update word stats
-								word_update_last_practiced_date(state->settings->db, pagestate.practice->word);
-								word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->word, answered_correctly);
-
-								//Add this practice to the list of current completed ones
-								practice::practice_writing* p = (decltype(p))malloc(sizeof(*p));
-								p->header.type = decltype(p->header.type)::writing;
-								p->practice = pagestate.practice;
-								pagestate.practice = nullptr;//clear the pointer just in case
-								p->user_answer = user_answer;
-								p->correct_answer = correct_answer;
-								p->answered_correctly = answered_correctly;
-								p->question = question;
-
-								state->multipagestate.temp_practices.push_back((practice::practice_header*)p);
-
-								//TODO(fran): I think we actually want to show the correct answer right here, so the user can make a direct connection with it and not forget, because of this I'd either make the timer longer or simply wait for the user to click next so they have all the time they want to look at the answer, what we can also do is implement this only when the user fails, on success just wait a moment and follow to the next level
-
-								EnableWindow(page.button_show_word, TRUE);
-								if (answered_correctly) practice::next_practice_level(state);
-							}
-							else {
-								free_any_str(user_answer.str);
-							}
-						}
-						else {
-							//The user already answered and got it wrong, they checked what was wrong and pressed continue again
-							practice::next_practice_level(state,false);
-						}
-					}
-					
-				} break;
-				case ProcState::page::review_practice_writing:
-				{
-					auto& page = state->pages.practice_writing;
-					if (child == page.button_next) {
-						goto_previous_page(state);
-					}
-				} break;
-				case ProcState::page::practice_multiplechoice:
-				{
-					auto& page = state->pages.practice_multiplechoice;
-					auto& pagestate = state->pagestate.practice_multiplechoice;
-					bool already_answered = IsWindowEnabled(page.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
-					if (child == page.multibutton_choices) {
-						//The user has selected a choice
-						if (!already_answered) {
-							size_t user_answer_idx = wparam;
-							bool answered_correctly = pagestate.practice->idx_answer == user_answer_idx;
-
-
-							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-							HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
-							HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
-							button::Theme multibtn_btn_theme;
-							multibtn_btn_theme.brushes.bk.normal = bk;
-							multibtn_btn_theme.brushes.bk.mouseover = bk_mouseover;
-							multibtn_btn_theme.brushes.bk.clicked = bk_push;
-							multibtn_btn_theme.brushes.border.normal = bk;
-							multibtn_btn_theme.brushes.border.mouseover = bk_mouseover;
-							multibtn_btn_theme.brushes.border.clicked = bk_push;
-							multibtn_btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
-							multibutton::set_button_theme(page.multibutton_choices, &multibtn_btn_theme, user_answer_idx);
-							//TODO(fran): when the user answers incorrectly we want to visually show the correct answer too, maybe with a lower brightness global::colors.Bk_right_answer or a yellow
-
-							button::Theme btn_theme;
-							btn_theme.brushes.bk.normal = bk;
-							btn_theme.brushes.bk.mouseover = bk_mouseover;
-							btn_theme.brushes.bk.clicked = bk_push;
-							btn_theme.brushes.border.normal = bk;
-							btn_theme.brushes.border.mouseover = bk_mouseover;
-							btn_theme.brushes.border.clicked = bk_push;
-							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
-							button::set_theme(page.button_next, &btn_theme);
-
-							//Update word stats
-							word_update_last_practiced_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
-
-							//Add this practice to the list of current completed ones
-							practice::practice_multiplechoice* p = (decltype(p))malloc(sizeof(*p));
-							p->header.type = decltype(p->header.type)::multiplechoice;
-							p->practice = pagestate.practice;
-							pagestate.practice = nullptr;//clear the pointer just in case
-							p->answered_correctly = answered_correctly;
-							p->user_answer_idx = user_answer_idx;
-
-							state->multipagestate.temp_practices.push_back((practice::practice_header*)p);
-
-							EnableWindow(page.button_show_word, TRUE);
-							if (answered_correctly) practice::next_practice_level(state);
-						}
-					}
-					else if (child == page.button_next) {
-						if (already_answered) {
-							practice::next_practice_level(state,false);
-						}
-					}
-					/*else if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}*/
-					else
-					{
-						printf("FIX ERROR\n");
-						//NOTE: we're getting an EN_KILLFOCUS from the edit control in practice_writing, TODO(fran): do like windows and add a msg to specify which notifications you want to receive from a specific control
-					}
-				} break;
-				case ProcState::page::review_practice_multiplechoice:
-				{
-					auto& page = state->pages.practice_multiplechoice;
-					/*if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}*/
-					/*else*/ if (child == page.button_next) {
-						goto_previous_page(state);
-					}
-				} break;
-				case ProcState::page::practice_drawing:
-				{
-					auto& page = state->pages.practice_drawing;
-					auto& pagestate = state->pagestate.practice_drawing;
-					bool already_answered = IsWindowEnabled(page.button_show_word);//HACK, we need a real way to check whether this is the first time the user tried to answer
-					bool can_answer = paint::get_stroke_count(page.paint_answer);
-
-					if (child == page.paint_answer) {//Notifies when a change finished on the canvas (eg the user drew a complete stroke)
-						EnableWindow(page.button_next, can_answer);
-					}
-					else if (child == page.button_next) {
-						if (already_answered) {
-							practice::next_practice_level(state,false);
-						}
-						else {
-							EnableWindow(page.paint_answer, FALSE);
-							ShowWindow(page.static_correct_answer, SW_SHOW);
-							ShowWindow(page.button_wrong, SW_SHOW);
-							ShowWindow(page.button_right, SW_SHOW);
-							ShowWindow(page.embedded_show_word_disambiguation, SW_HIDE);
-						}
-					}
-					else if (child == page.button_right || child == page.button_wrong) {
-						if (!already_answered) {
-							bool answered_correctly = child == page.button_right;
-
-							HBRUSH bk = answered_correctly ? global::colors.Bk_right_answer : global::colors.Bk_wrong_answer;
-							HBRUSH bk_mouseover = answered_correctly ? global::colors.BkMouseover_right_answer : global::colors.BkMouseover_wrong_answer;
-							HBRUSH bk_push = answered_correctly ? global::colors.BkPush_right_answer : global::colors.BkPush_wrong_answer;
-							button::Theme btn_theme;
-							btn_theme.brushes.bk.normal = bk;
-							btn_theme.brushes.bk.mouseover = bk_mouseover;
-							btn_theme.brushes.bk.clicked = bk_push;
-							btn_theme.brushes.border.normal = bk;
-							btn_theme.brushes.border.mouseover = bk_mouseover;
-							btn_theme.brushes.border.clicked = bk_push;
-							btn_theme.brushes.foreground.normal = global::colors.ControlTxt;
-							button::set_theme(page.button_next, &btn_theme);
-
-							//Update word stats
-							word_update_last_practiced_date(state->settings->db, pagestate.practice->question);
-							word_increment_times_practiced__times_right(state->settings->db, pagestate.practice->question, answered_correctly);
-
-							//Add this practice to the list of current completed ones
-							practice::practice_drawing* p = (decltype(p))malloc(sizeof(*p));
-							p->header.type = decltype(p->header.type)::drawing;
-							p->practice = pagestate.practice;
-							pagestate.practice = nullptr;//clear the pointer just in case
-							p->answered_correctly = answered_correctly;
-							//Get what the user drew
-							{
-								auto canvas = paint::get_canvas(page.paint_answer);//TODO(fran): canvas.bmp could be selected into the paint dc, we need a paint::copy_canvas(RECT) function
-								BITMAP bmnfo; GetObject(canvas.bmp, sizeof(bmnfo), &bmnfo);
-								runtime_assert(bmnfo.bmBitsPixel == 32, L"Invalid Bitmap Format, bpp != 32, what system is this?");
-								InflateRect(&canvas.rc_used, 20, 20);
-								canvas.rc_used.left = clamp(1, canvas.rc_used.left, canvas.dim.cx - 1);
-								canvas.rc_used.right = clamp(1, canvas.rc_used.right, canvas.dim.cx - 1);
-								canvas.rc_used.top = clamp(1, canvas.rc_used.top, canvas.dim.cy - 1);
-								canvas.rc_used.bottom = clamp(1, canvas.rc_used.bottom, canvas.dim.cy - 1);
-
-								//Crop the image
-								i32 cropped_w = RECTW(canvas.rc_used);
-								i32 cropped_h = RECTH(canvas.rc_used);
-								i32 cropped_Bpp = 4;
-								HBITMAP cropbmp;
-								{
-									HDC _mydc = GetDC(state->wnd);
-									HDC fulldc = CreateCompatibleDC(_mydc); defer{ DeleteDC(fulldc); };
-									HDC cropdc = CreateCompatibleDC(_mydc); defer{ DeleteDC(cropdc); };
-									cropbmp = CreateCompatibleBitmap(_mydc, cropped_w, cropped_h);
-									ReleaseDC(state->wnd, _mydc);
-									HBITMAP oldcrop = SelectBitmap(cropdc, cropbmp); defer{ SelectBitmap(cropdc, oldcrop); };
-									HBITMAP oldfull = SelectBitmap(fulldc, canvas.bmp); defer{ SelectBitmap(fulldc, oldfull); };
-									BitBlt(cropdc, 0, 0, cropped_w, cropped_h, fulldc, canvas.rc_used.left, canvas.rc_used.top, SRCCOPY);
-								}
-								p->user_answer = cropbmp;
-							}
-							state->multipagestate.temp_practices.push_back((practice::practice_header*)p);
-
-							EnableWindow(page.button_show_word, TRUE);
-							if (answered_correctly) practice::next_practice_level(state);
-						}
-					}
-					/*else if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}*/
-				} break;
-				case ProcState::page::review_practice_drawing:
-				{
-					auto& page = state->pages.practice_drawing;
-					/*if (child == page.button_show_word) {
-						flip_visibility(page.embedded_show_word_reduced);
-					}*/
-					/*else */if (child == page.button_next) {
-						goto_previous_page(state);
-					}
-				} break;
-
-				default:Assert(0);
+				case page_type::landing:
+				case page_type::new_word:
+				case page_type::practice:
+				case page_type::show_word:
+				case page_type::review_practice:
+				case page_type::wordbook:
+					break;
+				case page_type::wordbook_all: 
+					wordbook_all::handle_event(state, child, notif); break;
+				case page_type::practice_writing: 
+					practice::writing::handle_event(state, child, notif); break;
+				case page_type::review_practice_writing: 
+					practice::review::writing::handle_event(state, child); break;
+				case page_type::practice_multiplechoice:
+					practice::multiplechoice::handle_event(state, child, wparam); break;
+				case page_type::review_practice_multiplechoice:
+					practice::review::multiplechoice::handle_event(state, child); break;
+				case page_type::practice_drawing:
+					practice::drawing::handle_event(state, child); break;
+				case page_type::review_practice_drawing:
+					practice::review::drawing::handle_event(state, child); break;
+				default:
+					Assert(0);
 				}
 			}
 			else {
@@ -1715,25 +1297,6 @@ namespace べんきょう {
 			SetFocus(0);// Remove focus from whoever had it
 			return 0;
 		} break;
-
-		case WM_PRINTCLIENT:// For some reason the base combobox (not subclassed) sends this msg, it makes no sense to me why the cb would need my client rendering
-		case WM_ERASEBKGND:// We dont erase the bk here, instead we do everything on wm_paint
-		case WM_GETTEXT:
-		case WM_GETTEXTLENGTH:
-		case WM_IME_SETCONTEXT:// Sent the first time on SetFocus // We dont want IME for the general wnd, the childs can decide
-		case WM_IME_NOTIFY://for some reason you still get this even when not doing WM_IME_SETCONTEXT
-		case WM_CLOSE:
-		{
-			return 0;
-		} break;
-
-		case WM_DELETEITEM:// Sent by the cb when I delete its items (which I need to do one by one since there's no msg to send it that can do that)
-		case WM_INPUTLANGCHANGE:
-		case WM_XBUTTONUP:
-		{
-			return 1;
-		} break;
-
 		case WM_XBUTTONDOWN:// Used for forwards and backwards navigation with mouse that have those additional buttons, TODO(fran): this seems like more of a convention, find out if there's some way to know for sure this was the user's intent when they pressed those buttons
 		{
 			//TODO(fran): this may be better placed in nonclient and all we do here is redirect to there
@@ -1753,6 +1316,22 @@ namespace べんきょう {
 			resize_page(state); //TODO(fran): only process resizes every X milliseconds (later on we should get rid of this concept entirely and provide resize info to the control directly so it knows when it can send the ask_for_resize msg)
 			ask_for_repaint(state); //TODO(fran): controls dont re-render otherwise, even though Im resizing them, maybe because they only change position and not size? also maybe because I dont ask the page to be resized?
 			return 0;
+		} break;
+		case WM_PRINTCLIENT:// For some reason the base combobox (not subclassed) sends this msg, it makes no sense to me why the cb would need my client rendering
+		case WM_ERASEBKGND:// We dont erase the bk here, instead we do everything on wm_paint
+		case WM_GETTEXT:
+		case WM_GETTEXTLENGTH:
+		case WM_IME_SETCONTEXT:// Sent the first time on SetFocus // We dont want IME for the general wnd, the childs can decide
+		case WM_IME_NOTIFY://for some reason you still get this even when not doing WM_IME_SETCONTEXT
+		case WM_CLOSE:
+		{
+			return 0;
+		} break;
+		case WM_DELETEITEM:// Sent by the cb when I delete its items (which I need to do one by one since there's no msg to send it that can do that)
+		case WM_INPUTLANGCHANGE:
+		case WM_XBUTTONUP:
+		{
+			return 1;
 		} break;
 #ifdef _DEBUG
 		case WM_NCHITTEST:

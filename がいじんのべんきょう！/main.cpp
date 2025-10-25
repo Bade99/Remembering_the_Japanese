@@ -47,6 +47,9 @@
 //#define dprintf(...) 
 #endif
 
+//----------------------Warnings-----------------------:
+#pragma warning (disable: 4200) // C4200: nonstandard extension: zero-sized array in struct/union
+
 //---------------------Includes----------------------:
 #include "windows_sdk.h"
 #include <Shlwapi.h> //StrCpyNW

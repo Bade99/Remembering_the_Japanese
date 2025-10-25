@@ -203,7 +203,10 @@
     <ClInclude Include="study_page_practice_writing.h" />
     <ClInclude Include="study_page_practice_writing_types.h" />
     <ClInclude Include="study_page_review_practice.h" />
+    <ClInclude Include="study_page_review_practice_drawing.h" />
+    <ClInclude Include="study_page_review_practice_multiplechoice.h" />
     <ClInclude Include="study_page_review_practice_types.h" />
+    <ClInclude Include="study_page_review_practice_writing.h" />
     <ClInclude Include="study_page_show_word.h" />
     <ClInclude Include="study_page_show_word_types.h" />
     <ClInclude Include="study_page_wordbook.h" />

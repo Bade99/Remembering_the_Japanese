@@ -73,6 +73,12 @@
     <Filter Include="App\Pages\Wordbook\All">
       <UniqueIdentifier>{570bfef6-1c2f-4390-a61f-0cd4f1b146a7}</UniqueIdentifier>
     </Filter>
+    <Filter Include="App\Pages\Practice\Review\Multiplechoice">
+      <UniqueIdentifier>{f97431b1-6f18-4e9a-a8a5-1f2389e57890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Review\Drawing">
+      <UniqueIdentifier>{8dbe947a-2c1a-42c2-bb01-75a5cecdd0cf}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -286,6 +292,15 @@
     </ClInclude>
     <ClInclude Include="study_sidebar.h">
       <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_review_practice_writing.h">
+      <Filter>App\Pages\Practice\Review\Writing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_review_practice_multiplechoice.h">
+      <Filter>App\Pages\Practice\Review\Multiplechoice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_review_practice_drawing.h">
+      <Filter>App\Pages\Practice\Review\Drawing</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
