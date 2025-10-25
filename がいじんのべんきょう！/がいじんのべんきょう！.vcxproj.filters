@@ -281,6 +281,12 @@
     <ClInclude Include="study_page_wordbook_all.h">
       <Filter>App\Pages\Wordbook\All</Filter>
     </ClInclude>
+    <ClInclude Include="study_navbar.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="study_sidebar.h">
+      <Filter>App</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">

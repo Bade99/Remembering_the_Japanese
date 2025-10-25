@@ -188,6 +188,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="study_lexical_category.h" />
+    <ClInclude Include="study_navbar.h" />
     <ClInclude Include="study_page_landing.h" />
     <ClInclude Include="study_page_landing_types.h" />
     <ClInclude Include="study_page_new_word.h" />
@@ -209,6 +210,7 @@
     <ClInclude Include="study_page_wordbook_all.h" />
     <ClInclude Include="study_page_wordbook_all_types.h" />
     <ClInclude Include="study_page_wordbook_types.h" />
+    <ClInclude Include="study_sidebar.h" />
     <ClInclude Include="style.h" />
     <ClInclude Include="win32_Animation.h" />
     <ClInclude Include="win32_button.h" />
