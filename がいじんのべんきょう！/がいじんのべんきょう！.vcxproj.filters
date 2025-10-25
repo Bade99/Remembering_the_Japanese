@@ -5,10 +5,6 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;c++;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
-    </Filter>
     <Filter Include="Resource Files">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
@@ -22,14 +18,60 @@
     <Filter Include="Utils">
       <UniqueIdentifier>{f1d4c894-e398-46d3-bd6c-723073f85661}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Sqlite">
-      <UniqueIdentifier>{6996f80d-81a5-4b9d-b15d-92d6dbda487d}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Core">
       <UniqueIdentifier>{a7d513ae-26d6-4def-972d-4bf583ebb74f}</UniqueIdentifier>
     </Filter>
     <Filter Include="Shaders">
       <UniqueIdentifier>{e448b19f-421c-463e-aa04-6bcacb8349a5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Assets">
+      <UniqueIdentifier>{da4e6721-7ade-4475-8369-6601a19a01a2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Database">
+      <UniqueIdentifier>{05b2bb69-862e-446a-b76d-d24ef011b635}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Database\Sqlite">
+      <UniqueIdentifier>{6996f80d-81a5-4b9d-b15d-92d6dbda487d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="App\Pages">
+      <UniqueIdentifier>{a99199cc-054c-4430-8da0-66e3c5deabc9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Landing">
+      <UniqueIdentifier>{1cba1250-a4c5-4095-9150-3735b9505f6c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\New Word">
+      <UniqueIdentifier>{b0c15f08-84f4-4588-8801-62a07378b21e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice">
+      <UniqueIdentifier>{a416341d-7546-4e25-afea-bc60ea4bc9cf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Writing">
+      <UniqueIdentifier>{ac4c742c-ae41-46b3-953d-631b268cd281}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Multiplechoice">
+      <UniqueIdentifier>{0357172e-ef6b-4a0d-a816-dcca4afce88c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Drawing">
+      <UniqueIdentifier>{7f8ce4d1-41f5-435f-a143-702411027dcd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Review">
+      <UniqueIdentifier>{64aeed85-38ee-4dcc-9f5e-13aab0fd8e67}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Practice\Review\Writing">
+      <UniqueIdentifier>{82d58ce6-c57e-4db8-8aff-7f3023641892}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Show Word">
+      <UniqueIdentifier>{12043631-0002-45cc-ba60-6e14579f1adc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Wordbook">
+      <UniqueIdentifier>{c38567de-b90f-493b-bc86-7b10eeade9f4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="App\Pages\Wordbook\All">
+      <UniqueIdentifier>{570bfef6-1c2f-4390-a61f-0cd4f1b146a7}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -37,39 +79,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="sqlite3.c">
-      <Filter>Sqlite</Filter>
+      <Filter>Database\Sqlite</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="LANGUAGE_MANAGER.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="lang.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="img.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Renderer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Global.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Char.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="win32_べんきょう.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_べんきょう_db.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_べんきょう_embedded.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_Sizer.h">
-      <Filter>Header Files</Filter>
+      <Filter>App</Filter>
     </ClInclude>
     <ClInclude Include="win32_eyecandy.h">
       <Filter>Controls</Filter>
@@ -138,7 +153,7 @@
       <Filter>Controls</Filter>
     </ClInclude>
     <ClInclude Include="sqlite3.h">
-      <Filter>Sqlite</Filter>
+      <Filter>Database\Sqlite</Filter>
     </ClInclude>
     <ClInclude Include="win32_Helpers.h">
       <Filter>Utils</Filter>
@@ -166,6 +181,105 @@
     </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Resource Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LANGUAGE_MANAGER.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Char.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="img.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="lang.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Global.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Renderer.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Sizer.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_べんきょう_embedded.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_べんきょう_db.h">
+      <Filter>Database</Filter>
+    </ClInclude>
+    <ClInclude Include="study_lexical_category.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_Animation.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="style.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_landing.h">
+      <Filter>App\Pages\Landing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_landing_types.h">
+      <Filter>App\Pages\Landing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_new_word_types.h">
+      <Filter>App\Pages\New Word</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_new_word.h">
+      <Filter>App\Pages\New Word</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_types.h">
+      <Filter>App\Pages\Practice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice.h">
+      <Filter>App\Pages\Practice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_common.h">
+      <Filter>App\Pages\Practice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_writing_types.h">
+      <Filter>App\Pages\Practice\Writing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_writing.h">
+      <Filter>App\Pages\Practice\Writing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_multiplechoice_types.h">
+      <Filter>App\Pages\Practice\Multiplechoice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_multiplechoice.h">
+      <Filter>App\Pages\Practice\Multiplechoice</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_drawing_types.h">
+      <Filter>App\Pages\Practice\Drawing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_practice_drawing.h">
+      <Filter>App\Pages\Practice\Drawing</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_review_practice_types.h">
+      <Filter>App\Pages\Practice\Review</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_review_practice.h">
+      <Filter>App\Pages\Practice\Review</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_show_word_types.h">
+      <Filter>App\Pages\Show Word</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_show_word.h">
+      <Filter>App\Pages\Show Word</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_wordbook_types.h">
+      <Filter>App\Pages\Wordbook</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_wordbook.h">
+      <Filter>App\Pages\Wordbook</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_wordbook_all_types.h">
+      <Filter>App\Pages\Wordbook\All</Filter>
+    </ClInclude>
+    <ClInclude Include="study_page_wordbook_all.h">
+      <Filter>App\Pages\Wordbook\All</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -846,3 +846,27 @@ void print_string_msg(UINT msg) {
 #ifndef ComboBox_SetDroppedWidth
 #define ComboBox_SetDroppedWidth(hwnd, listbox_width) ((int)SendMessage(hwnd, CB_SETDROPPEDWIDTH, listbox_width, 0))
 #endif
+
+//-------------Data retrieval from UI-----------------: (UI strings are always utf16)
+
+// use for controls whose value is obtained via WM_GETTEXT, eg static, button, edit, ...
+//#define _get_edit_str(edit,any_str) \
+//			{ \
+//				int _sz_char = (int)SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0) + 1; \
+//				any_str = alloc_any_str(_sz_char * sizeof(utf16)); \
+//				SendMessageW(edit, WM_GETTEXT, _sz_char, (WPARAM)any_str.str); \
+//			}
+
+#define _get_combo_sel_idx_as_str(cb,any_str) \
+			{ \
+				int lex_categ = (int)SendMessageW(cb, CB_GETCURSEL, 0, 0); \
+				int sz_char = _snwprintf(nullptr, 0, L"%d", lex_categ) + 1; \
+				any_str = alloc_any_str(sz_char * sizeof(utf16)); \
+				_snwprintf(any_str.str, sz_char, L"%d", lex_categ); \
+			}
+
+#define _clear_combo_sel(cb) SendMessageW(cb, CB_SETCURSEL, -1, 0)
+
+#define _clear_edit(edit) SendMessageW(edit, WM_SETTEXT, 0, 0)
+
+#define _clear_static(st) SendMessageW(st, WM_SETTEXT, 0, 0)

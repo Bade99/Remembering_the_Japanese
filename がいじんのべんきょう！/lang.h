@@ -158,6 +158,11 @@ constexpr static utf16 lang_english_entries[] =
 	lang_entry(1106, "Lex: Pronoun")
 	lang_entry(1107, "Lex: Counter")
 	lang_entry(1108, "Lex: Particle")
+	lang_entry(1109, "Lex: Prefix")
+	lang_entry(1110, "Lex: Radical")
+	lang_entry(1111, "Lex: Numeric")
+	lang_entry(1112, "Lex: Phrase")
+	lang_entry(1113, "Lex: Suffix")
 	//IMPORTANT: range [1099-1200) is reserved for word filters
 	
 	lang_entry(1201, "Writing") //Available Types of Practices
