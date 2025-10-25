@@ -3,7 +3,7 @@
 #include "win32_Platform.h"
 #include "win32_Helpers.h"
 #include "win32_static_oneline.h"
-#include "win32_べんきょう_db.h"
+#include "win32_study_db.h"
 #include "win32_edit_oneline_subclass.h"
 
 namespace embedded {

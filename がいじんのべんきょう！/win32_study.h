@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include "windows_sdk.h"
 #include "win32_Platform.h"
-#include "win32_べんきょう_db.h"
+#include "win32_study_db.h"
 #include "unCap_Serialization.h"
 #include "win32_Global.h"
 #include "sqlite3.h"
@@ -22,7 +22,7 @@
 #include "win32_Char.h"
 #include "win32_navbar.h"
 #include "win32_combobox.h"
-#include "win32_べんきょう_embedded.h"
+#include "win32_study_embedded.h"
 #include "win32_Sizer.h"
 #include "win32_notify.h"
 #include "win32_page.h"
@@ -83,25 +83,6 @@ constexpr multiflag<べんきょう::practice::multiplechoice::variant> filledPr
 constexpr multiflag<べんきょう::practice::drawing::variant> filledPracticeDrawingVariants = get_filled_multiflag<べんきょう::practice::drawing::variant>();
 constexpr u32 countAvailablePractices = get_enumflag_element_count<べんきょう::practice::available_practices>();
 
-struct べんきょうSettings {
-
-#define foreach_べんきょうSettings_member(op) \
-		op(RECT, rc,200,200,700,900 ) \
-		op(multiflag<べんきょう::practice::available_practices>, practices, filledAvailablePractices ) \
-		op(multiflag<べんきょう::practice::writing::variant>, practice_writing_variants, filledPracticeWritingVariants ) \
-		op(multiflag<べんきょう::practice::multiplechoice::variant>, practice_multiplechoice_variants, filledPracticeMultiplechoiceVariants ) \
-		op(multiflag<べんきょう::practice::drawing::variant>, practice_drawing_variants, filledPracticeDrawingVariants ) \
-
-	foreach_べんきょうSettings_member(_generate_member);
-	sqlite3* db;
-	bool is_primary_wnd;//TODO(fran): not sure this should go here instead of ProcState
-
-	_generate_default_struct_serialize(foreach_べんきょうSettings_member);
-	_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
-
-};
-_add_struct_to_serialization_namespace(べんきょうSettings);
-
 namespace べんきょう {
 	constexpr cstr wndclass[] = L"win32_wndclass_べんきょう";
 
@@ -127,10 +108,26 @@ namespace べんきょう {
 		review_practice_drawing,
 	};
 
+	struct Settings {
+#define foreach_べんきょうSettings_member(op) \
+		op(RECT, rc,200,200,700,900 ) \
+		op(multiflag<べんきょう::practice::available_practices>, practices, filledAvailablePractices ) \
+		op(multiflag<べんきょう::practice::writing::variant>, practice_writing_variants, filledPracticeWritingVariants ) \
+		op(multiflag<べんきょう::practice::multiplechoice::variant>, practice_multiplechoice_variants, filledPracticeMultiplechoiceVariants ) \
+		op(multiflag<べんきょう::practice::drawing::variant>, practice_drawing_variants, filledPracticeDrawingVariants ) \
+
+		foreach_べんきょうSettings_member(_generate_member);
+		sqlite3* db;
+		bool is_primary_wnd;//TODO(fran): not sure this should go here instead of ProcState
+
+		_generate_default_struct_serialize(foreach_べんきょうSettings_member);
+		_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
+	};
+
 	struct ProcState {
 		HWND wnd;
 		HWND nc_parent;
-		べんきょうSettings* settings;
+		Settings* settings;
 
 		struct {
 			HBRUSH bk;
@@ -453,6 +450,7 @@ namespace べんきょう {
 		set_current_page(state, page_type::practice);
 	}
 }
+_add_struct_to_serialization_namespace(べんきょう::Settings);
 
 #include "study_page_landing.h"
 #include "study_page_new_word.h"
@@ -830,7 +828,7 @@ namespace べんきょう {
 			Assert(state);
 			state->nc_parent = GetParent(hwnd);
 			state->wnd = hwnd;
-			state->settings = ((べんきょうSettings*)create_nfo->lpCreateParams);
+			state->settings = ((べんきょう::Settings*)create_nfo->lpCreateParams);
 			state->current_page = page_type::landing;
 			init_cpp_objects(state);
 			set_state(hwnd, state);

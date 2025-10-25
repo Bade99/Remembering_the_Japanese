@@ -78,7 +78,7 @@ namespace べんきょう::new_word {
 
 				{//Open separate page with the currently stored word
 					//TODO(fran): streamline this process
-					べんきょうSettings* べんきょう_cl = (decltype(べんきょう_cl))malloc(sizeof(べんきょうSettings));//TODO(fran): MEMLEAK: maybe we can say that non primary windows have to release this memory but it's pretty hacky
+					Settings* べんきょう_cl = (decltype(べんきょう_cl))malloc(sizeof(Settings));//TODO(fran): MEMLEAK: maybe we can say that non primary windows have to release this memory but it's pretty hacky
 					RECT べんきょう_nc_rc; GetWindowRect(state->nc_parent, &べんきょう_nc_rc);
 					int w = RECTW(べんきょう_nc_rc);
 					べんきょう_nc_rc.left = べんきょう_nc_rc.right;

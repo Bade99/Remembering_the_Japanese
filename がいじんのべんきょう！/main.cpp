@@ -63,7 +63,7 @@
 #include "sqlite3.h" //now this is what programming is about, a _single_ 8MB file added just about 2sec to my compile time and compiled with no errors the first time I tried, there's probably some config I can do but this is already beyond perfection, also im on windows and using msvc 2019, the worst possible case probably
 
 #include "win32_nonclient.h"
-#include "win32_べんきょう.h"
+#include "win32_study.h"
 
 //----------------------Linker-----------------------:
 #pragma comment(lib,"shlwapi.lib") //strcpynw (shlwapi.h)
@@ -158,7 +158,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     }
 
     //-----------------Deserialization------------------:
-    べんきょうSettings べんきょう_cl;
+    べんきょう::Settings べんきょう_cl;
     auto& win32_colors = global::colors;//NOTE: I avoid direclty using global::colors as the serialization name cause of the :: which could later be used as an asignment operator
     {
         const str to_deserialize = load_file_serialized(work_folder);

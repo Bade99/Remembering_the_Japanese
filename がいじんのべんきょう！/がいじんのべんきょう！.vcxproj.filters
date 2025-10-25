@@ -89,9 +89,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="win32_べんきょう.h">
-      <Filter>App</Filter>
-    </ClInclude>
     <ClInclude Include="win32_eyecandy.h">
       <Filter>Controls</Filter>
     </ClInclude>
@@ -209,12 +206,6 @@
     <ClInclude Include="win32_Sizer.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="win32_べんきょう_embedded.h">
-      <Filter>Controls</Filter>
-    </ClInclude>
-    <ClInclude Include="win32_べんきょう_db.h">
-      <Filter>Database</Filter>
-    </ClInclude>
     <ClInclude Include="study_lexical_category.h">
       <Filter>App</Filter>
     </ClInclude>
@@ -301,6 +292,15 @@
     </ClInclude>
     <ClInclude Include="study_page_review_practice_drawing.h">
       <Filter>App\Pages\Practice\Review\Drawing</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_study_embedded.h">
+      <Filter>Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_study_db.h">
+      <Filter>Database</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_study.h">
+      <Filter>App</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

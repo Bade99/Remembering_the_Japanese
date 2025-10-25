@@ -230,7 +230,9 @@
     <ClInclude Include="win32_navbar.h" />
     <ClInclude Include="win32_notify.h" />
     <ClInclude Include="win32_Sizer.h" />
-    <ClInclude Include="win32_べんきょう_embedded.h" />
+    <ClInclude Include="win32_study.h" />
+    <ClInclude Include="win32_study_db.h" />
+    <ClInclude Include="win32_study_embedded.h" />
     <ClInclude Include="windows_extra_msgs.h" />
     <ClInclude Include="win32_nonclient.h" />
     <ClInclude Include="unCap_Reflection.h" />
@@ -244,13 +246,11 @@
     <ClInclude Include="win32_gridview.h" />
     <ClInclude Include="win32_searchbox.h" />
     <ClInclude Include="win32_static_oneline.h" />
-    <ClInclude Include="win32_べんきょう_db.h" />
     <ClInclude Include="windows_msg_mapper.h" />
     <ClInclude Include="windows_sdk.h" />
     <ClInclude Include="win32_Helpers.h" />
     <ClInclude Include="win32_Platform.h" />
     <ClInclude Include="win32_score.h" />
-    <ClInclude Include="win32_べんきょう.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc" />
