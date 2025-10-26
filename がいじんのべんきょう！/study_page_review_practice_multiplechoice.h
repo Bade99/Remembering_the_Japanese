@@ -56,4 +56,8 @@ namespace べんきょう::practice::review::multiplechoice {
 			goto_previous_page(state);
 		}
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		show_page(state, page_type::practice_multiplechoice, ShowWindow_cmd);
+	}
 }

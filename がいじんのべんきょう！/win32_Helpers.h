@@ -713,6 +713,25 @@ static int MessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType,
 	return res;
 }
 
+void init_wndclass(LPCWSTR class_name, WNDPROC proc, HINSTANCE inst = GetModuleHandleW(NULL)) {
+	//INFO: Now that we use pre_post_main we cant depend on anything that isnt calculated at compile time for class creation
+	WNDCLASSEXW wcex;
+	wcex.cbSize = sizeof(wcex);
+	wcex.style = CS_HREDRAW | CS_VREDRAW;
+	wcex.lpfnWndProc = proc;
+	wcex.cbClsExtra = 0;
+	wcex.cbWndExtra = sizeof(void*);
+	wcex.hInstance = inst;
+	wcex.hIcon = NULL;
+	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+	wcex.hbrBackground = NULL;
+	wcex.lpszMenuName = NULL;
+	wcex.lpszClassName = class_name;
+	wcex.hIconSm = NULL;
+	ATOM class_atom = RegisterClassExW(&wcex);
+	Assert(class_atom);
+}
+
 //----------------------FONT-----------------------:
 #include <vector>		//TODO(fran): get rid of
 static str GetApp_FontFaceName() {

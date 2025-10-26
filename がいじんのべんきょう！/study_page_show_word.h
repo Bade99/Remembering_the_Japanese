@@ -325,4 +325,9 @@ namespace べんきょう::show_word {
 
 		layout.resize(layout_rc);
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.show_word;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+	}
 }

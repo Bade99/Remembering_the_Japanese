@@ -231,6 +231,7 @@
     <ClInclude Include="win32_notify.h" />
     <ClInclude Include="win32_Sizer.h" />
     <ClInclude Include="win32_study.h" />
+    <ClInclude Include="win32_study_common.h" />
     <ClInclude Include="win32_study_db.h" />
     <ClInclude Include="win32_study_embedded.h" />
     <ClInclude Include="windows_extra_msgs.h" />

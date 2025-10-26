@@ -90,4 +90,10 @@ namespace べんきょう::practice {
 		HBITMAP user_answer;//#free (DeleteBitmap)
 		bool answered_correctly;//precalculated value
 	};
+
+	constexpr multiflag<available_practices> filledAvailablePractices = get_filled_multiflag<available_practices>();
+	constexpr multiflag<writing::variant> filledPracticeWritingVariants = get_filled_multiflag<writing::variant>();
+	constexpr multiflag<multiplechoice::variant> filledPracticeMultiplechoiceVariants = get_filled_multiflag<multiplechoice::variant>();
+	constexpr multiflag<drawing::variant> filledPracticeDrawingVariants = get_filled_multiflag<drawing::variant>();
+	constexpr u32 countAvailablePractices = get_enumflag_element_count<available_practices>();
 }

@@ -127,4 +127,9 @@ namespace べんきょう::wordbook_all {
 		if ((event_wnd == page.combo_filterby || event_wnd == page.combo_orderby) && event == CBN_SELENDOK)
 			wordbook_all::update_wordlist(state);
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.wordbook_all;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+	}
 }

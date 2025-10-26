@@ -280,4 +280,20 @@ namespace べんきょう::practice::drawing {
 			flip_visibility(page.embedded_show_word_reduced);
 		}*/
 	}
+
+	void reset_page(ProcState* state) {
+		auto& controls = state->pages.practice_drawing;
+		paint::clear_canvas(controls.paint_answer);
+		paint::set_placeholder(controls.paint_answer, nullptr);
+	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.practice_drawing;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+		ShowWindow(controls.static_correct_answer, SW_HIDE);//HACK:we should have some sort of separation between hidden and shown controls
+		ShowWindow(controls.button_wrong, SW_HIDE);
+		ShowWindow(controls.button_right, SW_HIDE);
+		ShowWindow(controls.embedded_show_word_reduced, SW_HIDE);
+		ShowWindow(controls.embedded_show_word_disambiguation, SW_HIDE);
+	}
 }

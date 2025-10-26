@@ -309,4 +309,21 @@ namespace べんきょう::practice::writing {
 			}
 		}
 	}
+
+	void reset_page(ProcState * state) {
+		auto& controls = state->pages.practice_writing;
+		_clear_static(controls.static_test_word);
+		_clear_edit(controls.edit_answer);
+	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.practice_writing;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+		ShowWindow(controls.embedded_show_word_reduced, SW_HIDE);
+		ShowWindow(controls.embedded_show_word_disambiguation, SW_HIDE);
+	}
+
+	void set_default_focus(ProcState* state) {
+		SetFocus(state->pages.practice_writing.edit_answer);
+	}
 }

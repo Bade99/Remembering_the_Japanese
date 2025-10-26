@@ -121,4 +121,9 @@ namespace べんきょう::wordbook {
 
 		layout.resize(layout_rc);
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.wordbook;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+	}
 }

@@ -29,35 +29,7 @@
 #include "win32_Animation.h"
 //#include "win32_eyecandy.h"
 #include "basic_array.h"
-
-HBRUSH brush_for(learnt_word_elem type) {
-	HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it
-	switch (type) {
-	case decltype(type)::hiragana: res = global::colors.hiragana; break;
-	case decltype(type)::kanji: res = global::colors.kanji; break;
-	case decltype(type)::meaning: res = global::colors.meaning; break;
-	default: Assert(0);
-	}
-	return res;
-};
-
-//Drawing Functions
-int draw_bitmap_1bpp(HBITMAP bmp, HDC dc, rect_i32 r, int x_pad, HBRUSH color = global::colors.Img) {
-	//TODO(fran): flicker free
-	BITMAP bitmap; GetObject(bmp, sizeof(bitmap), &bitmap);
-	Assert(bitmap.bmBitsPixel == 1);
-	int max_sz = roundNdown(bitmap.bmWidth, (int)((f32)r.h * .6f)); //HACK: instead use png + gdi+ + color matrices
-	if (!max_sz)max_sz = bitmap.bmWidth; //More HACKs
-
-	int bmp_height = max_sz;
-	int bmp_width = bmp_height;
-	int bmp_align_width = r.left + r.w - bmp_width - x_pad;
-	int bmp_align_height = r.top + (r.h - bmp_height) / 2;
-	urender::draw_mask(dc, bmp_align_width, bmp_align_height, bmp_width, bmp_height, bmp, 0, 0, bitmap.bmWidth, bitmap.bmHeight, color);
-
-	return bmp_align_width;
-}
-
+#include "win32_study_common.h"
 #include "study_lexical_category.h"
 #include "style.h"
 #include "study_page_landing_types.h"
@@ -70,18 +42,6 @@ int draw_bitmap_1bpp(HBITMAP bmp, HDC dc, rect_i32 r, int x_pad, HBRUSH color = 
 #include "study_page_show_word_types.h"
 #include "study_page_wordbook_types.h"
 #include "study_page_wordbook_all_types.h"
-
-template <typename T>
-constexpr multiflag<T> get_filled_multiflag() { return (1u << (get_last_bit_set_position_slow((u32)T::_last_bit) + 1)) - 1u; }
-
-template <typename T>
-constexpr u32 get_enumflag_element_count() { return (u32)popcnt64(get_filled_multiflag<T>()); }
-
-constexpr multiflag<べんきょう::practice::available_practices> filledAvailablePractices = get_filled_multiflag<べんきょう::practice::available_practices>();
-constexpr multiflag<べんきょう::practice::writing::variant> filledPracticeWritingVariants = get_filled_multiflag<べんきょう::practice::writing::variant>();
-constexpr multiflag<べんきょう::practice::multiplechoice::variant> filledPracticeMultiplechoiceVariants = get_filled_multiflag<べんきょう::practice::multiplechoice::variant>();
-constexpr multiflag<べんきょう::practice::drawing::variant> filledPracticeDrawingVariants = get_filled_multiflag<べんきょう::practice::drawing::variant>();
-constexpr u32 countAvailablePractices = get_enumflag_element_count<べんきょう::practice::available_practices>();
 
 namespace べんきょう {
 	constexpr cstr wndclass[] = L"win32_wndclass_べんきょう";
@@ -111,10 +71,10 @@ namespace べんきょう {
 	struct Settings {
 #define foreach_べんきょうSettings_member(op) \
 		op(RECT, rc,200,200,700,900 ) \
-		op(multiflag<べんきょう::practice::available_practices>, practices, filledAvailablePractices ) \
-		op(multiflag<べんきょう::practice::writing::variant>, practice_writing_variants, filledPracticeWritingVariants ) \
-		op(multiflag<べんきょう::practice::multiplechoice::variant>, practice_multiplechoice_variants, filledPracticeMultiplechoiceVariants ) \
-		op(multiflag<べんきょう::practice::drawing::variant>, practice_drawing_variants, filledPracticeDrawingVariants ) \
+		op(multiflag<practice::available_practices>, practices, practice::filledAvailablePractices ) \
+		op(multiflag<practice::writing::variant>, practice_writing_variants, practice::filledPracticeWritingVariants ) \
+		op(multiflag<practice::multiplechoice::variant>, practice_multiplechoice_variants, practice::filledPracticeMultiplechoiceVariants ) \
+		op(multiflag<practice::drawing::variant>, practice_drawing_variants, practice::filledPracticeDrawingVariants ) \
 
 		foreach_べんきょうSettings_member(_generate_member);
 		sqlite3* db;
@@ -370,6 +330,7 @@ namespace べんきょう {
 	}
 
 	void preload_page(ProcState* state, page_type page, void* data);
+	void show_page(ProcState* state, page_type p, u32 ShowWindow_cmd);
 	void set_current_page(ProcState* state, page_type new_page);
 	void reset_page(ProcState* state, page_type page);
 
@@ -387,7 +348,6 @@ namespace べんきょう {
 		if (state->previous_pages.cnt == ARRAYSIZE(state->previous_pages.pages)) {
 			//cnt stays the same
 			//we move all the entries one position down and place the new one on top
-			//decltype(state->previous_pages.pages) temp;//IMPORTANT INFO: you can create arrays in ways similar to this without the need to put [...] _after_ the name
 			memcpy(state->previous_pages.pages, &state->previous_pages.pages[1], (ARRAYSIZE(state->previous_pages.pages) - 1) * sizeof(*state->previous_pages.pages));
 			state->previous_pages.pages[ARRAYSIZE(state->previous_pages.pages) - 1] = prev_page;
 		}
@@ -585,76 +545,29 @@ namespace べんきょう {
 
 	void show_page(ProcState* state, page_type p, u32 ShowWindow_cmd /*SW_SHOW,...*/) {
 		switch (p) {
-		case decltype(p)::landing: 
-			for (auto ctl : state->pages.landing.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.landing.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::new_word: 
-			for (auto ctl : state->pages.new_word.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.new_word.static_notify, SW_HIDE);
-			ShowWindow(state->pages.new_word.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::show_word: 
-			for (auto ctl : state->pages.show_word.all) ShowWindow(ctl, ShowWindow_cmd); 
-			ShowWindow(state->pages.show_word.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::practice:
-			for (auto ctl : state->pages.practice.all) ShowWindow(ctl, ShowWindow_cmd); 
-			ShowWindow(state->pages.practice.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::practice_writing:
-			for (auto ctl : state->pages.practice_writing.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.practice_writing.embedded_show_word_reduced, SW_HIDE);
-			ShowWindow(state->pages.practice_writing.embedded_show_word_disambiguation, SW_HIDE);
-			ShowWindow(state->pages.practice_writing.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::practice_multiplechoice:
-			for (auto ctl : state->pages.practice_multiplechoice.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.practice_multiplechoice.embedded_show_word_reduced, SW_HIDE);
-			ShowWindow(state->pages.practice_multiplechoice.embedded_show_word_disambiguation, SW_HIDE);
-			ShowWindow(state->pages.practice_multiplechoice.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::practice_drawing:
-			for (auto ctl : state->pages.practice_drawing.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.practice_drawing.static_correct_answer, SW_HIDE);//HACK:we should have some sort of separation between hidden and shown controls
-			ShowWindow(state->pages.practice_drawing.button_wrong, SW_HIDE);
-			ShowWindow(state->pages.practice_drawing.button_right, SW_HIDE);
-			ShowWindow(state->pages.practice_drawing.embedded_show_word_reduced, SW_HIDE);
-			ShowWindow(state->pages.practice_drawing.embedded_show_word_disambiguation, SW_HIDE);
-			ShowWindow(state->pages.practice_drawing.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::review_practice:
-			for (auto ctl : state->pages.review_practice.all) ShowWindow(ctl, ShowWindow_cmd); 
-			ShowWindow(state->pages.review_practice.page, ShowWindow_cmd);
-			break;
-		case decltype(p)::review_practice_writing: 
-			show_page(state, page_type::practice_writing, ShowWindow_cmd); 
-			break;
-		case decltype(p)::review_practice_multiplechoice: 
-			show_page(state, page_type::practice_multiplechoice, ShowWindow_cmd); 
-			break;
-		case decltype(p)::review_practice_drawing: 
-			show_page(state, page_type::practice_drawing, ShowWindow_cmd); 
-			break;
-		case decltype(p)::wordbook:
-			for (auto ctl : state->pages.wordbook.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.wordbook.page, ShowWindow_cmd);//#pointless duplicate of above
-			break;
-		case decltype(p)::wordbook_all:
-			for (auto ctl : state->pages.wordbook_all.all) ShowWindow(ctl, ShowWindow_cmd);
-			ShowWindow(state->pages.wordbook_all.page, ShowWindow_cmd);//#pointless duplicate of above
-			break;
-		default:Assert(0);
+		case decltype(p)::landing: landing::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::new_word: new_word::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::show_word: show_word::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::practice: practice::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::practice_writing: practice::writing::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::practice_multiplechoice: practice::multiplechoice::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::practice_drawing: practice::drawing::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::review_practice: practice::review::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::review_practice_writing: practice::review::writing::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::review_practice_multiplechoice: practice::review::multiplechoice::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::review_practice_drawing: practice::review::drawing::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::wordbook: wordbook::show_page(state, ShowWindow_cmd); break;
+		case decltype(p)::wordbook_all: wordbook_all::show_page(state, ShowWindow_cmd); break;
+		default: Assert(0);
 		}
 	}
 
-	void set_default_focus(ProcState* state, page_type p) {
-		switch (p) {
-		case decltype(p)::new_word:SetFocus(state->pages.new_word.edit_hiragana); break;
-		case decltype(p)::landing: SetFocus(0); break;//Remove focus from whoever had it
-		//case decltype(p)::search: SetFocus(state->pages.search.searchbox_search); break;
-		case decltype(p)::practice_writing: SetFocus(state->pages.practice_writing.edit_answer); break;
-		//default:Assert(0);
+	void set_default_focus(ProcState* state, page_type page) {
+		switch (page) {
+		case decltype(page)::new_word: new_word::set_default_focus(state); break;
+		case decltype(page)::landing: landing::set_default_focus(state); break;
+		case decltype(page)::practice_writing: practice::writing::set_default_focus(state); break;
+		//default: Assert(0);
 		}
 	}
 
@@ -731,7 +644,7 @@ namespace べんきょう {
 			wordbook::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
 		case page_type::wordbook_all:
 			wordbook_all::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
-		default:Assert(0);
+		default: Assert(0);
 		}
 	}
 	void resize_page(ProcState* state) { resize_page(state, state->current_page); }
@@ -757,39 +670,13 @@ namespace べんきょう {
 
 	void reset_page(ProcState* state, page_type page) {
 		//NOTE: one solution here would be to destroy all the controls remove_controls(page) and then call addcontrols(page)
+		//NOTE: the problem here is that its not enough to settext to null to everyone, that can be done fairly easily implementing some WM_RESET msg, but there are some controls that shouldnt be reset like the buttons, we'd need to implement a .reseteable() or somehow via union magic or smth that gives us only the controls that should be reset
 		switch (page) {
-		case decltype(page)::new_word:
-		{
-			//NOTE: the problem here is that its not enough to settext to null to everyone, that can be done fairly easily implementing some WM_RESET msg, but there are some controls that shouldnt be reset like the buttons, we'd need to implement a .reseteable() or somehow via union magic or smth that gives us only the controls that should be reset
-			auto& controls = state->pages.new_word;
-			_clear_combo_sel(controls.combo_lexical_category);
-			_clear_edit(controls.edit_hiragana);
-			_clear_edit(controls.edit_kanji);
-			_clear_edit(controls.edit_mnemonic);
-			_clear_edit(controls.edit_notes);
-			_clear_edit(controls.edit_example_sentence);
-			_clear_edit(controls.edit_meaning);
-		} break;
-		case decltype(page)::practice_writing:
-		{
-			auto& controls = state->pages.practice_writing;
-
-			_clear_static(controls.static_test_word);
-			_clear_edit(controls.edit_answer);
-			//TODO(fran): I really need to destroy the controls and call addcontrols, I cant be restoring colors here when that's already done there
-		} break;
-		case decltype(page)::practice_multiplechoice:
-		{
-			auto& controls = state->pages.practice_multiplechoice;
-			//TODO(fran): do we wanna clear smth here?
-		} break;
-		case decltype(page)::practice_drawing:
-		{
-			auto& controls = state->pages.practice_drawing;
-			paint::clear_canvas(controls.paint_answer);
-			paint::set_placeholder(controls.paint_answer, nullptr);
-		} break;
-		default:Assert(0);
+		case decltype(page)::new_word: new_word::reset_page(state); break;
+		case decltype(page)::practice_writing: practice::writing::reset_page(state); break;
+		case decltype(page)::practice_multiplechoice: break; //TODO(fran): do we wanna clear smth here?
+		case decltype(page)::practice_drawing: practice::drawing::reset_page(state); break;
+		default: Assert(0);
 		}
 	}
 
@@ -816,6 +703,39 @@ namespace べんきょう {
 		practice::review::create_page(state);
 		wordbook::create_page(state);
 		wordbook_all::create_page(state);
+	}
+
+	void handle_command_event(ProcState* state, HWND child, WPARAM wparam) {
+		WORD notif = HIWORD(wparam);
+		if (child) {//Notifs from our childs
+			switch (state->current_page) {
+			case page_type::landing:
+			case page_type::new_word:
+			case page_type::practice:
+			case page_type::show_word:
+			case page_type::review_practice:
+			case page_type::wordbook:
+				break;
+			case page_type::wordbook_all:
+				wordbook_all::handle_event(state, child, notif); break;
+			case page_type::practice_writing:
+				practice::writing::handle_event(state, child, notif); break;
+			case page_type::review_practice_writing:
+				practice::review::writing::handle_event(state, child); break;
+			case page_type::practice_multiplechoice:
+				practice::multiplechoice::handle_event(state, child, wparam); break;
+			case page_type::review_practice_multiplechoice:
+				practice::review::multiplechoice::handle_event(state, child); break;
+			case page_type::practice_drawing:
+				practice::drawing::handle_event(state, child); break;
+			case page_type::review_practice_drawing:
+				practice::review::drawing::handle_event(state, child); break;
+			default:
+				Assert(0);
+			}
+		}
+		else //switch (LOWORD(wparam)) { //Menu notifications
+			Assert(0);
 	}
 	
 	LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -947,37 +867,7 @@ namespace べんきょう {
 		} break;
 		case WM_COMMAND:
 		{
-			HWND child = (HWND)lparam;
-			WORD notif = HIWORD(wparam);
-			if (child) {//Notifs from our childs
-				switch (state->current_page) {
-				case page_type::landing:
-				case page_type::new_word:
-				case page_type::practice:
-				case page_type::show_word:
-				case page_type::review_practice:
-				case page_type::wordbook:
-					break;
-				case page_type::wordbook_all: 
-					wordbook_all::handle_event(state, child, notif); break;
-				case page_type::practice_writing: 
-					practice::writing::handle_event(state, child, notif); break;
-				case page_type::review_practice_writing: 
-					practice::review::writing::handle_event(state, child); break;
-				case page_type::practice_multiplechoice:
-					practice::multiplechoice::handle_event(state, child, wparam); break;
-				case page_type::review_practice_multiplechoice:
-					practice::review::multiplechoice::handle_event(state, child); break;
-				case page_type::practice_drawing:
-					practice::drawing::handle_event(state, child); break;
-				case page_type::review_practice_drawing:
-					practice::review::drawing::handle_event(state, child); break;
-				default:
-					Assert(0);
-				}
-			}
-			else //switch (LOWORD(wparam)) { //Menu notifications
-				Assert(0);
+			handle_command_event(state, (HWND)lparam, wparam);
 			return 0;
 		} break;
 		case WM_CTLCOLORLISTBOX: //for combobox list //TODO(fran): this has to go
@@ -1097,30 +987,8 @@ namespace べんきょう {
 		return 0;
 	}
 
-	void init_wndclass(HINSTANCE inst) { //INFO: now that we use pre_post_main we cant depend on anything that isnt calculated at compile time
-		WNDCLASSEXW wcex;
-
-		wcex.cbSize = sizeof(wcex);
-		wcex.style = CS_HREDRAW | CS_VREDRAW;
-		wcex.lpfnWndProc = Proc;
-		wcex.cbClsExtra = 0;
-		wcex.cbWndExtra = sizeof(ProcState*);
-		wcex.hInstance = inst;
-		wcex.hIcon = 0;
-		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		wcex.hbrBackground = 0;
-		wcex.lpszMenuName = 0;
-		wcex.lpszClassName = wndclass;
-		wcex.hIconSm = 0;
-
-		ATOM class_atom = RegisterClassExW(&wcex);
-		Assert(class_atom);
-	}
-
 	struct pre_post_main {
-		pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
-		//INFO: you can also use the atexit function
-		//Classes are de-registered automatically by the os
-		~pre_post_main() { } 
+		pre_post_main() { init_wndclass(wndclass, Proc); }
+		~pre_post_main() { } //Classes are de-registered automatically by the os. INFO: you could also use the atexit function
 	} static const PREMAIN_POSTMAIN;
 }

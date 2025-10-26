@@ -282,4 +282,25 @@ namespace べんきょう::new_word {
 
 		layout.resize(layout_rc);
 	}
+
+	void reset_page(ProcState* state) {
+		auto& controls = state->pages.new_word;
+		_clear_combo_sel(controls.combo_lexical_category);
+		_clear_edit(controls.edit_hiragana);
+		_clear_edit(controls.edit_kanji);
+		_clear_edit(controls.edit_mnemonic);
+		_clear_edit(controls.edit_notes);
+		_clear_edit(controls.edit_example_sentence);
+		_clear_edit(controls.edit_meaning);
+	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.new_word;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+		ShowWindow(controls.static_notify, SW_HIDE);
+	}
+
+	void set_default_focus(ProcState* state) {
+		SetFocus(state->pages.new_word.edit_hiragana);
+	}
 }

@@ -69,4 +69,8 @@ namespace べんきょう::practice::review::writing {
 			goto_previous_page(state);
 		}
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		show_page(state, page_type::practice_writing, ShowWindow_cmd);
+	}
 }

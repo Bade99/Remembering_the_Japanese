@@ -273,4 +273,13 @@ namespace べんきょう::landing {
 		MoveWindow(controls.candy, 0, 0, w, h, FALSE);//cover the entire page
 #endif
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.landing;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+	}
+
+	void set_default_focus(ProcState* state) {
+		SetFocus(NULL); //Remove focus from whoever had it
+	}
 }

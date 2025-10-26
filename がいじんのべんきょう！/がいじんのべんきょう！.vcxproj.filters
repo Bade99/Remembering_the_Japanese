@@ -302,6 +302,9 @@
     <ClInclude Include="win32_study.h">
       <Filter>App</Filter>
     </ClInclude>
+    <ClInclude Include="win32_study_common.h">
+      <Filter>App</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">

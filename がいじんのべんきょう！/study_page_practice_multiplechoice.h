@@ -234,4 +234,11 @@ namespace べんきょう::practice::multiplechoice {
 			//NOTE: we're getting an EN_KILLFOCUS from the edit control in practice_writing, TODO(fran): do like windows and add a msg to specify which notifications you want to receive from a specific control
 		}
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.practice_multiplechoice;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+		ShowWindow(controls.embedded_show_word_reduced, SW_HIDE);
+		ShowWindow(controls.embedded_show_word_disambiguation, SW_HIDE);
+	}
 }

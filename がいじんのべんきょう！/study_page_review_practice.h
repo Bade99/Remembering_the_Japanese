@@ -206,4 +206,9 @@ namespace べんきょう::practice::review {
 		MyMoveWindow_offset(controls.gridview_practices, gridview_practices, FALSE);
 		MyMoveWindow_offset(controls.button_continue, button_continue, FALSE);
 	}
+
+	void show_page(ProcState* state, u32 ShowWindow_cmd) {
+		auto& controls = state->pages.review_practice;
+		for (auto ctl : controls.all) ShowWindow(ctl, ShowWindow_cmd);
+	}
 }
