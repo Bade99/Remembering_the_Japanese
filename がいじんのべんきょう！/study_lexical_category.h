@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう {
+namespace study {
 	//NOTE: Since comboboxes return -1 on no selection lexical_category maps perfectly from UI's combobox index to value
 	//TODO(fran): store lexical_category value together with it's string in the combobox, that way we dont depend on the order of the elements for mapping
 

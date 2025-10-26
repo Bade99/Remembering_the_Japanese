@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice {
+namespace study::practice {
 	str GetStringPracticeType(available_practices practice) {
 		return RS(1201 + get_bit_set_position((u32)practice));
 	}

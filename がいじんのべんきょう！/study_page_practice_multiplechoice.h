@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::multiplechoice {
+namespace study::practice::multiplechoice {
 	void preload_page(ProcState* state, page_controls& controls, word* practice) {
 		state->pagestate.practice_multiplechoice.practice = practice;
 

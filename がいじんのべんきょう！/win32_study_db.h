@@ -169,9 +169,9 @@ typedef _practiced_word<utf8_str> practiced_word8;
 //----------------------DB Structure-------------------------:
 
 
-#define べんきょう_table_words "words"
-#define _べんきょう_table_words words
-#define べんきょう_table_words_structure \
+#define study_table_words "words"
+#define _study_table_words words
+#define study_table_words_structure \
 	id					INTEGER PRIMARY KEY,\
 	hiragana			TEXT COLLATE NOCASE,\
 	kanji				TEXT COLLATE NOCASE,\
@@ -189,7 +189,7 @@ typedef _practiced_word<utf8_str> practiced_word8;
 	weight_times_practiced		INTEGER DEFAULT 0,\
 	weight_times_right			INTEGER DEFAULT 0\
 
-//INFO about べんきょう_table_words_structure:
+//INFO about study_table_words_structure:
 //	hiragana: hiragana or katakana //NOTE: we'll find out if it was a good idea to switch to using this as the pk instead of rowid, I have many good reasons for both
 //	general: user modifiable values first, application defined last
 //	creation_date: in Unix time
@@ -203,35 +203,35 @@ typedef _practiced_word<utf8_str> practiced_word8;
 
 ;//INFO: ROWID: in sqlite a column called ROWID is automatically created and serves the function of "id INTEGER PRIMARY KEY" and AUTOINCREMENT, _but_ AUTOINCREMENT as in MySQL or others (simply incrementing on every insert), on the other hand the keyword AUTOINCREMENT in sqlite incurrs an extra cost because it also checks that the value hasnt already been used for a deleted row (we dont care for this in this table)
 
-#define べんきょう_table_user "user" 
-#define _べんきょう_table_user user
-#define べんきょう_table_user_structure \
+#define study_table_user "user" 
+#define _study_table_user user
+#define study_table_user_structure \
 	word_cnt		INTEGER DEFAULT 0,\
 	times_practiced	INTEGER DEFAULT 0,\
 	times_shown		INTEGER DEFAULT 0,\
 	times_right		INTEGER DEFAULT 0\
 
-//INFO about べんきょう_table_user:
+//INFO about study_table_user:
 //	a table with only one user, having to join user-word to enable multiuser is just a waste of performance, if we have multiple users we'll create a different folder and db for each, also prevents that corruption of one user affects another
 //	word_cnt, times_shown, times_right are automatically calculated via triggers
 
-#define _べんきょう_table_accuracy_timeline accuracy_timeline
-#define べんきょう_table_accuracy_timeline_structure \
+#define _study_table_accuracy_timeline accuracy_timeline
+#define study_table_accuracy_timeline_structure \
 	creation_date		INTEGER DEFAULT(strftime('%s', 'now')),\
 	accuracy			INTEGER NOT NuLL\
 
-//INFO about _べんきょう_table_accuracy_timeline:
+//INFO about _study_table_accuracy_timeline:
 //	accuracy: value between [0,100]
 
 //TODO(fran): add indexing (or default ordering, is that a thing?) by creation_date
 
-#define _べんきょう_table_version version
-#define べんきょう_table_version_structure \
+#define _study_table_version version
+#define study_table_version_structure \
 	v					INTEGER PRIMARY KEY\
 
-#define べんきょう_table_practiced "practiced"
-#define _べんきょう_table_practiced practiced
-#define べんきょう_table_practiced_structure \
+#define study_table_practiced "practiced"
+#define _study_table_practiced practiced
+#define study_table_practiced_structure \
 	word_id				INTEGER NOT NuLL,\
 	answered_correctly	BOOLEAN NOT NuLL,\
 	creation_time		INTEGER DEFAULT(strftime('%s', 'now'))\
@@ -239,10 +239,10 @@ typedef _practiced_word<utf8_str> practiced_word8;
 //TODO(fran): we could store the word state at that point, to make sure to show the word at the point it was practiced and not now, it could have been modified since then
 //TODO(fran): dont let the table grow too much, allow max 200 entries for example
 
-//INFO about べんきょう_table_practiced:
+//INFO about study_table_practiced:
 //	word_id references and id from the 'word' table
 
-//INFO about べんきょう_table_version_structure:
+//INFO about study_table_version_structure:
 //	v: stores the db/program version, to make it simpler versions are just a number, the db wont be changing too often
 
 
@@ -279,7 +279,7 @@ typedef _practiced_word<utf8_str> practiced_word8;
 //INFO IMPORTANT: when using sqlite bind you no longer need to use '' around text values, eg '?1' is incorrect, you want ?1 to bind a string
 //INFO IMPORTANT: sqlite bind can _not_ be used for table or column names 
 
-namespace べんきょう {
+namespace study {
 
 	int sqlite3_bind(sqlite3_stmt* stmt, int index, const s8& value, void (*destructor)(void*) = SQLITE_STATIC) {
 		Assert(stmt);
@@ -330,7 +330,7 @@ namespace べんきょう {
 		user_stats res;
 		utf8 stats[] = SQL(
 			SELECT word_cnt comma times_practiced comma times_shown comma times_right 
-			FROM _べんきょう_table_user;
+			FROM _study_table_user;
 		);
 
 		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
@@ -357,7 +357,7 @@ namespace べんきょう {
 			SQL(SELECT accuracy FROM)
 			+ "("s +
 				SQL(SELECT accuracy comma creation_date
-					FROM _べんきょう_table_accuracy_timeline
+					FROM _study_table_accuracy_timeline
 					ORDER BY creation_date DESC LIMIT) + " " + std::to_string(cnt)
 			+ ")" +
 			SQL(ORDER BY creation_date ASC;);
@@ -379,7 +379,7 @@ namespace べんきょう {
 
 	void user_stats_increment_times_practiced(sqlite3* db) {
 		utf8 update_increment_times_practiced[] = SQL(
-			UPDATE _べんきょう_table_user SET times_practiced = times_practiced + 1;
+			UPDATE _study_table_user SET times_practiced = times_practiced + 1;
 		);
 		utf8* errmsg;
 		sqlite3_exec(db, update_increment_times_practiced, 0, 0, &errmsg);
@@ -456,7 +456,7 @@ namespace べんきょう {
 		
 		std::string select_word = 
 			" SELECT " + columns + 
-			" FROM " べんきょう_table_words
+			" FROM " study_table_words
 			" WHERE " + filter_col + " LIKE " sqlParamS(_match_str) " LIMIT 1 " ";";
 
 		sqlite3_stmt* stmt; defer{ sqlite3_finalize(stmt); };
@@ -521,7 +521,7 @@ namespace べんきょう {
 
 		std::string select_word =
 			" SELECT " + columns +
-			" FROM " べんきょう_table_words
+			" FROM " study_table_words
 			" WHERE " + key_match + ";";
 		//IMPORTANT NOTE: there's no need to use prepared statements here since we know all primary keys in key_match are not based on input from the user, but that could change in the future (one problem would be if the user can actually input a string into the key column from an external editor, I kinda think sql actually allows that for integer columns, so that'd be a reason to do prep stmts now: TODO(fran))
 
@@ -552,7 +552,7 @@ namespace べんきょう {
 		
 		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
 
-		std::string filter = " FROM " べんきょう_table_words;
+		std::string filter = " FROM " study_table_words;
 
 		{
 			if (filters.filter == decltype(filters.filter)::none) {}
@@ -627,7 +627,7 @@ namespace べんきょう {
 		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
 
 		std::string filter = 
-			" FROM "s + べんきょう_table_words +
+			" FROM "s + study_table_words +
 			" WHERE " + "creation_date" + ">=" + std::to_string(gmt_start) +
 			" AND " + "creation_date" + "<=" + std::to_string(gmt_end) + ";";
 
@@ -676,7 +676,7 @@ namespace べんきょう {
 		
 		static constexpr utf8 select_last_creation_date[] = SQL(
 			SELECT creation_date
-			FROM _べんきょう_table_words
+			FROM _study_table_words
 			WHERE creation_date <= sqlParam(_gmt_upper_bound)
 			ORDER BY creation_date DESC
 			LIMIT 1;
@@ -743,8 +743,8 @@ namespace べんきょう {
 
 		std::string select_words = 
 			" SELECT " + columns + 
-			" FROM " べんきょう_table_words " AS w "
-			" JOIN " べんきょう_table_practiced " AS p " " ON p.word_id = w.id" //TODO(fran): make sure this join doesnt add null entries for p.word_id that are invalid (eg if user deleted the word)
+			" FROM " study_table_words " AS w "
+			" JOIN " study_table_practiced " AS p " " ON p.word_id = w.id" //TODO(fran): make sure this join doesnt add null entries for p.word_id that are invalid (eg if user deleted the word)
 			" ORDER BY " "p.creation_time" " ASC "
 			" LIMIT " + std::to_string(cnt) + ";";
 		
@@ -809,7 +809,7 @@ namespace べんきょう {
 			std::string values = get_non_primary_key_indexes_str(word);
 
 			insert_word =
-				" INSERT INTO " べんきょう_table_words "(" + columns + ")" +
+				" INSERT INTO " study_table_words "(" + columns + ")" +
 				" VALUES(" + values + ");";
 		}
 
@@ -852,7 +852,7 @@ namespace べんきょう {
 		new_values.pop_back();//remove the trailing comma
 
 		std::string update_word = 
-			" UPDATE " べんきょう_table_words 
+			" UPDATE " study_table_words 
 			" SET " + new_values + 
 			" WHERE " + key_match + ";";
 		
@@ -886,7 +886,7 @@ namespace べんきょう {
 		std::string key_match = generate_key_match(word);
 
 		std::string update_last_practiced_date = SQL(
-			UPDATE _べんきょう_table_words
+			UPDATE _study_table_words
 			SET last_practiced_date = strftime('%s', 'now') comma
 				weight_last_practiced_date = last_practiced_date) +
 			" WHERE "s + key_match + ";";
@@ -908,7 +908,7 @@ namespace べんきょう {
 			std::string key_match = generate_key_match(word);
 
 			std::string increment_times_practiced = SQL(
-				UPDATE _べんきょう_table_words
+				UPDATE _study_table_words
 				SET times_practiced = times_practiced + 1 comma
 				weight_times_practiced = weight_times_practiced + 1) +
 				" WHERE "s + key_match + ";";
@@ -924,7 +924,7 @@ namespace べんきょう {
 			std::string key_match = generate_key_match(word);
 
 			std::string increment_times_right = SQL(
-				UPDATE _べんきょう_table_words
+				UPDATE _study_table_words
 				SET times_right = times_right + 1 comma
 				weight_times_right = weight_times_right + 1) +
 				" WHERE "s + key_match + ";";
@@ -941,7 +941,7 @@ namespace べんきょう {
 			s8 word_id = s16_to_s8(word.attributes.id); defer{ free_any_str(word_id); };
 
 			std::string insert_word_practiced = 
-				" INSERT INTO " べんきょう_table_practiced "(word_id, answered_correctly)"
+				" INSERT INTO " study_table_practiced "(word_id, answered_correctly)"
 				" VALUES "
 				"("s + word_id.str + "," + std::to_string(answered_correctly) + ")" ";";
 
@@ -968,7 +968,7 @@ namespace べんきょう {
 
 		//To delete you find the word by its primary keys
 		std::string delete_word = SQL(
-			DELeTE FROM _べんきょう_table_words ) +
+			DELeTE FROM _study_table_words ) +
 			" WHERE "s + key_match + ";";
 
 
@@ -998,7 +998,7 @@ namespace べんきょう {
 		std::string columns = _foreach_learnt_word_member(_sqlite3_generate_columns); columns.pop_back();
 		std::string select_matches =
 			" SELECT "s + columns +
-			" FROM " べんきょう_table_words 
+			" FROM " study_table_words 
 			" WHERE " + filter_col + " LIKE " sqlParamS(_match_str) "||" "'%'" 
 			" LIMIT " + std::to_string(max_cnt_results) + ";";
 
@@ -1043,7 +1043,7 @@ namespace べんきょう {
 
 		//TODO(fran): can I SET to default values?
 		std::string reset_priority = SQL(
-			UPDATE _べんきょう_table_words
+			UPDATE _study_table_words
 			SET weight_last_practiced_date = 0 comma
 				weight_times_practiced = 0 comma
 				weight_times_right = 0 ) +
@@ -1099,7 +1099,7 @@ namespace べんきょう {
 			" SELECT * FROM " //IMPORTANT INFO: UNION is a stupid operator, if you also want to _previously_ "order by" your selects you have to "hide" them inside another select and parenthesis
 			"("
 			" SELECT * FROM "
-			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY weight_times_practiced ASC LIMIT 30" ")"
+			"(" " SELECT " + columns + " FROM " study_table_words + where_req + " ORDER BY weight_times_practiced ASC LIMIT 30" ")"
 			"ORDER BY RANDOM() LIMIT 10" //TODO(fran): I dont know how random this really is, probably not good enough
 			")"
 			" UNION " //TODO(fran): UNION ALL is faster cause it doesnt bother to remove duplicates
@@ -1107,7 +1107,7 @@ namespace べんきょう {
 			" SELECT * FROM "
 			"("
 			" SELECT * FROM "
-			"(" " SELECT " + columns + " FROM " べんきょう_table_words + where_req + " ORDER BY weight_last_practiced_date ASC LIMIT 30"  ")"
+			"(" " SELECT " + columns + " FROM " study_table_words + where_req + " ORDER BY weight_last_practiced_date ASC LIMIT 30"  ")"
 			"ORDER BY RANDOM() LIMIT 5"
 			")"
 			")"
@@ -1156,7 +1156,7 @@ namespace べんきょう {
 		}
 		//TODO(fran): prioritize choosing words of the same lexical category as 'filter'
 		std::string select_word_choices =
-			" SELECT " + req_column + " FROM " べんきょう_table_words
+			" SELECT " + req_column + " FROM " study_table_words
 			" WHERE " + req_column + " <> " "''" " AND " + req_column + "<>" "'" + filter_elem + "'"
 			" ORDER BY RANDOM() LIMIT " + std::to_string(cnt) + ";" //TODO(fran): I dont know how random this really is, probably not good enough
 			;//TODO(fran): idk whether to store on the db the empty string '' (as we do currently) or straight null, storing nulls would mean lots of extra checks in other sections of the code, what we _do_ need is a standard, either one or the other but _not_ both
@@ -1199,7 +1199,7 @@ namespace べんきょう {
 		}
 		
 		std::string select_word_elem =
-			" SELECT " + req_column + " FROM " べんきょう_table_words
+			" SELECT " + req_column + " FROM " study_table_words
 			" WHERE " + req_column + " <> " " '' "
 			" ORDER BY RANDOM() LIMIT 1;" //TODO(fran): I dont know how random this really is, probably not good enough
 			;
@@ -1249,35 +1249,35 @@ namespace べんきょう {
 			//CREATE
 			{
 				utf8 create_version_table[] = SQL(
-					CREATE TABLE _べんきょう_table_version(べんきょう_table_version_structure) WITHOUT ROWID;
+					CREATE TABLE _study_table_version(study_table_version_structure) WITHOUT ROWID;
 				);
 				sqlite3_exec(db, create_version_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 			}
 			{
 				utf8 create_word_table[] = SQL(
-					CREATE TABLE _べんきょう_table_words(べんきょう_table_words_structure);
+					CREATE TABLE _study_table_words(study_table_words_structure);
 				);
 				sqlite3_exec(db, create_word_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 			}
 			{
 				utf8 create_user_table[] = SQL(
-					CREATE TABLE _べんきょう_table_user(べんきょう_table_user_structure);
+					CREATE TABLE _study_table_user(study_table_user_structure);
 				);
 				sqlite3_exec(db, create_user_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 			}
 			{
 				utf8 create_accuracy_timeline_table[] = SQL(
-					CREATE TABLE _べんきょう_table_accuracy_timeline(べんきょう_table_accuracy_timeline_structure);
+					CREATE TABLE _study_table_accuracy_timeline(study_table_accuracy_timeline_structure);
 				);
 				sqlite3_exec(db, create_accuracy_timeline_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
 			}
 			{
 				utf8 create_practiced_table[] = SQL(
-					CREATE TABLE _べんきょう_table_practiced(べんきょう_table_practiced_structure);
+					CREATE TABLE _study_table_practiced(study_table_practiced_structure);
 				);
 				sqlite3_exec(db, create_practiced_table, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1285,14 +1285,14 @@ namespace べんきょう {
 
 			//INSERT
 			{
-				//if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+				//if (get_table_rowcount(db, study_table_user) > 0) {
 				//	//The entry is already there, here we can set new values on future updates for example
 				//	//TODO(fran)
 				//}
 				//else {
 					//Entry isnt there, create it
 				utf8 insert_user[] = SQL(
-					INSERT INTO _べんきょう_table_user DEFAULT VALUES;
+					INSERT INTO _study_table_user DEFAULT VALUES;
 				);
 				sqlite3_exec(db, insert_user, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1301,14 +1301,14 @@ namespace べんきょう {
 			}
 
 			{
-				//if (get_table_rowcount(db, べんきょう_table_user) > 0) {
+				//if (get_table_rowcount(db, study_table_user) > 0) {
 				//	//The entry is already there, here we can set new values on future updates for example
 				//	//TODO(fran)
 				//}
 				//else {
 					//Entry isnt there, create it
 				utf8 insert_version[] = SQL(
-					INSERT INTO _べんきょう_table_version(v) VALUES(1);
+					INSERT INTO _study_table_version(v) VALUES(1);
 				);
 				sqlite3_exec(db, insert_version, 0, 0, &errmsg);
 				sqlite_exec_runtime_assert(errmsg);
@@ -1324,9 +1324,9 @@ namespace べんきょう {
 			{
 				//TODO(fran): HACK: Im still using IF NOT EXISTS cause of multiple "tabs", we need a better solution for multi tabs that doesnt do unnecessary setup
 				utf8 create_trigger_increment_word_cnt[] = SQL(
-					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _べんきょう_table_words
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_word_cnt AFTER INSERT ON _study_table_words
 					BEGIN
-					UPDATE _べんきょう_table_user SET word_cnt = word_cnt + 1;
+					UPDATE _study_table_user SET word_cnt = word_cnt + 1;
 				END;
 				);
 				sqlite3_exec(db, create_trigger_increment_word_cnt, 0, 0, &errmsg);
@@ -1335,9 +1335,9 @@ namespace べんきょう {
 			{
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_decrement_word_cnt[] = SQL(
-					CREATE TEMPORARY TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _べんきょう_table_words
+					CREATE TEMPORARY TRIGGER IF NOT EXISTS decrement_word_cnt AFTER DeLETE ON _study_table_words
 					BEGIN
-					UPDATE _べんきょう_table_user SET word_cnt = word_cnt - 1;
+					UPDATE _study_table_user SET word_cnt = word_cnt - 1;
 				END;
 				);
 				sqlite3_exec(db, create_trigger_decrement_word_cnt, 0, 0, &errmsg);
@@ -1347,9 +1347,9 @@ namespace べんきょう {
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_increment_times_shown[] = SQL(
 					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_times_shown
-					AFTER UPDATE OF times_practiced ON _べんきょう_table_words
+					AFTER UPDATE OF times_practiced ON _study_table_words
 					BEGIN
-					UPDATE _べんきょう_table_user SET times_shown = times_shown + NEW.times_practiced - OLD.times_practiced;
+					UPDATE _study_table_user SET times_shown = times_shown + NEW.times_practiced - OLD.times_practiced;
 				END;
 				);
 				sqlite3_exec(db, create_trigger_increment_times_shown, 0, 0, &errmsg);
@@ -1359,9 +1359,9 @@ namespace べんきょう {
 				//TODO(fran): remove the IF NOT EXISTS once we have db version checking
 				utf8 create_trigger_increment_times_right[] = SQL(
 					CREATE TEMPORARY TRIGGER IF NOT EXISTS increment_times_right
-					AFTER UPDATE OF times_right ON _べんきょう_table_words
+					AFTER UPDATE OF times_right ON _study_table_words
 					BEGIN
-					UPDATE _べんきょう_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
+					UPDATE _study_table_user SET times_right = times_right + NEW.times_right - OLD.times_right;
 				END;
 				);
 				sqlite3_exec(db, create_trigger_increment_times_right, 0, 0, &errmsg);
@@ -1371,20 +1371,20 @@ namespace べんきょう {
 				//IMPORTANT: this depends on times_shown being updated _before_ times_right
 				utf8 create_trigger_insert_accuracy_timepoint[] = SQL(
 					CREATE TEMPORARY TRIGGER IF NOT EXISTS insert_accuracy_timepoint
-					AFTER UPDATE OF times_shown ON _べんきょう_table_user
+					AFTER UPDATE OF times_shown ON _study_table_user
 					BEGIN
-					INSERT INTO _べんきょう_table_accuracy_timeline(accuracy)
+					INSERT INTO _study_table_accuracy_timeline(accuracy)
 					VALUES(CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER));
 				END;
 				);
 
 				utf8 create_trigger_update_accuracy_timepoint[] = SQL(
 					CREATE TEMPORARY TRIGGER IF NOT EXISTS update_accuracy_timepoint
-					AFTER UPDATE OF times_right ON _べんきょう_table_user
+					AFTER UPDATE OF times_right ON _study_table_user
 					BEGIN
-					UPDATE _べんきょう_table_accuracy_timeline
+					UPDATE _study_table_accuracy_timeline
 					SET accuracy = CAST(((CAST(NEW.times_right AS REAL) / CAST(NEW.times_shown AS REAL)) * 100.0) AS INTEGER)
-					WHERE creation_date = (SELECT MAX(creation_date) FROM _べんきょう_table_accuracy_timeline);
+					WHERE creation_date = (SELECT MAX(creation_date) FROM _study_table_accuracy_timeline);
 				END;
 				);
 
@@ -1401,7 +1401,7 @@ namespace べんきょう {
 		i32 version;
 		{
 			utf8 get_version[] = SQL(
-				SELECT v FROM _べんきょう_table_version;
+				SELECT v FROM _study_table_version;
 			);
 			sqlite3_stmt* stmt;
 			int errcode;
@@ -1439,7 +1439,7 @@ namespace べんきょう {
 		{
 			utf8* errmsg;
 			utf8 test_insert_words[] = SQL(
-				INSERT INTO _べんきょう_table_words(hiragana, kanji, meaning, mnemonic, lexical_category, notes, example_sentence)
+				INSERT INTO _study_table_words(hiragana, kanji, meaning, mnemonic, lexical_category, notes, example_sentence)
 				VALUES
 				('はな', '話', 'Flower', 'Flowernote', -1,'','')comma
 				('なに', '何', 'What', 'Nani?!', -1, '', '')comma

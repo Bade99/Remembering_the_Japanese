@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::wordbook {
+namespace study::wordbook {
 	union page_controls {
 		using control_type = HWND;
 		struct {

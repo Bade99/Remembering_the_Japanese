@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::landing {
+namespace study::landing {
 	void preload_page(ProcState* state, page_controls& controls, user_stats* stats) {
 		constexpr bool test_stats = false;
 		if constexpr (!test_stats) {

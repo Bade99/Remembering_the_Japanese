@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::new_word {
+namespace study::new_word {
 	//returns true if the input is valid and usable, returns false otherwise
 	bool check_new_word(ProcState* state) {
 		auto& page = state->pages.new_word;
@@ -78,32 +78,32 @@ namespace べんきょう::new_word {
 
 				{//Open separate page with the currently stored word
 					//TODO(fran): streamline this process
-					Settings* べんきょう_cl = (decltype(べんきょう_cl))malloc(sizeof(Settings));//TODO(fran): MEMLEAK: maybe we can say that non primary windows have to release this memory but it's pretty hacky
-					RECT べんきょう_nc_rc; GetWindowRect(state->nc_parent, &べんきょう_nc_rc);
-					int w = RECTW(べんきょう_nc_rc);
-					べんきょう_nc_rc.left = べんきょう_nc_rc.right;
-					べんきょう_nc_rc.right += w;
+					Settings* study_settings = (decltype(study_settings))malloc(sizeof(Settings));//TODO(fran): MEMLEAK: maybe we can say that non primary windows have to release this memory but it's pretty hacky
+					RECT study_wnd_rc; GetWindowRect(state->nc_parent, &study_wnd_rc);
+					int w = RECTW(study_wnd_rc);
+					study_wnd_rc.left = study_wnd_rc.right;
+					study_wnd_rc.right += w;
 					//TODO(fran): place new window on the left if no space is available on the right
-					べんきょう_cl->db = state->settings->db;
-					べんきょう_cl->is_primary_wnd = false;
+					study_settings->db = state->settings->db;
+					study_settings->is_primary_wnd = false;
 
-					unCapNcLpParam べんきょう_nclpparam;
-					べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
-					べんきょう_nclpparam.client_lp_param = べんきょう_cl;
+					unCapNcLpParam study_wnd_param;
+					study_wnd_param.client_class_name = study::wndclass;
+					study_wnd_param.client_lp_param = study_settings;
 					//TODO(fran): tell the window which pages we want it to create, otherwise window creation takes a couple of seconds, hanging the whole application with it
 
-					HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-						べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, GetModuleHandleW(NULL), &べんきょう_nclpparam);
-					Assert(べんきょう_nc);
+					HWND study_wnd = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+						study_wnd_rc.left, study_wnd_rc.top, RECTWIDTH(study_wnd_rc), RECTHEIGHT(study_wnd_rc), nullptr, nullptr, GetModuleHandleW(NULL), &study_wnd_param);
+					Assert(study_wnd);
 
-					べんきょう::set_brushes(nonclient::get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk);
-					べんきょう::set_current_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), page_type::show_word);
+					study::set_brushes(nonclient::get_state(study_wnd)->client, TRUE, global::colors.ControlBk);
+					study::set_current_page(study::get_state(nonclient::get_state(study_wnd)->client), page_type::show_word);
 
 					if (stored_word16_res old_word = get_stored_word(state->settings->db, w16); old_word.found) {
 						defer{ free_stored_word(old_word.word); };
-						べんきょう::preload_page(べんきょう::get_state(nonclient::get_state(べんきょう_nc)->client), page_type::show_word, &old_word.word);
+						study::preload_page(study::get_state(nonclient::get_state(study_wnd)->client), page_type::show_word, &old_word.word);
 					}
-					UpdateWindow(べんきょう_nc);
+					UpdateWindow(study_wnd);
 				}
 
 				int ret = MessageBoxW(state->nc_parent, RCS(170), L"", MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_APPLMODAL, MBP::center);

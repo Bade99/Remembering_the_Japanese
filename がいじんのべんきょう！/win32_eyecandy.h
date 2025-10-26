@@ -4,7 +4,7 @@
 #include "win32_Platform.h"
 #include "win32_Helpers.h"
 #include "unCap_Math.h"
-#include "win32_べんきょう_db.h"
+#include "win32_study_db.h"
 
 #include <vector>
 
@@ -153,7 +153,7 @@ namespace eyecandy {
 		if (state->db) {
 			ProcState::element elem;
 			learnt_word_elem word_elems[]{ learnt_word_elem::hiragana, learnt_word_elem::kanji };
-			elem.text = べんきょう::get_random_word_element(state->db, word_elems[random_between(0u, (u32)ARRAYSIZE(word_elems) - 1)] );
+			elem.text = study::get_random_word_element(state->db, word_elems[random_between(0u, (u32)ARRAYSIZE(word_elems) - 1)] );
 			RECT r; GetClientRect(state->wnd, &r);
 			//TODO(fran): place objects outside the rectangle and find valid direction based on that
 			f32 pi = 3.1415926535f;

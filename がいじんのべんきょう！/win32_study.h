@@ -43,7 +43,7 @@
 #include "study_page_wordbook_types.h"
 #include "study_page_wordbook_all_types.h"
 
-namespace べんきょう {
+namespace study {
 	constexpr cstr wndclass[] = L"win32_wndclass_べんきょう";
 
 	struct {
@@ -69,19 +69,19 @@ namespace べんきょう {
 	};
 
 	struct Settings {
-#define foreach_べんきょうSettings_member(op) \
+#define foreach_study_Settings_member(op) \
 		op(RECT, rc,200,200,700,900 ) \
 		op(multiflag<practice::available_practices>, practices, practice::filledAvailablePractices ) \
 		op(multiflag<practice::writing::variant>, practice_writing_variants, practice::filledPracticeWritingVariants ) \
 		op(multiflag<practice::multiplechoice::variant>, practice_multiplechoice_variants, practice::filledPracticeMultiplechoiceVariants ) \
 		op(multiflag<practice::drawing::variant>, practice_drawing_variants, practice::filledPracticeDrawingVariants ) \
 
-		foreach_べんきょうSettings_member(_generate_member);
+		foreach_study_Settings_member(_generate_member);
 		sqlite3* db;
 		bool is_primary_wnd;//TODO(fran): not sure this should go here instead of ProcState
 
-		_generate_default_struct_serialize(foreach_べんきょうSettings_member);
-		_generate_default_struct_deserialize(foreach_べんきょうSettings_member);
+		_generate_default_struct_serialize(foreach_study_Settings_member);
+		_generate_default_struct_deserialize(foreach_study_Settings_member);
 	};
 
 	struct ProcState {
@@ -410,7 +410,7 @@ namespace べんきょう {
 		set_current_page(state, page_type::practice);
 	}
 }
-_add_struct_to_serialization_namespace(べんきょう::Settings);
+_add_struct_to_serialization_namespace(study::Settings);
 
 #include "study_page_landing.h"
 #include "study_page_new_word.h"
@@ -483,7 +483,7 @@ _add_struct_to_serialization_namespace(べんきょう::Settings);
 
 //TODO(fran): in practice_writing: I like the idea of putting a bar in the middle between the question and answer and that it lights up when the user responds, it either goes green and it's text says "Correct!" or red and text "Incorrect: right answer was [...]". The good thing about this is that I dont need to add extra controls for the review page, I can simply reconstruct the exact same page and there's already a spot to indicate the correction, would be the same with a multiple choice, eg 3 words user clicks wrong answer and it lights up red and the correct one lights up green, the thing with this is that I'd need the text colors to be fixed in order to not be opaqued by the new red/green light, that's kind of annoying but I dont see an easy solution. Sidenode: actually wanikani doesnt have a separate bar, it changes the color of the edit box
 
-namespace べんきょう {
+namespace study {
 	//Sets the items in the corresponding page to the values on *data, prepares the page so it can be shown to the user
 	void preload_page(ProcState* state, page_type page, void* data) {
 		//TODO(fran): we probably want to clear the whole page before we start adding stuff
@@ -748,7 +748,7 @@ namespace べんきょう {
 			Assert(state);
 			state->nc_parent = GetParent(hwnd);
 			state->wnd = hwnd;
-			state->settings = ((べんきょう::Settings*)create_nfo->lpCreateParams);
+			state->settings = ((study::Settings*)create_nfo->lpCreateParams);
 			state->current_page = page_type::landing;
 			init_cpp_objects(state);
 			set_state(hwnd, state);

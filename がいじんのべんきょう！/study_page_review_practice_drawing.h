@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::review::drawing {
+namespace study::practice::review::drawing {
 	void preload_page(ProcState* state, practice::drawing::page_controls& controls, practice_drawing* pagedata) {
 		HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
 		brush_group user_choice_bk;

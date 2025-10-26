@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::study_sidebar {
+namespace study::study_sidebar {
 	constexpr utf16 state_key[] = L"sidebar_state_animate";
 
 	constexpr i32 animation_time_ms = 150;

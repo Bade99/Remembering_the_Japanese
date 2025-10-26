@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::writing {
+namespace study::practice::writing {
 	void preload_page(ProcState* state, page_controls& controls, word* practice) {
 		//TODO(fran): shouldnt preload_page also call clear_page?
 		//store data for future proof checking

@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::study_navbar {
+namespace study::study_navbar {
 	//Page Search: Searchbox functions
 	void searchbox_func_free_elements(ptr<void*> elements, void* user_extra) {
 		//TODO(fran): right now Im allocating the whole array which means I only need to free the very first element, this is probably not the way to go for the future, for example if we wanted to do async search we wouldnt know which elements are the first in the array and therefore the only ones that need freeing

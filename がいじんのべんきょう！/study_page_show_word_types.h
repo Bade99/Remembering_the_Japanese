@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::show_word {
+namespace study::show_word {
 	union page_controls {
 		using control_type = HWND;
 		struct {

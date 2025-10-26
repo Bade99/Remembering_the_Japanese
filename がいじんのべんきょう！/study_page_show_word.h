@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::show_word {
+namespace study::show_word {
 	bool check_show_word(ProcState* state) {
 		//TODO(fran): macro to check both new_word and show_word (show_word will now have some of its static edit controls changed to edit controls instead)
 		auto& page = state->pages.show_word;

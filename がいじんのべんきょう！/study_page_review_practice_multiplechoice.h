@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::review::multiplechoice {
+namespace study::practice::review::multiplechoice {
 	void preload_page(ProcState* state, practice::multiplechoice::page_controls& controls, practice_multiplechoice* pagedata) {
 		HBRUSH question_txt_br = brush_for(pagedata->practice->question_type);
 		HBRUSH choice_txt_br = brush_for(pagedata->practice->choices_type);

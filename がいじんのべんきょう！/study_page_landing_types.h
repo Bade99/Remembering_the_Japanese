@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::landing {
+namespace study::landing {
 	union page_controls {
 		using control_type = HWND;
 		struct {

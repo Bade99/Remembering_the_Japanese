@@ -1,5 +1,5 @@
 ﻿#pragma once
-//TODO(fran): we probably want this things inside the べんきょう namespace
+//TODO(fran): we probably want this things inside the 'study' namespace
 
 HBRUSH brush_for(learnt_word_elem type) {
 	HBRUSH res{ 0 };//NOTE: compiler cant know this will always be initialized so I gotta zero it

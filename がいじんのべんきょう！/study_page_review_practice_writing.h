@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::review::writing {
+namespace study::practice::review::writing {
 	void preload_page(ProcState* state, practice::writing::page_controls& controls, practice_writing* pagedata) {
 		utf16* question = pagedata->question->str;
 		HBRUSH question_br{ 0 };

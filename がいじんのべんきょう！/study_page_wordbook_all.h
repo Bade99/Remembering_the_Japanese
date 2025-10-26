@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::wordbook_all {
+namespace study::wordbook_all {
 	word_filters get_filters(ProcState* state) {
 		word_filters res;
 		const auto& controls = state->pages.wordbook_all;

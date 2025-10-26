@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::drawing {
+namespace study::practice::drawing {
 	void preload_page(ProcState* state, page_controls& controls, word* practice) {
 		state->pagestate.practice_drawing.practice = practice;
 

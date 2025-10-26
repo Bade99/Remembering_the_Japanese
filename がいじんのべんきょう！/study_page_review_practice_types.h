@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::review {
+namespace study::practice::review {
 	union page_controls {
 		using control_type = HWND;
 		struct {

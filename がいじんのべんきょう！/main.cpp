@@ -144,7 +144,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     CreateDirectoryW(work_folder, 0);
 
     //-----------------Language Setup------------------:
-    LANGUAGE_MANAGER& lang_mgr = LANGUAGE_MANAGER::Instance();
+    LANGUAGE_MANAGER& language_manager = LANGUAGE_MANAGER::Instance();
     {
         str lang_folder = str(work_folder) + L"\\lang";
 
@@ -154,26 +154,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         };
         save_to_file_langs(def_langs, ARRAYSIZE(def_langs), (utf16*)lang_folder.c_str());//TODO(fran): having to write to disk every time is kind of annoying and slow
 
-        lang_mgr.SetLanguageFolder(std::move(lang_folder));
+        language_manager.SetLanguageFolder(std::move(lang_folder));
     }
 
     //-----------------Deserialization------------------:
-    べんきょう::Settings べんきょう_cl;
-    auto& win32_colors = global::colors;//NOTE: I avoid direclty using global::colors as the serialization name cause of the :: which could later be used as an asignment operator
+    study::Settings study_settings;
+    auto& color_table = global::colors;//NOTE: I avoid direclty using global::colors as the serialization name cause of the :: which could later be used as an asignment operator
     {
         const str to_deserialize = load_file_serialized(work_folder);
         _BeginDeserialize();
-        _deserialize_struct(lang_mgr, to_deserialize);
-        _deserialize_struct(べんきょう_cl, to_deserialize);
+        _deserialize_struct(language_manager, to_deserialize);
+        _deserialize_struct(study_settings, to_deserialize);
         //_deserialize_struct(unCap_colors, to_deserialize);
         //default_colors_if_not_set(&unCap_colors);
 
-        _deserialize_struct(win32_colors, to_deserialize);
-        default_colors_if_not_set(&win32_colors);
+        _deserialize_struct(color_table, to_deserialize);
+        default_colors_if_not_set(&color_table);
 
     }
     //defer{ for (auto& br : unCap_colors.all) if (br) { DeleteObject(br); br = NULL; } };
-    defer{ for (auto& br : win32_colors.all) if (br) { DeleteObject(br); br = NULL; } };
+    defer{ for (auto& br : color_table.all) if (br) { DeleteObject(br); br = NULL; } };
 
 
     //------------------Database Setup-------------------:
@@ -196,10 +196,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //TODO(fran): im kind of dissatisfied with them not having a sqlite3_open_v2 for utf16 so I can do some configs
     int open_db_res = sqlite3_open16(db_path.c_str(), &db);
     sqliteok_runtime_assert(open_db_res,db);
-    べんきょう::startup(db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
+    study::startup(db);//TODO(fran): maybe this should be executed in main, that way we avoid having to check for is_primary_wnd before calling this
 
     #if defined(_TEST_SATURATE_DB)
-    if(MessageBoxW(0,L"Saturate DB?",L"",MB_YESNOCANCEL) == IDYES) べんきょう::test::saturate_db(db);
+    if(MessageBoxW(0,L"Saturate DB?",L"",MB_YESNOCANCEL) == IDYES) study::test::saturate_db(db);
     #endif
 
     defer{ 
@@ -210,21 +210,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     };
 
     //----------------Window Setup-----------------:
-    RECT べんきょう_nc_rc = nonclient::calc_nonclient_rc_from_client(べんきょう_cl.rc, FALSE);
-    べんきょう_cl.db = db;
-    べんきょう_cl.is_primary_wnd = true;
+    RECT study_wnd_rc = nonclient::calc_nonclient_rc_from_client(study_settings.rc, FALSE);
+    study_settings.db = db;
+    study_settings.is_primary_wnd = true;
 
-    unCapNcLpParam べんきょう_nclpparam;
-    べんきょう_nclpparam.client_class_name = べんきょう::wndclass;
-    べんきょう_nclpparam.client_lp_param = &べんきょう_cl;
+    unCapNcLpParam study_wnd_params;
+    study_wnd_params.client_class_name = study::wndclass;
+    study_wnd_params.client_lp_param = &study_settings;
 
-    HWND べんきょう_nc = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-        べんきょう_nc_rc.left, べんきょう_nc_rc.top, RECTWIDTH(べんきょう_nc_rc), RECTHEIGHT(べんきょう_nc_rc), nullptr, nullptr, hInstance, &べんきょう_nclpparam);
-    Assert(べんきょう_nc);
+    HWND study_wnd = CreateWindowEx(WS_EX_CONTROLPARENT, nonclient::wndclass, global::app_name, WS_VISIBLE | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        study_wnd_rc.left, study_wnd_rc.top, RECTWIDTH(study_wnd_rc), RECTHEIGHT(study_wnd_rc), nullptr, nullptr, hInstance, &study_wnd_params);
+    Assert(study_wnd);
     
-    べんきょう::set_brushes(nonclient::get_state(べんきょう_nc)->client, TRUE, global::colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
+    study::set_brushes(nonclient::get_state(study_wnd)->client, TRUE, global::colors.ControlBk); //TODO(fran): having to do this here aint too nice, but at least is nicer than having to do init_wndclass for everything
 
-    UpdateWindow(べんきょう_nc);
+    UpdateWindow(study_wnd);
 
     //------------------Main Loop-------------------:
     MSG msg;
@@ -243,10 +243,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     {
         str serialized;
         _BeginSerialize();
-        serialized += _serialize_struct(lang_mgr);
+        serialized += _serialize_struct(language_manager);
         //serialized += _serialize_struct(unCap_colors);
-        serialized += _serialize_struct(べんきょう_cl);
-        serialized += _serialize_struct(win32_colors);
+        serialized += _serialize_struct(study_settings);
+        serialized += _serialize_struct(color_table);
 
         save_to_file_serialized(serialized, work_folder);
     }

@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice { //TODO(fran): it's not yet clear if this should go inside a practice::common namespace or smth else
+namespace study::practice { //TODO(fran): it's not yet clear if this should go inside a practice::common namespace or smth else
 	void clear_practices_vector(decltype(review::page_state::practices)& practices) {
 		for (auto p : practices) {
 			switch (p->type) {

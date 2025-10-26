@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::wordbook {
+namespace study::wordbook {
 	void set_current_page(ProcState* state) {
 		auto& controls = state->pages.wordbook;
 

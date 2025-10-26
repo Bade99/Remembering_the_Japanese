@@ -1,5 +1,5 @@
 ﻿#pragma once
-namespace べんきょう::practice::review {
+namespace study::practice::review {
 	//TODO(fran): there are two things I view as possibly necessary extra params: HWND wnd (of the gridview), void* user_extra
 	void gridview_practices_renderfunc(HDC dc, rect_i32 r, gridview::render_flags flags, void* element, void* user_extra) {
 		practice::practice_header* header = (decltype(header))element;
