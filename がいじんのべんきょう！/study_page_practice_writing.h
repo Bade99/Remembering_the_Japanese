@@ -182,16 +182,7 @@ namespace study::practice::writing {
 		hsizer layout{
 			{&practice_column,layout_bounds.cx} };
 
-		rect_i32 layout_rc;
-		layout_rc.w = layout_bounds.cx;
-		layout_rc.y = 0;
-		layout_rc.h = h;
-		layout_rc.x = (w - layout_rc.w) / 2;
-		layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
-
-		page_scroll(controls.page, w, page_space_h, layout_rc.h);
-
-		layout.resize(layout_rc);
+		centered_layout(layout, controls.page, layout_bounds.cx, w, h, h_pad, page_space_h);
 
 		//TODO(fran): resizing for embedded controls via ssizer,...
 		rect_i32 button_next;//child inside edit_answer

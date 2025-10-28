@@ -412,6 +412,7 @@ namespace study::practice {
 		page_scroll(controls.page, w, page_space_h, layout_rc.h);
 
 		layout.resize(layout_rc);
+		centered_layout(layout, controls.page, (i32)layout_bounds_w, w, h, h_pad, page_space_h);
 	}
 
 	void show_page(ProcState* state, u32 ShowWindow_cmd) {

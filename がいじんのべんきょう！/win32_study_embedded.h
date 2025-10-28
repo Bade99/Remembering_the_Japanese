@@ -255,27 +255,10 @@ namespace embedded {
 			}
 			return 0;
 		}
-		void init_wndclass(HINSTANCE instance) {
-			WNDCLASSEXW cl;
-			cl.cbSize = sizeof(cl);
-			cl.style = CS_HREDRAW | CS_VREDRAW;
-			cl.lpfnWndProc = Proc;
-			cl.cbClsExtra = 0;
-			cl.cbWndExtra = sizeof(ProcState*);
-			cl.hInstance = instance;
-			cl.hIcon = NULL;
-			cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
-			cl.hbrBackground = NULL;
-			cl.lpszMenuName = NULL;
-			cl.lpszClassName = wndclass;
-			cl.hIconSm = NULL;
-			ATOM class_atom = RegisterClassExW(&cl);
-			runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
-		}
 
 		struct pre_post_main {
-			pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
-			~pre_post_main() { }
+			pre_post_main() { init_wndclass(wndclass, Proc); }
+			~pre_post_main() {}
 		}static const PREMAIN_POSTMAIN;
 	}
 
@@ -532,27 +515,10 @@ namespace embedded {
 			}
 			return 0;
 		}
-		void init_wndclass(HINSTANCE instance) {
-			WNDCLASSEXW cl;
-			cl.cbSize = sizeof(cl);
-			cl.style = CS_HREDRAW | CS_VREDRAW;
-			cl.lpfnWndProc = Proc;
-			cl.cbClsExtra = 0;
-			cl.cbWndExtra = sizeof(ProcState*);
-			cl.hInstance = instance;
-			cl.hIcon = NULL;
-			cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
-			cl.hbrBackground = NULL;
-			cl.lpszMenuName = NULL;
-			cl.lpszClassName = wndclass;
-			cl.hIconSm = NULL;
-			ATOM class_atom = RegisterClassExW(&cl);
-			runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
-		}
-
+		
 		struct pre_post_main {
-			pre_post_main() { init_wndclass(GetModuleHandleW(NULL)); }
-			~pre_post_main() { }
-		}static const PREMAIN_POSTMAIN;
+			pre_post_main() { init_wndclass(wndclass, Proc); }
+			~pre_post_main() {}
+		} static const PREMAIN_POSTMAIN;
 	}
 }

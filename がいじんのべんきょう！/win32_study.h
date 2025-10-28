@@ -367,7 +367,35 @@ namespace study {
 		page.top = page_r.top;
 		page.w = w;
 		page.h = maximum(page_space_h, used_h);
+		printf("Page Space H: %d | Used H: %d\n", page_space_h, used_h);
 		MyMoveWindow(page_wnd, page, FALSE);
+	}
+
+	void normal_layout(sizer& layout, HWND page, i32 w_layout_bounds, i32 w, i32 h, i32 h_pad, i32 page_space_h) {
+		rect_i32 layout_rc;
+		layout_rc.w = w_layout_bounds;
+		layout_rc.y = 0;
+		layout_rc.h = h;
+		layout_rc.x = (w - layout_rc.w) / 2;
+		layout_rc.h = layout.get_bottom(layout_rc).y;
+
+		page_scroll(page, w, page_space_h, layout_rc.h);
+
+		layout.resize(layout_rc);
+	}
+
+	void centered_layout(sizer& layout, HWND page, i32 w_layout_bounds, i32 w, i32 h, i32 h_pad, i32 page_space_h) {
+		rect_i32 layout_rc;
+		layout_rc.w = w_layout_bounds;
+		layout_rc.y = 0;
+		layout_rc.h = h;
+		layout_rc.x = (w - layout_rc.w) / 2;
+		i32 used_h = layout.get_bottom(layout_rc).y;
+		get_page_elements_centering(h, h_pad, used_h, &layout_rc.y, &layout_rc.h);
+
+		page_scroll(page, w, page_space_h, layout_rc.h);
+
+		layout.resize(layout_rc);
 	}
 
 	enum class notification_relevance { success, error };
@@ -606,7 +634,7 @@ namespace study {
 		}
 
 		rect_i32 page_space;
-		{//page
+		{//page space
 			page_space.left = r.left;
 			page_space.top = navbar.bottom();
 			page_space.w = w;
@@ -616,7 +644,7 @@ namespace study {
 
 		switch (page) {
 		case page_type::landing:
-			landing::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
+			landing::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break; //TODO(fran): h and page_space.h are always equal, is there any reason we would wanna send both values?
 		case page_type::new_word:
 			new_word::layout_page(state, w, half_w, w_pad, max_w, h, wnd_h, half_wnd_h, h_pad, page_space.h); break;
 		case page_type::practice:

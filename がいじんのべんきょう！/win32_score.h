@@ -879,34 +879,8 @@ namespace score {
 		return 0;
 	}
 
-	void init_wndclass(HINSTANCE inst) { //INFO: now that we use pre_post_main we cant depend on anything that isnt calculated at compile time
-		WNDCLASSEXW wcex;
-
-		wcex.cbSize = sizeof(wcex);
-		wcex.style = CS_HREDRAW | CS_VREDRAW;
-		wcex.lpfnWndProc = Proc;
-		wcex.cbClsExtra = 0;
-		wcex.cbWndExtra = sizeof(ProcState*);
-		wcex.hInstance = inst;
-		wcex.hIcon = 0;
-		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		wcex.hbrBackground = 0; //TODO(fran): unCap_colors.ControlBk hasnt been deserialized by the point pre_post_main gets executed!
-		wcex.lpszMenuName = 0;
-		wcex.lpszClassName = wndclass;
-		wcex.hIconSm = 0;
-
-		ATOM class_atom = RegisterClassExW(&wcex);
-		Assert(class_atom);
-	}
-
 	struct pre_post_main {
-		pre_post_main() {
-			init_wndclass(GetModuleHandleW(NULL));
-		}
-		~pre_post_main() { //INFO: you can also use the atexit function
-			//Classes are de-registered automatically by the os
-		}
-	};
-	static const pre_post_main PREMAIN_POSTMAIN;
-
+		pre_post_main() { init_wndclass(wndclass, Proc); }
+		~pre_post_main() {}
+	} static const PREMAIN_POSTMAIN;
 }

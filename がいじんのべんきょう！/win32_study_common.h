@@ -33,3 +33,23 @@ constexpr multiflag<T> get_filled_multiflag() { return (1u << (get_last_bit_set_
 
 template <typename T>
 constexpr u32 get_enumflag_element_count() { return (u32)popcnt64(get_filled_multiflag<T>()); }
+
+/// <summary>
+/// Centers the elements in the page, or switches to normal alignment if the page is too small to center the elements into
+/// </summary>
+/// <param name="h">Height of the page</param>
+/// <param name="h_pad">Standard vertical padding</param>
+/// <param name="used_h">Total height used by the page's controls</param>
+/// <param name="y">Initial y position of the controls</param>
+/// <param name="y">Place to store the true final used height</param>
+void get_page_elements_centering(i32 h, i32 h_pad, i32 used_h, i32* y, i32* final_h) {
+	if (used_h <= h) {
+		//Vertically center the whole of the controls
+		*y = (h - used_h) / 2;
+	}
+	else {
+		//If the page is too small do not do vertical centering, just add some padding on the top and bottom
+		*y = h_pad; 
+		*final_h = used_h + *y * 2;
+	}
+}

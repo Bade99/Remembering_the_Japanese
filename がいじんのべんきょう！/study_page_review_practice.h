@@ -197,8 +197,9 @@ namespace study::practice::review {
 
 		rect_i32 bottom_most_control = button_continue;
 
-		int used_h = bottom_most_control.bottom();
-		int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
+		int used_h = distance(start_y, bottom_most_control.bottom());
+		int y_offset;
+		get_page_elements_centering(h, h_pad, used_h, &y_offset, &used_h);
 
 		page_scroll(controls.page, w, page_space_h, used_h);
 

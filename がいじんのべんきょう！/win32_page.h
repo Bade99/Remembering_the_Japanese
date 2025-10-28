@@ -58,17 +58,6 @@ namespace page {
 		InvalidateRect(state->wnd, 0, TRUE); //ask for WW_PAINT
 	}
 
-	//void set_dimensions(HWND wnd, size_t border_thickness = ((size_t)-1)) {
-	//	ProcState* state = get_state(wnd);
-	//	size_t res;
-	//	if (state) {
-	//		if (border_thickness != ((size_t)-1) && state->border_thickness != border_thickness) {
-	//			state->border_thickness = border_thickness;
-	//			ask_for_repaint(state);
-	//		}
-	//	}
-	//}
-
 	bool _copy_theme(Theme* dst, const Theme* src) {
 		bool repaint = false;
 		repaint |= copy_brush_group(&dst->brushes.bk, &src->brushes.bk);
@@ -87,24 +76,9 @@ namespace page {
 		ProcState* state = get_state(wnd);
 		if (state && t) {
 			bool repaint = _copy_theme(&state->theme, t);
-
 			if (repaint)  ask_for_repaint(state);
 		}
 	}
-
-	//NOTE: the caller takes care of deleting the brushes, we dont do it
-	//void set_brushes(HWND wnd, BOOL repaint, HBRUSH bk, HBRUSH border, HBRUSH bk_disabled, HBRUSH border_disabled) {
-	//	ProcState* state = get_state(wnd);
-	//	if (state) {
-	//		if (bk)state->brushes.bk = bk;
-	//		if (border)state->brushes.border = border;
-	//		if (bk_disabled)state->brushes.bk_dis = bk_disabled;
-	//		if (border_disabled)state->brushes.border_dis = border_disabled;
-	//		if (repaint) {
-	//			ask_for_repaint(state);
-	//		}
-	//	}
-	//}
 
 	void set_scrolling(HWND wnd, bool does_scrolling) {
 		ProcState* state = get_state(wnd);
@@ -203,13 +177,22 @@ namespace page {
 			if (state) {
 
 				RECT r; GetWindowRect(state->wnd, &r); MapWindowPoints(0, state->parent, (POINT*)&r, 2);
+				RECT parent_r; GetWindowRect(state->parent, &parent_r);
+				i32 parent_h = RECTH(parent_r);
+				i32 current_h = RECTH(r);
+				const i32 min_scroll_y = 0; //prevent scrolling to go above of the page boundaries
+				i32 max_scroll_y = -maximum(current_h - parent_h, 0); //prevent scrolling to go below of the page boundaries
+				//TODO: when the page itself is being resized we should again check if we need to clamp the current scroll position since it could have changed leaving us in an improper scroll until the user tries to scroll again, at which point we re-apply the correct clamp
 
-				int original_wnd_y = r.top - (int)state->scroll;
+				i32 original_wnd_y = r.top - (i32)state->scroll;
 
 				f32 dy = (f32)state->scroll_tasks[0] / (f32)state->scroll_anim.total_frames;
 				state->scroll += dy;
 
-				MoveWindow(state->wnd, r.left, (int)(original_wnd_y+state->scroll), RECTW(r), RECTH(r), TRUE);
+				i32 new_y = clamp(max_scroll_y, (i32)(original_wnd_y + state->scroll), min_scroll_y); 
+				printf("Scrolled to: %d | Page height: %d\n", new_y, RECTH(r));
+
+				MoveWindow(state->wnd, r.left, new_y, RECTW(r), RECTH(r), TRUE);
 
 				if (state->scroll_anim.current_frame++ <= state->scroll_anim.total_frames) {
 					SetTimer(state->wnd, anim_id, (u32)(state->scroll_anim.dt*1000), scroll_anim);
@@ -307,10 +290,6 @@ namespace page {
 			BOOL redraw = LOWORD(lparam);
 			return 0;//TODO(fran): sendmessage(parent), sendmessage(children) ? obviously the problem is idk who asked for it, there could be some unfortunate unexpected infinite loops (or undesired behaviour, what if the parent tells us and we tell it and change it's font), this is why it'd be better to have each page be its own wnclass, we'd need to implement some glue code in order to connect and communicate with all the pages
 		} break;
-		case WM_GETFONT:
-		{
-			return 0;//TODO(fran): sendmessage(parent) ?
-		} break;
 		case WM_DESTROY:
 		{
 			return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -365,29 +344,6 @@ namespace page {
 			WORD mouse_msg = HIWORD(lparam);
 			return MA_ACTIVATE; //Activate our window and post the mouse msg
 		} break;
-		case WM_LBUTTONDOWN:
-		{
-			//wparam = test for virtual keys pressed
-			POINT mouse = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };//Client coords, relative to upper-left corner of client area
-			return 0;
-		} break;
-		case WM_LBUTTONUP:
-		{
-			return 0;
-		} break;
-		case WM_GETTEXT:
-		{
-			return 0;//TODO(fran): what to do
-		} break;
-		case WM_GETTEXTLENGTH:
-		{
-			return 0;//TODO(fran): what to do
-		} break;
-		case WM_SETTEXT:
-		{
-			//TODO(fran): what to do
-			return 1;//we "set" the text
-		} break;
 		case WM_CTLCOLORLISTBOX:
 		case WM_CTLCOLOREDIT:
 		case WM_CTLCOLORSTATIC:
@@ -433,51 +389,37 @@ namespace page {
 #if 0 //possibly better solution
 				UINT flags = MAKELONG(SW_SCROLLCHILDREN | SW_SMOOTHSCROLL, 200);
 				ScrollWindowEx(state->wnd, 0, step, nullptr, nullptr, nullptr, nullptr, flags);
-#elif 0 //handmade solution (no WM_PRINT and friends)
-				smooth_scroll(state, step);
-#else
+#else //handmade solution (no WM_PRINT and friends)
 				smooth_scroll(state, step);
 #endif
-				/*
-				if (zDelta >= 0)
-					for (int i = 0; i < zDelta; i++)
-						SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEUP, 0), 0); //TODO(fran): use ScrollWindowEx ?
-				else
-					for (int i = 0; i > zDelta; i--)
-						SendMessage(state->wnd, WM_VSCROLL, MAKELONG(SB_LINEDOWN, 0), 0);
-				*/
 				return 0;
 			}
 			else return DefWindowProc(hwnd, msg, wparam, lparam);//propagates msg to the parent
 		} break;
-		case WM_PARENTNOTIFY:
-		{
-			return 0;//We dont care to send this msgs from our childs up the chain, at least for now
-		} break;
-
+		
+		case WM_GETFONT: //TODO(fran): sendmessage(parent) ?
 		case WM_XBUTTONDOWN:
 		case WM_XBUTTONUP:
 		{
 			return SendMessage(state->parent, msg, wparam, lparam);//let the parent handle it
 		} break;
 
-		case WM_IME_SETCONTEXT: //When we get keyboard focus for the first time this gets sent
-		{
-			return 0; //We dont want IME
-		} break;
-		case WM_SETFOCUS: //Triggered, for example, when the user clicks and generates a WM_XBUTTONDOWN
-		{
-			return 0;//TODO(fran): not sure what to do with this, set focus back to whoever had it, set focus to our parent, do nothing?
-		}
+		case WM_LBUTTONDOWN:
+		case WM_LBUTTONUP:
+		case WM_GETTEXT: //TODO(fran): what to do
+		case WM_GETTEXTLENGTH: //TODO(fran): what to do
+		case WM_PARENTNOTIFY: //We dont care to send this msgs from our childs up the chain, at least for now
+		case WM_IME_SETCONTEXT: //When we get keyboard focus for the first time this gets sent //We dont want IME
+		case WM_SETFOCUS: //Triggered, for example, when the user clicks and generates a WM_XBUTTONDOWN //TODO(fran): not sure what to do with this, set focus back to whoever had it, set focus to our parent, do nothing?
 		case WM_KILLFOCUS:
 		{
 			return 0;
 		} break;
 
-		case WM_DELETEITEM:
+		case WM_SETTEXT: //we "set" the text //TODO(fran): what to do
+		case WM_DELETEITEM: //we "processed" this msg //TODO(fran): this shouldnt be getting here, I think this is because of the windows default comboboxes I use in some places that send this msg up to their parent when we change langs and the cb elements are cleared
 		{
-			return 1;//we "processed" this msg
-			//TODO(fran): this shouldnt be getting here, I think this is because of the windows default comboboxes I use in some places that send this msg up to their parent when we change langs and the cb elements are cleared
+			return 1;
 		} break;
 		case WM_ASK_FOR_RESIZE:
 		{
@@ -494,33 +436,8 @@ namespace page {
 		return 0;//TODO(fran): or sendmessage(parent)
 	}
 
-	void init_wndclass(HINSTANCE instance) {
-		WNDCLASSEXW cl;
-
-		cl.cbSize = sizeof(cl);
-		cl.style = CS_HREDRAW | CS_VREDRAW;
-		cl.lpfnWndProc = Proc;
-		cl.cbClsExtra = 0;
-		cl.cbWndExtra = sizeof(ProcState*);
-		cl.hInstance = instance;
-		cl.hIcon = NULL;
-		cl.hCursor = LoadCursor(nullptr, IDC_ARROW);
-		cl.hbrBackground = NULL;
-		cl.lpszMenuName = NULL;
-		cl.lpszClassName = wndclass;
-		cl.hIconSm = NULL;
-
-		ATOM class_atom = RegisterClassExW(&cl);
-		runtime_assert(class_atom, (str(L"Failed to initialize class ") + wndclass).c_str());
-	}
-
 	struct pre_post_main {
-		pre_post_main() {
-			init_wndclass(GetModuleHandleW(NULL));
-		}
-		~pre_post_main() { //INFO: you can also use the atexit function
-			//Classes are de-registered automatically by the os
-		}
-	};
-	static const pre_post_main PREMAIN_POSTMAIN;
+		pre_post_main() { init_wndclass(wndclass, Proc); }
+		~pre_post_main() {} //Classes are de-registered automatically by the os
+	} static const PREMAIN_POSTMAIN;
 }

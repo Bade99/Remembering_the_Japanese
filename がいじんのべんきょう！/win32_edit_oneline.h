@@ -2314,34 +2314,8 @@ namespace edit_oneline{
 		return 0;
 	}
 
-
-	void init_wndclass(HINSTANCE instance) {
-		WNDCLASSEXW cl;
-
-		cl.cbSize = sizeof(cl);
-		cl.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-		cl.lpfnWndProc = Proc;
-		cl.cbClsExtra = 0;
-		cl.cbWndExtra = sizeof(ProcState*);
-		cl.hInstance = instance;
-		cl.hIcon = NULL;
-		cl.hCursor = LoadCursor(nullptr, IDC_IBEAM);
-		cl.hbrBackground = NULL;
-		cl.lpszMenuName = NULL;
-		cl.lpszClassName = wndclass;
-		cl.hIconSm = NULL;
-
-		ATOM class_atom = RegisterClassExW(&cl);
-		Assert(class_atom);
-	}
-
 	struct pre_post_main {
-		pre_post_main() {
-			init_wndclass(GetModuleHandleW(NULL));
-		}
-		~pre_post_main() { //INFO: you can also use the atexit function
-			//Classes are de-registered automatically by the os
-		}
-	};
-	static const pre_post_main PREMAIN_POSTMAIN;
+		pre_post_main() { init_wndclass(wndclass, Proc, CS_DBLCLKS, IDC_IBEAM); }
+		~pre_post_main() {}
+	} static const PREMAIN_POSTMAIN;
 }

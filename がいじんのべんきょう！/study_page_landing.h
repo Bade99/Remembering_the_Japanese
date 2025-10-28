@@ -250,8 +250,8 @@ namespace study::landing {
 		rect_i32 bottom_most_control = graph_accuracy_timeline;
 
 		int used_h = distance(start_y, bottom_most_control.bottom());// minus start_y which is always 0
-		int y_offset = (h - used_h) / 2;//Vertically center the whole of the controls
-		//TODO(fran): correct y_offset: if (used_h > h) dont try centering instead (maybe) apply one h_pad
+		int y_offset;
+		get_page_elements_centering(h, h_pad, used_h, &y_offset, &used_h);
 
 		page_scroll(controls.page, w, page_space_h, used_h);
 

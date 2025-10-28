@@ -167,16 +167,7 @@ namespace study::practice::drawing {
 			{&response_buttons, wnd_h}
 		};
 
-		rect_i32 layout_rc;
-		layout_rc.w = layout_bounds.cx;
-		layout_rc.y = 0;
-		layout_rc.h = h;
-		layout_rc.x = (w - layout_rc.w) / 2;
-		layout_rc.y = (h - layout.get_bottom(layout_rc).y) / 2;
-
-		page_scroll(controls.page, w, page_space_h, layout_rc.h);
-
-		layout.resize(layout_rc);
+		centered_layout(layout, controls.page, layout_bounds.cx, w, h, h_pad, page_space_h);
 
 
 		rect_i32 embedded_show_word_reduced;
